@@ -1,0 +1,16 @@
+[package]
+name = "PunkVM"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+
+
+#[[bin]]
+#name = "punkVM"
+#path = "src/main.rs"
+#
+#
+#[lib]
+#name = "punk_vm"
+#path = "src/lib.rs"
