@@ -21,19 +21,60 @@ fn main() -> VMResult<()> {
 
     // Programme de test simple
     let test_program = vec![
-        // 1. Charger des valeurs dans les registres
-        Instruction::LoadImm(RegisterId(0), 42),      // R0 = 42
-        Instruction::LoadImm(RegisterId(1), 58),      // R1 = 58
+        // // 1. Charger des valeurs dans les registres
+        // Instruction::LoadImm(RegisterId(0), 42),      // R0 = 42
+        // Instruction::LoadImm(RegisterId(1), 58),      // R1 = 58
+        //
+        // // 2. Effectuer une addition
+        // Instruction::Add(RegisterId(2), RegisterId(0), RegisterId(1)),  // R2 = R0 + R1
+        //
+        // // 3. Stocker le résultat en mémoire
+        // Instruction::Store(RegisterId(2), Address(0x100)),  // MEM[0x100] = R2
+        //
+        // // 4. Recharger la valeur depuis la mémoire
+        // Instruction::Load(RegisterId(3), Address(0x100)),   // R3 = MEM[0x100]
 
-        // 2. Effectuer une addition
-        Instruction::Add(RegisterId(2), RegisterId(0), RegisterId(1)),  // R2 = R0 + R1
+        //test_mixed_memory_arithmetic
+        // Instruction::LoadImm(RegisterId(0), 100),
+        // Instruction::Store(RegisterId(0), Address(200)),
+        // Instruction::LoadImm(RegisterId(1), 50),
+        // Instruction::Load(RegisterId(2), Address(200)),
+        // Instruction::Add(RegisterId(3), RegisterId(2), RegisterId(1)),
+        // Instruction::Store(RegisterId(3), Address(300)),
+        // Instruction::Load(RegisterId(4), Address(300)),
 
-        // 3. Stocker le résultat en mémoire
-        Instruction::Store(RegisterId(2), Address(0x100)),  // MEM[0x100] = R2
+        //test_complex_arithmetic_forwarding
+        Instruction::LoadImm(RegisterId(0), 10),
+        Instruction::LoadImm(RegisterId(1), 5),
+        Instruction::Add(RegisterId(2), RegisterId(0), RegisterId(1)),
+        Instruction::Mul(RegisterId(3), RegisterId(2), RegisterId(1)),
+        Instruction::Sub(RegisterId(4), RegisterId(3), RegisterId(2)),
 
-        // 4. Recharger la valeur depuis la mémoire
-        Instruction::Load(RegisterId(3), Address(0x100)),   // R3 = MEM[0x100]
+
     ];
+
+    let test_program_1 = vec![
+
+        // Instruction::LoadImm(RegisterId(0), 100),
+        // Instruction::Store(RegisterId(0), Address(200)),
+        // Instruction::LoadImm(RegisterId(1), 50),
+        // Instruction::Load(RegisterId(2), Address(200)),
+        // Instruction::Add(RegisterId(3), RegisterId(2), RegisterId(1)),
+        // Instruction::Store(RegisterId(3), Address(300)),
+        // Instruction::Load(RegisterId(4), Address(300)),
+        //
+
+        Instruction::LoadImm(RegisterId(0), 10),
+        Instruction::LoadImm(RegisterId(1), 5),
+        Instruction::Add(RegisterId(2), RegisterId(0), RegisterId(1)),
+        Instruction::Mul(RegisterId(3), RegisterId(2), RegisterId(1)),
+        Instruction::Sub(RegisterId(4), RegisterId(3), RegisterId(2)),
+    ];
+
+
+
+
+
 
     // Exécution du programme de test
     println!("\nDémarrage du programme de test...");
@@ -42,14 +83,14 @@ fn main() -> VMResult<()> {
 
 
 
-    vm.load_program(test_program)?;
+    vm.load_program(test_program_1)?;
     vm.run()?;
 
-    // println!("\nTest terminé !");
-    // println!("État final de la VM:");
+    println!("\nTest terminé !");
+    println!("État final de la VM:");
 
-    println!("\nTest Finish!");
-    println!("Final State of the VM:");
+    // println!("\nTest Finish!");
+    // println!("Final State of the VM:");
     print_vm_state(&vm);
     print_vm_stats(&vm);
 
@@ -66,22 +107,22 @@ fn print_vm_state(vm: &PunkVM) {
     println!();
 }
 
-// fn print_vm_stats(vm: &PunkVM) {
-//     if let Ok(stats) = vm.get_statistics() {
-//         println!("Statistiques d'exécution:");
-//         println!("  Instructions exécutées: {}", stats.instructions_executed);
-//         println!("  Cycles total: {}", stats.cycles);
-//         println!("  Cache hits: {}", stats.cache_hits);
-//         println!("  Pipeline stalls: {}", stats.pipeline_stalls);
-//     }
-// }
-
 fn print_vm_stats(vm: &PunkVM) {
     if let Ok(stats) = vm.get_statistics() {
-        println!("  Execution statistics::");
-        println!("  Instructions executed: {}", stats.instructions_executed);
-        println!("  Total cycles: {}", stats.cycles);
+        println!("Statistiques d'exécution:");
+        println!("  Instructions exécutées: {}", stats.instructions_executed);
+        println!("  Cycles total: {}", stats.cycles);
         println!("  Cache hits: {}", stats.cache_hits);
         println!("  Pipeline stalls: {}", stats.pipeline_stalls);
     }
 }
+
+// fn print_vm_stats(vm: &PunkVM) {
+//     if let Ok(stats) = vm.get_statistics() {
+//         println!("  Execution statistics::");
+//         println!("  Instructions executed: {}", stats.instructions_executed);
+//         println!("  Total cycles: {}", stats.cycles);
+//         println!("  Cache hits: {}", stats.cache_hits);
+//         println!("  Pipeline stalls: {}", stats.pipeline_stalls);
+//     }
+// }
