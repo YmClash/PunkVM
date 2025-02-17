@@ -7,3 +7,4 @@ pub mod vm_errors;
 pub mod vm;
 pub mod caches;
 pub mod pipelines;
+pub mod forwardings;
