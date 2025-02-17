@@ -37,13 +37,19 @@ fn main() -> VMResult<()> {
 
     // Exécution du programme de test
     println!("\nDémarrage du programme de test...");
-    println!("-----------------------------------");
+    println!("-----------Punk-VM-----------------\n");
+
+
+
 
     vm.load_program(test_program)?;
     vm.run()?;
 
-    println!("\nTest terminé !");
-    println!("État final de la VM:");
+    // println!("\nTest terminé !");
+    // println!("État final de la VM:");
+
+    println!("\nTest Finish!");
+    println!("Final State of the VM:");
     print_vm_state(&vm);
     print_vm_stats(&vm);
 
@@ -60,11 +66,21 @@ fn print_vm_state(vm: &PunkVM) {
     println!();
 }
 
+// fn print_vm_stats(vm: &PunkVM) {
+//     if let Ok(stats) = vm.get_statistics() {
+//         println!("Statistiques d'exécution:");
+//         println!("  Instructions exécutées: {}", stats.instructions_executed);
+//         println!("  Cycles total: {}", stats.cycles);
+//         println!("  Cache hits: {}", stats.cache_hits);
+//         println!("  Pipeline stalls: {}", stats.pipeline_stalls);
+//     }
+// }
+
 fn print_vm_stats(vm: &PunkVM) {
     if let Ok(stats) = vm.get_statistics() {
-        println!("Statistiques d'exécution:");
-        println!("  Instructions exécutées: {}", stats.instructions_executed);
-        println!("  Cycles total: {}", stats.cycles);
+        println!("  Execution statistics::");
+        println!("  Instructions executed: {}", stats.instructions_executed);
+        println!("  Total cycles: {}", stats.cycles);
         println!("  Cache hits: {}", stats.cache_hits);
         println!("  Pipeline stalls: {}", stats.pipeline_stalls);
     }
