@@ -6,6 +6,8 @@ use std::collections::HashMap;
 use crate::pvm::caches::CacheStatistics;
 use crate::pvm::memorys::MemoryController;
 use crate::pvm::registers::RegisterBank;
+use crate::pvm::forwardings::ForwardingSource;
+use crate::pvm::forwardings::ForwardingUnit;
 
 /// Pipeline d'exécution
 // pub struct Pipeline {
@@ -36,8 +38,8 @@ pub struct PipelineState {
 /// Résultat d'exécution
 #[derive(Debug, Clone,Copy)]
 pub struct ExecutionResult {
-    value: i64,
-    flags: StatusFlags,
+    pub value: i64,
+    pub flags: StatusFlags,
 }
 
 /// Résultat d'opération mémoire
@@ -89,19 +91,6 @@ impl HazardUnit {
         false // Implémentation basique pour commencer
     }
 }
-
-pub struct ForwardingUnit {
-    forward_table: HashMap<RegisterId, ExecutionResult>,
-}
-
-impl ForwardingUnit {
-    pub fn new() -> Self {
-        Self {
-            forward_table: HashMap::new(),
-        }
-    }
-}
-
 
 #[derive(Default, Debug, Clone)]
 pub struct PipelineStats {
@@ -331,51 +320,7 @@ impl Pipeline {
         Ok(())
     }
 
-    /// Étage Execute: Exécution de l'instruction
-    // fn execute_stage(&mut self, registers: &RegisterBank) -> VMResult<()> {
-    //     if self.memory_state.result.is_some() {
-    //         self.stats.stalls += 1;
-    //         println!("Execute - Stall dû à l'étage mémoire occupé");
-    //         return Ok(());
-    //     }
-    //
-    //     // On clone les données nécessaires pour éviter le double emprunt
-    //     let decoded = self.execute_state.decoded.clone();
-    //
-    //     if let Some(decoded) = decoded {
-    //         println!("Execute - Début exécution: {:?}", decoded);
-    //
-    //         // Mémoriser le registre de destination si nécessaire
-    //         self.execute_state.destination = match &decoded {
-    //             DecodedInstruction::Arithmetic(op) => match op {
-    //                 ArithmeticOp::Add { dest, .. } => Some(*dest),
-    //                 ArithmeticOp::Sub { dest, .. } => Some(*dest),
-    //                 ArithmeticOp::Mul { dest, .. } => Some(*dest),
-    //                 ArithmeticOp::Div { dest, .. } => Some(*dest),
-    //             },
-    //             DecodedInstruction::Memory(op) => match op {
-    //                 MemoryOp::LoadImm { reg, .. } => Some(*reg),
-    //                 MemoryOp::Load { reg, .. } => Some(*reg),
-    //                 _ => None,
-    //             },
-    //             _ => None,
-    //         };
-    //
-    //         // Attendre que les registres sources soient prêts
-    //         let result = self.execute_instruction(&decoded, registers)?;
-    //         println!("Execute - Résultat: {:?}", result);
-    //         self.execute_state.result = Some(result);
-    //         self.stats.instructions_executed += 1;
-    //     }
-    //
-    //     // Propager l'état à l'étage suivant
-    //     self.memory_state = self.execute_state.clone();
-    //     self.execute_state = PipelineState::default();
-    //
-    //     Ok(())
-    // }
-
-
+    /// Exécute une instruction avec support du forwarding
     fn execute_stage(&mut self, registers: &RegisterBank) -> VMResult<()> {
         if self.memory_state.result.is_some() {
             self.stats.stalls += 1;
@@ -383,11 +328,12 @@ impl Pipeline {
             return Ok(());
         }
 
-        // Clone les données nécessaires pour éviter le double emprunt
         let decoded = self.execute_state.decoded.clone();
 
         if let Some(decoded) = &decoded {
-            // Définir le registre destination
+            println!("Execute - Début exécution: {:?}", decoded);
+
+            // Déterminer le registre destination
             self.execute_state.destination = match decoded {
                 DecodedInstruction::Arithmetic(op) => match op {
                     ArithmeticOp::Add { dest, .. } => Some(*dest),
@@ -398,24 +344,92 @@ impl Pipeline {
                 DecodedInstruction::Memory(op) => match op {
                     MemoryOp::LoadImm { reg, .. } => Some(*reg),
                     MemoryOp::Load { reg, .. } => Some(*reg),
-                    _ => None,
+                    MemoryOp::Store { .. } => None,
+                    MemoryOp::Move { dest, .. } => Some(*dest),
                 },
-                _ => None,
+                DecodedInstruction::Control(_) => None,
             };
 
-            println!("Execute - Début exécution: {:?}", decoded);
-            let result = self.execute_instruction(decoded, registers)?;
-            println!("Execute - Résultat: {:?}", result);
-            self.execute_state.result = Some(result);
+            // Exécuter l'instruction avec forwarding
+            self.execute_state.result = Some(match decoded {
+                DecodedInstruction::Memory(MemoryOp::Store { reg, .. }) => {
+                    // Utiliser le forwarding ou lire le registre
+                    let value = self.try_forward_value(*reg)
+                        .unwrap_or_else(|| registers.read_register(*reg).unwrap() as i64);
+
+                    println!("Execute - Store: forwarding/registre valeur {} depuis {:?}", value, reg);
+
+                    ExecutionResult {
+                        value,
+                        flags: StatusFlags::default(),
+                    }
+                },
+                _ => self.execute_with_forwarding(decoded, registers)?,
+            });
+
+            println!("Execute - Résultat: {:?}", self.execute_state.result);
             self.stats.instructions_executed += 1;
         }
 
-        // Propager l'état vers l'étage suivant
         self.memory_state = self.execute_state.clone();
         self.execute_state = PipelineState::default();
-
         Ok(())
     }
+    // fn execute_stage(&mut self, registers: &RegisterBank) -> VMResult<()> {
+    //     if self.memory_state.result.is_some() {
+    //         self.stats.stalls += 1;
+    //         println!("Execute - Stall dû à l'étage mémoire occupé");
+    //         return Ok(());
+    //     }
+    //
+    //     // Clone les données nécessaires pour éviter le double emprunt
+    //     let decoded = self.execute_state.decoded.clone();
+    //
+    //     if let Some(decoded) = &decoded {
+    //         println!("Execute - Début exécution: {:?}", decoded);
+    //
+    //         // Définir le registre destination et exécuter l'instruction
+    //         self.execute_state.destination = match decoded {
+    //             DecodedInstruction::Arithmetic(op) => match op {
+    //                 ArithmeticOp::Add { dest, .. } => Some(*dest),
+    //                 ArithmeticOp::Sub { dest, .. } => Some(*dest),
+    //                 ArithmeticOp::Mul { dest, .. } => Some(*dest),
+    //                 ArithmeticOp::Div { dest, .. } => Some(*dest),
+    //             },
+    //             DecodedInstruction::Memory(op) => match op {
+    //                 MemoryOp::LoadImm { reg, .. } => Some(*reg),
+    //                 MemoryOp::Load { reg, .. } => Some(*reg),
+    //                 MemoryOp::Store { .. } => None,
+    //                 MemoryOp::Move { dest, .. } => Some(*dest),
+    //             },
+    //             DecodedInstruction::Control(_) => None,
+    //         };
+    //
+    //         // Exécuter l'instruction
+    //         let result = match decoded {
+    //             DecodedInstruction::Memory(MemoryOp::Store { reg, addr }) => {
+    //                 let value = registers.read_register(*reg)?;
+    //                 ExecutionResult {
+    //                     value: value as i64,
+    //                     flags: StatusFlags::default(),
+    //                 }
+    //             },
+    //             DecodedInstruction::Memory(MemoryOp::Load { .. }) => {
+    //                 ExecutionResult::default()
+    //             },
+    //             _ => self.execute_with_forwarding(decoded, registers)?,
+    //         };
+    //
+    //         println!("Execute - Résultat: {:?}", result);
+    //         self.execute_state.result = Some(result);
+    //         self.stats.instructions_executed += 1;
+    //     }
+    //
+    //     // Propager l'état vers l'étage suivant
+    //     self.memory_state = self.execute_state.clone();
+    //     self.execute_state = PipelineState::default();
+    //     Ok(())
+    // }
 
     /// Étage Memory: Accès mémoire
     fn memory_stage(&mut self, memory: &mut MemoryController) -> VMResult<()> {
@@ -423,15 +437,13 @@ impl Pipeline {
             match decoded {
                 DecodedInstruction::Memory(MemoryOp::Store { reg, addr }) => {
                     if let Some(result) = &self.memory_state.result {
-                        let value = result.value;
-                        println!("Memory - Store: écriture de {} à l'adresse {:?}", value, addr);
-                        memory.write(addr.0, value as u64)?;
+                        println!("Memory - Store: écriture de {} à l'adresse {:?}", result.value, addr);
+                        memory.write(addr.0, result.value as u64)?;
                     }
                 },
                 DecodedInstruction::Memory(MemoryOp::Load { reg, addr }) => {
                     let value = memory.read(addr.0)?;
                     println!("Memory - Load: lecture de {} depuis l'adresse {:?}", value, addr);
-                    // Mettre à jour le résultat pour le writeback
                     self.memory_state.result = Some(ExecutionResult {
                         value: value as i64,
                         flags: StatusFlags::default(),
@@ -443,7 +455,6 @@ impl Pipeline {
 
         self.writeback_state = self.memory_state.clone();
         self.memory_state = PipelineState::default();
-
         Ok(())
     }
 
@@ -746,5 +757,399 @@ impl Pipeline {
             !self.execute_state.destination.map_or(false, |dest| dest == reg)
     }
 
+    /// Vérifie si une valeur peut être forwardée pour un registre
+    pub fn try_forward_value(&self, reg: RegisterId) -> Option<i64> {
+        self.forwarding_unit.get_forwarded_value(reg)
+    }
 
+    /// Met à jour le forwarding après l'exécution
+    pub fn update_forwarding(&mut self, dest: RegisterId, result: &ExecutionResult) -> VMResult<()> {
+        self.forwarding_unit.register_result(dest, result, ForwardingSource::Execute);
+        Ok(())
+    }
+
+    /// Exécute une instruction avec support du forwarding
+    pub fn execute_with_forwarding(&mut self, decoded: &DecodedInstruction, registers: &RegisterBank) -> VMResult<ExecutionResult> {
+        match decoded {
+            DecodedInstruction::Arithmetic(op) => {
+                match op {
+                    ArithmeticOp::Add { dest, src1, src2 } => {
+                        // Obtenir les valeurs, soit depuis le forwarding, soit depuis les registres
+                        let val1 = self.try_forward_value(*src1)
+                            .unwrap_or_else(|| registers.read_register(*src1).unwrap() as i64);
+                        let val2 = self.try_forward_value(*src2)
+                            .unwrap_or_else(|| registers.read_register(*src2).unwrap() as i64);
+
+                        let result = val1.wrapping_add(val2);
+                        let execution_result = ExecutionResult {
+                            value: result,
+                            flags: StatusFlags {
+                                zero: result == 0,
+                                negative: result < 0,
+                                overflow: false,
+                            },
+                        };
+
+                        self.update_forwarding(*dest, &execution_result)?;
+                        Ok(execution_result)
+                    },
+                    ArithmeticOp::Sub { dest, src1, src2 } => {
+                        let val1 = self.try_forward_value(*src1)
+                            .unwrap_or_else(|| registers.read_register(*src1).unwrap() as i64);
+                        let val2 = self.try_forward_value(*src2)
+                            .unwrap_or_else(|| registers.read_register(*src2).unwrap() as i64);
+
+                        let result = val1.wrapping_sub(val2);
+                        let execution_result = ExecutionResult {
+                            value: result,
+                            flags: StatusFlags {
+                                zero: result == 0,
+                                negative: result < 0,
+                                overflow: false,
+                            },
+                        };
+
+                        self.update_forwarding(*dest, &execution_result)?;
+                        Ok(execution_result)
+                    },
+                    ArithmeticOp::Mul { dest, src1, src2 } => {
+                        let val1 = self.try_forward_value(*src1)
+                            .unwrap_or_else(|| registers.read_register(*src1).unwrap() as i64);
+                        let val2 = self.try_forward_value(*src2)
+                            .unwrap_or_else(|| registers.read_register(*src2).unwrap() as i64);
+
+                        let result = val1.wrapping_mul(val2);
+                        let execution_result = ExecutionResult {
+                            value: result,
+                            flags: StatusFlags {
+                                zero: result == 0,
+                                negative: result < 0,
+                                overflow: false,
+                            },
+                        };
+
+                        self.update_forwarding(*dest, &execution_result)?;
+                        Ok(execution_result)
+                    },
+                    ArithmeticOp::Div { dest, src1, src2 } => {
+                        let val1 = self.try_forward_value(*src1)
+                            .unwrap_or_else(|| registers.read_register(*src1).unwrap() as i64);
+                        let val2 = self.try_forward_value(*src2)
+                            .unwrap_or_else(|| registers.read_register(*src2).unwrap() as i64);
+
+                        // Vérification de la division par zéro
+                        if val2 == 0 {
+                            return Err(VMError::ArithmeticError("Division par zéro".into()));
+                        }
+
+                        let result = val1.wrapping_div(val2);
+                        let execution_result = ExecutionResult {
+                            value: result,
+                            flags: StatusFlags {
+                                zero: result == 0,
+                                negative: result < 0,
+                                overflow: false,
+                            },
+                        };
+
+                        self.update_forwarding(*dest, &execution_result)?;
+                        Ok(execution_result)
+                    }
+                }
+            },
+            DecodedInstruction::Memory(op) => {
+                match op {
+                    MemoryOp::LoadImm { reg, value } => {
+                        let execution_result = ExecutionResult {
+                            value: *value,
+                            flags: StatusFlags::default(),
+                        };
+                        self.update_forwarding(*reg, &execution_result)?;
+                        Ok(execution_result)
+                    },
+                    MemoryOp::Move { dest, src } => {
+                        let val = self.try_forward_value(*src)
+                            .unwrap_or_else(|| registers.read_register(*src).unwrap() as i64);
+
+                        let execution_result = ExecutionResult {
+                            value: val,
+                            flags: StatusFlags::default(),
+                        };
+                        self.update_forwarding(*dest, &execution_result)?;
+                        Ok(execution_result)
+                    },
+                    MemoryOp::Store { reg, addr } => {
+                        let value = self.try_forward_value(*reg)
+                            .unwrap_or_else(|| registers.read_register(*reg).unwrap() as i64);
+
+                        println!("Execute with forwarding - Store: valeur {} du registre {:?}", value, reg);
+
+                        Ok(ExecutionResult {
+                            value,
+                            flags: StatusFlags::default(),
+                        })
+                    }
+
+                    _ => Ok(ExecutionResult::default())
+                }
+            },
+            _ => Ok(ExecutionResult::default())
+        }
+    }
+
+    fn execute_arithmetic_with_forwarding(&mut self, op: &ArithmeticOp, registers: &RegisterBank) -> VMResult<ExecutionResult> {
+        match op {
+            ArithmeticOp::Add { dest, src1, src2 } => {
+                let val1 = self.try_forward_value(*src1)
+                    .unwrap_or_else(|| registers.read_register(*src1).unwrap() as i64);
+                let val2 = self.try_forward_value(*src2)
+                    .unwrap_or_else(|| registers.read_register(*src2).unwrap() as i64);
+
+                let result = ExecutionResult {
+                    value: val1.wrapping_add(val2),
+                    flags: StatusFlags {
+                        zero: val1.wrapping_add(val2) == 0,
+                        negative: val1.wrapping_add(val2) < 0,
+                        overflow: false,
+                    },
+                };
+
+                self.update_forwarding(*dest, &result)?;
+                Ok(result)
+            }
+            ArithmeticOp::Sub { dest, src1, src2 } => {
+                let val1 = self.try_forward_value(*src1)
+                    .unwrap_or_else(|| registers.read_register(*src1).unwrap() as i64);
+                let val2 = self.try_forward_value(*src2)
+                    .unwrap_or_else(|| registers.read_register(*src2).unwrap() as i64);
+
+                let result = ExecutionResult {
+                    value: val1.wrapping_sub(val2),
+                    flags: StatusFlags {
+                        zero: val1.wrapping_sub(val2) == 0,
+                        negative: val1.wrapping_sub(val2) < 0,
+                        overflow: false,
+                    },
+                };
+
+                self.update_forwarding(*dest, &result)?;
+                Ok(result)
+            }
+            ArithmeticOp::Mul { dest, src1, src2 } => {
+                let val1 = self.try_forward_value(*src1)
+                    .unwrap_or_else(|| registers.read_register(*src1).unwrap() as i64);
+                let val2 = self.try_forward_value(*src2)
+                    .unwrap_or_else(|| registers.read_register(*src2).unwrap() as i64);
+
+                let result = ExecutionResult {
+                    value: val1.wrapping_mul(val2),
+                    flags: StatusFlags {
+                        zero: val1.wrapping_mul(val2) == 0,
+                        negative: val1.wrapping_mul(val2) < 0,
+                        overflow: false,
+                    },
+                };
+
+                self.update_forwarding(*dest, &result)?;
+                Ok(result)
+            }
+            ArithmeticOp::Div { dest, src1, src2 } => {
+                let val1 = self.try_forward_value(*src1)
+                    .unwrap_or_else(|| registers.read_register(*src1).unwrap() as i64);
+                let val2 = self.try_forward_value(*src2)
+                    .unwrap_or_else(|| registers.read_register(*src2).unwrap() as i64);
+
+                // Vérification de la division par zéro
+                if val2 == 0 {
+                    return Err(VMError::ArithmeticError("Division par zéro".into()));
+                }
+
+                let result = ExecutionResult {
+                    value: val1.wrapping_div(val2),
+                    flags: StatusFlags {
+                        zero: val1.wrapping_div(val2) == 0,
+                        negative: val1.wrapping_div(val2) < 0,
+                        overflow: false,
+                    },
+                };
+
+                self.update_forwarding(*dest, &result)?;
+                Ok(result)
+            }
+
+            // Implémenter les autres opérations arithmétiques de manière similaire
+            _ => Ok(ExecutionResult::default())
+        }
+    }
+
+}
+
+
+
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::pvm::instructions::{Instruction, RegisterId, Address};
+    use crate::pvm::registers::RegisterBank;
+    use crate::pvm::memorys::MemoryController;
+
+    fn setup_test_env() -> (Pipeline, RegisterBank, MemoryController) {
+        let pipeline = Pipeline::new();
+        let register_bank = RegisterBank::new(8).unwrap();  // 8 registres
+        let memory_controller = MemoryController::new(1024, 256).unwrap(); // 1KB mémoire, 256B cache
+        (pipeline, register_bank, memory_controller)
+    }
+
+    #[test]
+    fn test_data_dependency_forwarding() {
+        let (mut pipeline, mut register_bank, mut memory_controller) = setup_test_env();
+
+        // Test avec dépendances de données immédiates
+        // R0 = 10
+        // R1 = R0 + 5  // Dépendance immédiate avec R0
+        // R2 = R1 + 3  // Dépendance immédiate avec R1
+        let program = vec![
+            Instruction::LoadImm(RegisterId(0), 10),
+            Instruction::Add(RegisterId(1), RegisterId(0), RegisterId(0)),
+            Instruction::Add(RegisterId(2), RegisterId(1), RegisterId(1)),
+        ];
+
+        pipeline.load_instructions(program).unwrap();
+
+        // Exécuter jusqu'à ce que le pipeline soit vide
+        while !pipeline.is_empty().unwrap() {
+            pipeline.cycle(&mut register_bank, &mut memory_controller).unwrap();
+        }
+
+        // Vérifier les résultats
+        assert_eq!(register_bank.read_register(RegisterId(0)).unwrap(), 10);  // R0 = 10
+        assert_eq!(register_bank.read_register(RegisterId(1)).unwrap(), 20);  // R1 = 10 + 10
+        assert_eq!(register_bank.read_register(RegisterId(2)).unwrap(), 40);  // R2 = 20 + 20
+    }
+
+    #[test]
+    fn test_memory_dependency_forwarding() {
+        let (mut pipeline, mut register_bank, mut memory_controller) = setup_test_env();
+
+        // Test avec dépendances mémoire
+        // R0 = 42
+        // Store R0, @100
+        // R1 = Load @100     // Dépendance mémoire
+        // R2 = R1 + R0       // Dépendance de registre
+        let program = vec![
+            Instruction::LoadImm(RegisterId(0), 42),
+            Instruction::Store(RegisterId(0), Address(100)),
+            Instruction::Load(RegisterId(1), Address(100)),
+            Instruction::Add(RegisterId(2), RegisterId(1), RegisterId(0)),
+        ];
+
+        pipeline.load_instructions(program).unwrap();
+
+        while !pipeline.is_empty().unwrap() {
+            pipeline.cycle(&mut register_bank, &mut memory_controller).unwrap();
+        }
+
+        assert_eq!(register_bank.read_register(RegisterId(0)).unwrap(), 42);
+        assert_eq!(register_bank.read_register(RegisterId(1)).unwrap(), 42);
+        assert_eq!(register_bank.read_register(RegisterId(2)).unwrap(), 84);
+    }
+
+    #[test]
+    fn test_complex_arithmetic_forwarding() {
+        let (mut pipeline, mut register_bank, mut memory_controller) = setup_test_env();
+
+        // Test avec une séquence complexe d'opérations arithmétiques
+        // R0 = 10
+        // R1 = 5
+        // R2 = R0 + R1      // 15
+        // R3 = R2 * R1      // 75
+        // R4 = R3 - R2      // 60
+        let program = vec![
+            Instruction::LoadImm(RegisterId(0), 10),
+            Instruction::LoadImm(RegisterId(1), 5),
+            Instruction::Add(RegisterId(2), RegisterId(0), RegisterId(1)),
+            Instruction::Mul(RegisterId(3), RegisterId(2), RegisterId(1)),
+            Instruction::Sub(RegisterId(4), RegisterId(3), RegisterId(2)),
+        ];
+
+        pipeline.load_instructions(program).unwrap();
+
+        // Exécuter le pipeline
+        while !pipeline.is_empty().unwrap() {
+            pipeline.cycle(&mut register_bank, &mut memory_controller).unwrap();
+        }
+
+        // Vérifier les résultats
+        assert_eq!(register_bank.read_register(RegisterId(2)).unwrap(), 15);  // 10 + 5
+        assert_eq!(register_bank.read_register(RegisterId(3)).unwrap(), 75);  // 15 * 5
+        assert_eq!(register_bank.read_register(RegisterId(4)).unwrap(), 60);  // 75 - 15
+    }
+
+    #[test]
+    fn test_mixed_memory_arithmetic() {
+        let (mut pipeline, mut register_bank, mut memory_controller) = setup_test_env();
+
+        // Test combinant opérations mémoire et arithmétiques
+        // R0 = 100
+        // Store R0, @200
+        // R1 = 50
+        // R2 = Load @200    // Doit charger 100
+        // R3 = R2 + R1      // 150
+        // Store R3, @300
+        // R4 = Load @300    // Doit charger 150
+        let program = vec![
+            Instruction::LoadImm(RegisterId(0), 100),
+            Instruction::Store(RegisterId(0), Address(200)),
+            Instruction::LoadImm(RegisterId(1), 50),
+            Instruction::Load(RegisterId(2), Address(200)),
+            Instruction::Add(RegisterId(3), RegisterId(2), RegisterId(1)),
+            Instruction::Store(RegisterId(3), Address(300)),
+            Instruction::Load(RegisterId(4), Address(300)),
+        ];
+
+        pipeline.load_instructions(program).unwrap();
+
+        while !pipeline.is_empty().unwrap() {
+            pipeline.cycle(&mut register_bank, &mut memory_controller).unwrap();
+        }
+
+        assert_eq!(register_bank.read_register(RegisterId(2)).unwrap(), 100);
+        assert_eq!(register_bank.read_register(RegisterId(3)).unwrap(), 150);
+        assert_eq!(register_bank.read_register(RegisterId(4)).unwrap(), 150);
+    }
+
+    #[test]
+    fn test_pipeline_stalls() {
+        let (mut pipeline, mut register_bank, mut memory_controller) = setup_test_env();
+
+        // Test vérifiant les stalls du pipeline
+        // R0 = 10
+        // R1 = R0 + 5       // Dépendance avec R0
+        // R2 = R1 + 3       // Dépendance avec R1
+        // Store R2, @100    // Dépendance avec R2
+        // R3 = Load @100    // Dépendance mémoire
+        let program = vec![
+            Instruction::LoadImm(RegisterId(0), 10),
+            Instruction::Add(RegisterId(1), RegisterId(0), RegisterId(0)),
+            Instruction::Add(RegisterId(2), RegisterId(1), RegisterId(1)),
+            Instruction::Store(RegisterId(2), Address(100)),
+            Instruction::Load(RegisterId(3), Address(100)),
+        ];
+
+        pipeline.load_instructions(program).unwrap();
+
+        let mut cycles = 0;
+        while !pipeline.is_empty().unwrap() {
+            pipeline.cycle(&mut register_bank, &mut memory_controller).unwrap();
+            cycles += 1;
+        }
+
+        // Vérifier les résultats et les statistiques
+        assert_eq!(register_bank.read_register(RegisterId(3)).unwrap(), 40);
+        assert!(pipeline.stats.stalls > 0, "Le pipeline devrait avoir des stalls");
+        println!("Pipeline terminé en {} cycles avec {} stalls",
+                 cycles, pipeline.stats.stalls);
+    }
 }
