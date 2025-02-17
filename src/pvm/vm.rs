@@ -5,6 +5,7 @@ use crate::pvm::vm_errors::{VMError, VMResult};
 
 use crate::pvm::instructions::{Instruction, RegisterId};
 use crate::pvm::pipelines::{DetailedStats, Pipeline};
+use crate::pvm::stacks::Stack;
 
 ///configuration de la VM
 #[derive(Debug)]
@@ -39,6 +40,7 @@ pub struct  PunkVM {
     pub config:VMConfig,
     pub memory_controller: MemoryController,
     // register_controller: RegisterController,
+    pub stack: Stack,
     pub register_bank: RegisterBank,
     pub instruction_decoder: InstructionDecoder,
     pub pipeline: Pipeline,
@@ -61,6 +63,7 @@ impl PunkVM {
             register_bank: RegisterBank::new(config.register_count)?,
             instruction_decoder: InstructionDecoder::new(),
             pipeline:Pipeline::new(),
+            stack: Stack::new(config.stack_size)?,
             config,
         })
     }
