@@ -7,6 +7,7 @@ pub enum VMError {
     InstructionError(String),
     ConfigError(String),
     ArithmeticError(String),
+    ExecutionError(String),
 }
 
 
@@ -16,6 +17,12 @@ impl VMError {
     pub fn arithmetic_error(msg: &str) -> Self {
         VMError::ArithmeticError(msg.to_string())
     }
+
+    pub fn memory_error(msg: &str) -> Self {
+        VMError::MemoryError(msg.to_string())
+    }
+
+
 }
 
 
@@ -28,6 +35,7 @@ impl fmt::Display for VMError{
             VMError::InstructionError(msg) => write!(f, "InstructionError: {}", msg),
             VMError::ConfigError(msg) => write!(f, "ConfigError: {}", msg),
             VMError::ArithmeticError(msg) => write!(f, "ArithmeticError: {}", msg),
+            VMError::ExecutionError(msg) => write!(f, "ExecutionError: {}", msg),
 
         }
     }
