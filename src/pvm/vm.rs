@@ -4,7 +4,7 @@ use crate::pvm::registers::RegisterBank;
 use crate::pvm::vm_errors::{VMError, VMResult};
 
 use crate::pvm::instructions::{Instruction, RegisterId};
-use std::collections::VecDeque;
+use crate::pvm::pipelines::{DetailedStats, Pipeline};
 
 ///configuration de la VM
 #[derive(Debug)]
@@ -41,6 +41,7 @@ pub struct  PunkVM {
     // register_controller: RegisterController,
     pub register_bank: RegisterBank,
     pub instruction_decoder: InstructionDecoder,
+    pub pipeline: Pipeline,
 }
 
 
@@ -59,6 +60,7 @@ impl PunkVM {
             memory_controller: MemoryController::new(config.memory_size, config.cache_size)?,
             register_bank: RegisterBank::new(config.register_count)?,
             instruction_decoder: InstructionDecoder::new(),
+            pipeline:Pipeline::new(),
             config,
         })
     }
@@ -89,11 +91,11 @@ impl PunkVM {
     pub fn load_program(&mut self, program: Vec<Instruction>) -> VMResult<()> {
         println!("Chargement du programme: {} instructions", program.len());
 
-        // // Réinitialiser l'état de la VM
-        // self.reset()?;
-        //
-        // // Charger les instructions dans le buffer d'instructions du pipeline
-        // self.pipeline.load_instructions(program.into())?;
+        // Réinitialiser l'état de la VM
+        self.reset()?;
+
+        // Charger les instructions dans le buffer d'instructions du pipeline
+        self.pipeline.load_instructions(program.into())?;
 
         Ok(())
     }
@@ -101,17 +103,21 @@ impl PunkVM {
     /// Run
     pub fn run(&mut self) -> VMResult<()> {
         println!("Exécution du programme...");
+        let mut cycles = 0;
 
-        // while !self.pipeline.is_empty()? {
-        //     // Exécuter un cycle du pipeline
-        //     self.pipeline.cycle(&mut self.register_bank, &mut self.memory_controller)?;
-        //
-        //     // Vérifier si nous devons arrêter (par exemple, instruction HALT)
-        //     if self.pipeline.should_halt()? {
-        //         println!("Programme terminé par instruction HALT");
-        //         break;
-        //     }
-        // }
+        while !self.pipeline.is_empty()? {
+            cycles += 1;
+            self.pipeline.cycle(&mut self.register_bank, &mut self.memory_controller)?;
+
+            if cycles > 1000 { // Sécurité anti-boucle infinie
+                return Err(VMError::ExecutionError("Trop de cycles d'exécution".into()));
+            }
+
+            if self.pipeline.should_halt()? {
+                println!("Programme terminé par instruction HALT");
+                break;
+            }
+        }
 
         Ok(())
     }
@@ -126,21 +132,20 @@ impl PunkVM {
     /// get Statistics
     pub fn get_statistics(&self) -> VMResult<VMStatistics> {
         Ok(VMStatistics {
-            instructions_executed: 0,
-            cycles: 0,
-            cache_hits: 0,
-            pipeline_stalls: 0,
+            instructions_executed: self.pipeline.stats.instructions_executed,
+            cycles: self.pipeline.stats.cycles,
+            cache_hits: self.memory_controller.get_cache_stats()?.hits,
+            pipeline_stalls: self.pipeline.stats.stalls,
         })
     }
 
     // Ajouter une méthode pour obtenir les statistiques détaillées
-    // pub fn get_detailed_stats(&self) -> VMResult<DetailedStats> {
-    //     Ok(DetailedStats {
-    //         pipeline_stats: self.pipeline.stats.clone(),
-    //         cache_stats: self.memory_controller.get_cache_stats()?,
-    //     })
-    // }
-
+    pub fn get_detailed_stats(&self) -> VMResult<DetailedStats> {
+        Ok(DetailedStats {
+            pipeline_stats: self.pipeline.stats.clone(),
+            cache_stats: self.memory_controller.get_cache_stats()?,
+        })
+    }
 
 
 
