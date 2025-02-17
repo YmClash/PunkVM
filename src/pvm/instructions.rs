@@ -76,7 +76,7 @@ pub enum ControlOp {
 
 
 /// Identifiant de registre
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq,Hash)]
 pub struct RegisterId(pub u8);
 
 #[derive(Debug)]
