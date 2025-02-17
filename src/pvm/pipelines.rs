@@ -64,6 +64,16 @@ impl Default for StatusFlags {
     }
 }
 
+// Ajout d'un impl Default pour ExecutionResult
+impl Default for ExecutionResult {
+    fn default() -> Self {
+        Self {
+            value: 0,
+            flags: StatusFlags::default(),
+        }
+    }
+}
+
 pub struct HazardUnit {
     last_write_registers: Vec<RegisterId>,
 }
@@ -93,7 +103,7 @@ impl ForwardingUnit {
 }
 
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct PipelineStats {
     pub cycles: usize,
     pub instructions_loaded: usize,
@@ -115,25 +125,39 @@ pub struct DetailedStats {
 
 
 /// Pipeline complet
+// #[derive(Debug)]
 pub struct Pipeline {
     // États des différents étages
-    fetch_state: PipelineState,
-    decode_state: PipelineState,
-    execute_state: PipelineState,
-    memory_state: PipelineState,
-    writeback_state: PipelineState,
+    pub fetch_state: PipelineState,
+    pub decode_state: PipelineState,
+    pub execute_state: PipelineState,
+    pub memory_state: PipelineState,
+    pub writeback_state: PipelineState,
 
     // Buffer d'instructions
-    instruction_buffer: VecDeque<Instruction>,
+    pub instruction_buffer: VecDeque<Instruction>,
 
     // Détection de hazards
-    hazard_unit: HazardUnit,
+    pub hazard_unit: HazardUnit,
 
     // Forwarding
-    forwarding_unit: ForwardingUnit,
+    pub forwarding_unit: ForwardingUnit,
 
     // Statistiques
-    stats: PipelineStats,
+    pub stats: PipelineStats,
+}
+
+#[derive(Clone, Debug)]
+struct RegisterDependency {
+    reg_id: RegisterId,
+    stage: PipelineStage,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+enum PipelineStage {
+    Execute,
+    Memory,
+    Writeback,
 }
 
 
@@ -222,10 +246,8 @@ impl Pipeline {
         registers: &mut RegisterBank,
         memory: &mut MemoryController,
     ) -> VMResult<()> {
-        // Mise à jour des statistiques
         self.stats.cycles += 1;
 
-        // Exécution des étages dans l'ordre inverse pour éviter les conflits
         if let Err(e) = self.writeback_stage(registers) {
             println!("Erreur dans l'étage Writeback: {:?}", e);
             return Err(e);
@@ -236,7 +258,7 @@ impl Pipeline {
             return Err(e);
         }
 
-        if let Err(e) = self.execute_stage() {
+        if let Err(e) = self.execute_stage(registers) {  // Ajout du paramètre registers
             println!("Erreur dans l'étage Execute: {:?}", e);
             return Err(e);
         }
@@ -249,14 +271,6 @@ impl Pipeline {
         if let Err(e) = self.fetch_stage() {
             println!("Erreur dans l'étage Fetch: {:?}", e);
             return Err(e);
-        }
-
-        // Afficher l'état du pipeline si nécessaire
-        if self.stats.cycles % 10 == 0 {
-            println!("Cycle {}: {} instructions exécutées, {} stalls",
-                     self.stats.cycles,
-                     self.stats.instructions_executed,
-                     self.stats.stalls);
         }
 
         Ok(())
@@ -285,26 +299,32 @@ impl Pipeline {
 
     /// Étage Decode: Décodage de l'instruction
     fn decode_stage(&mut self, registers: &RegisterBank) -> VMResult<()> {
-        // Si l'étage suivant est occupé, stall
         if self.execute_state.decoded.is_some() {
             self.stats.stalls += 1;
             return Ok(());
         }
 
         if let Some(instruction) = &self.decode_state.instruction {
-            // Vérifier les hazards de données
+            println!("Décodage de l'instruction: {:?}", instruction);
+
             if self.hazard_unit.check_hazards(instruction, registers) {
                 self.stats.hazards += 1;
                 return Ok(());
             }
 
-            // Décoder l'instruction
-            let decoded = self.decode_instruction(instruction)?;
-            self.decode_state.decoded = Some(decoded);
-            self.stats.instructions_decoded += 1;
+            match self.decode_instruction(instruction) {
+                Ok(decoded) => {
+                    println!("Instruction décodée avec succès: {:?}", decoded);
+                    self.decode_state.decoded = Some(decoded);
+                    self.stats.instructions_decoded += 1;
+                }
+                Err(e) => {
+                    println!("Erreur lors du décodage: {:?}", e);
+                    return Err(e);
+                }
+            }
         }
 
-        // Avancer l'état vers l'étage execute
         self.execute_state = self.decode_state.clone();
         self.decode_state = PipelineState::default();
 
@@ -312,21 +332,85 @@ impl Pipeline {
     }
 
     /// Étage Execute: Exécution de l'instruction
-    fn execute_stage(&mut self) -> VMResult<()> {
-        // Si l'étage suivant est occupé, stall
+    // fn execute_stage(&mut self, registers: &RegisterBank) -> VMResult<()> {
+    //     if self.memory_state.result.is_some() {
+    //         self.stats.stalls += 1;
+    //         println!("Execute - Stall dû à l'étage mémoire occupé");
+    //         return Ok(());
+    //     }
+    //
+    //     // On clone les données nécessaires pour éviter le double emprunt
+    //     let decoded = self.execute_state.decoded.clone();
+    //
+    //     if let Some(decoded) = decoded {
+    //         println!("Execute - Début exécution: {:?}", decoded);
+    //
+    //         // Mémoriser le registre de destination si nécessaire
+    //         self.execute_state.destination = match &decoded {
+    //             DecodedInstruction::Arithmetic(op) => match op {
+    //                 ArithmeticOp::Add { dest, .. } => Some(*dest),
+    //                 ArithmeticOp::Sub { dest, .. } => Some(*dest),
+    //                 ArithmeticOp::Mul { dest, .. } => Some(*dest),
+    //                 ArithmeticOp::Div { dest, .. } => Some(*dest),
+    //             },
+    //             DecodedInstruction::Memory(op) => match op {
+    //                 MemoryOp::LoadImm { reg, .. } => Some(*reg),
+    //                 MemoryOp::Load { reg, .. } => Some(*reg),
+    //                 _ => None,
+    //             },
+    //             _ => None,
+    //         };
+    //
+    //         // Attendre que les registres sources soient prêts
+    //         let result = self.execute_instruction(&decoded, registers)?;
+    //         println!("Execute - Résultat: {:?}", result);
+    //         self.execute_state.result = Some(result);
+    //         self.stats.instructions_executed += 1;
+    //     }
+    //
+    //     // Propager l'état à l'étage suivant
+    //     self.memory_state = self.execute_state.clone();
+    //     self.execute_state = PipelineState::default();
+    //
+    //     Ok(())
+    // }
+
+
+    fn execute_stage(&mut self, registers: &RegisterBank) -> VMResult<()> {
         if self.memory_state.result.is_some() {
             self.stats.stalls += 1;
+            println!("Execute - Stall dû à l'étage mémoire occupé");
             return Ok(());
         }
 
-        if let Some(decoded) = &self.execute_state.decoded {
-            // Exécuter l'instruction
-            let result = self.execute_instruction(decoded)?;
+        // Clone les données nécessaires pour éviter le double emprunt
+        let decoded = self.execute_state.decoded.clone();
+
+        if let Some(decoded) = &decoded {
+            // Définir le registre destination
+            self.execute_state.destination = match decoded {
+                DecodedInstruction::Arithmetic(op) => match op {
+                    ArithmeticOp::Add { dest, .. } => Some(*dest),
+                    ArithmeticOp::Sub { dest, .. } => Some(*dest),
+                    ArithmeticOp::Mul { dest, .. } => Some(*dest),
+                    ArithmeticOp::Div { dest, .. } => Some(*dest),
+                },
+                DecodedInstruction::Memory(op) => match op {
+                    MemoryOp::LoadImm { reg, .. } => Some(*reg),
+                    MemoryOp::Load { reg, .. } => Some(*reg),
+                    _ => None,
+                },
+                _ => None,
+            };
+
+            println!("Execute - Début exécution: {:?}", decoded);
+            let result = self.execute_instruction(decoded, registers)?;
+            println!("Execute - Résultat: {:?}", result);
             self.execute_state.result = Some(result);
             self.stats.instructions_executed += 1;
         }
 
-        // Avancer l'état vers l'étage memory
+        // Propager l'état vers l'étage suivant
         self.memory_state = self.execute_state.clone();
         self.execute_state = PipelineState::default();
 
@@ -335,22 +419,28 @@ impl Pipeline {
 
     /// Étage Memory: Accès mémoire
     fn memory_stage(&mut self, memory: &mut MemoryController) -> VMResult<()> {
-        // Si l'étage suivant est occupé, stall
-        if self.writeback_state.memory_result.is_some() {
-            self.stats.stalls += 1;
-            return Ok(());
-        }
-
-        if let Some(result) = &self.memory_state.result {
-            // Effectuer l'opération mémoire si nécessaire
-            if let Some(memory_op) = self.get_memory_operation(&self.memory_state) {
-                let memory_result = self.execute_memory_operation(memory_op, memory)?;
-                self.memory_state.memory_result = Some(memory_result);
-                self.stats.memory_operations += 1;
+        if let Some(decoded) = &self.memory_state.decoded {
+            match decoded {
+                DecodedInstruction::Memory(MemoryOp::Store { reg, addr }) => {
+                    if let Some(result) = &self.memory_state.result {
+                        let value = result.value;
+                        println!("Memory - Store: écriture de {} à l'adresse {:?}", value, addr);
+                        memory.write(addr.0, value as u64)?;
+                    }
+                },
+                DecodedInstruction::Memory(MemoryOp::Load { reg, addr }) => {
+                    let value = memory.read(addr.0)?;
+                    println!("Memory - Load: lecture de {} depuis l'adresse {:?}", value, addr);
+                    // Mettre à jour le résultat pour le writeback
+                    self.memory_state.result = Some(ExecutionResult {
+                        value: value as i64,
+                        flags: StatusFlags::default(),
+                    });
+                },
+                _ => {}
             }
         }
 
-        // Avancer l'état vers l'étage writeback
         self.writeback_state = self.memory_state.clone();
         self.memory_state = PipelineState::default();
 
@@ -359,42 +449,230 @@ impl Pipeline {
 
     /// Étage Writeback: Écriture des résultats
     fn writeback_stage(&mut self, registers: &mut RegisterBank) -> VMResult<()> {
-        if let Some(dest) = self.writeback_state.destination {
-            if let Some(result) = &self.writeback_state.result {
-                // Utiliser la nouvelle méthode write_register
+        if let Some(result) = &self.writeback_state.result {
+            // Mettre à jour le registre destination si présent
+            if let Some(dest) = self.writeback_state.destination {
+                println!("Writeback - Écriture dans le registre {:?}: {}", dest, result.value);
                 registers.write_register(dest, result.value)?;
                 self.stats.writebacks += 1;
             }
-        }
 
-        // Mise à jour des flags si nécessaire
-        if let Some(result) = &self.writeback_state.result {
+            // Mettre à jour les flags
             registers.update_flags(result.flags)?;
+            println!("Writeback - Instruction complétée");
         }
 
         // Réinitialiser l'état
         self.writeback_state = PipelineState::default();
-
         Ok(())
     }
 
     /// Décode une instruction
     fn decode_instruction(&self, instruction: &Instruction) -> VMResult<DecodedInstruction> {
         match instruction {
+            // Instructions arithmétiques
             Instruction::Add(dest, src1, src2) => Ok(DecodedInstruction::Arithmetic(
                 ArithmeticOp::Add { dest: *dest, src1: *src1, src2: *src2 }
             )),
-            // Implémenter les autres cas...
-            _ => Err(VMError::InstructionError("Instruction non supportée".into()))
+            Instruction::Sub(dest, src1, src2) => Ok(DecodedInstruction::Arithmetic(
+                ArithmeticOp::Sub { dest: *dest, src1: *src1, src2: *src2 }
+            )),
+            Instruction::Mul(dest, src1, src2) => Ok(DecodedInstruction::Arithmetic(
+                ArithmeticOp::Mul { dest: *dest, src1: *src1, src2: *src2 }
+            )),
+            Instruction::Div(dest, src1, src2) => Ok(DecodedInstruction::Arithmetic(
+                ArithmeticOp::Div { dest: *dest, src1: *src1, src2: *src2 }
+            )),
+
+            // Instructions mémoire
+            Instruction::Load(reg, addr) => Ok(DecodedInstruction::Memory(
+                MemoryOp::Load { reg: *reg, addr: *addr }
+            )),
+            Instruction::Store(reg, addr) => Ok(DecodedInstruction::Memory(
+                MemoryOp::Store { reg: *reg, addr: *addr }
+            )),
+            Instruction::Move(dest, src) => Ok(DecodedInstruction::Memory(
+                MemoryOp::Move { dest: *dest, src: *src }
+            )),
+            Instruction::LoadImm(reg, value) => Ok(DecodedInstruction::Memory(
+                MemoryOp::LoadImm { reg: *reg, value: *value }
+            )),
+
+            // Instructions de contrôle
+            Instruction::Jump(addr) => Ok(DecodedInstruction::Control(
+                ControlOp::Jump { addr: *addr }
+            )),
+            Instruction::JumpIf(condition, addr) => Ok(DecodedInstruction::Control(
+                ControlOp::JumpIf { condition: *condition, addr: *addr }
+            )),
+            Instruction::Call(addr) => Ok(DecodedInstruction::Control(
+                ControlOp::Call { addr: *addr }
+            )),
+            Instruction::Return => Ok(DecodedInstruction::Control(
+                ControlOp::Return
+            )),
+            Instruction::Nop => Ok(DecodedInstruction::Control(
+                ControlOp::Nop
+            )),
+            Instruction::Halt => Ok(DecodedInstruction::Control(
+                ControlOp::Halt
+            )),
         }
     }
 
     /// Exécute une instruction décodée
-    fn execute_instruction(&self, decoded: &DecodedInstruction) -> VMResult<ExecutionResult> {
+    // fn execute_instruction(&mut self, decoded: &DecodedInstruction, registers: &RegisterBank) -> VMResult<ExecutionResult> {
+    //     match decoded {
+    //         DecodedInstruction::Arithmetic(op) => match op {
+    //             ArithmeticOp::Add { dest, src1, src2 } => {
+    //                 let val1 = registers.read_register(*src1)?;
+    //                 let val2 = registers.read_register(*src2)?;
+    //                 let result = val1.wrapping_add(val2);
+    //
+    //                 println!("Exécution Add: {} + {} = {}", val1, val2, result);
+    //
+    //                 Ok(ExecutionResult {
+    //                     value: result as i64,
+    //                     flags: StatusFlags {
+    //                         zero: result == 0,
+    //                         negative: (result as i64) < 0,
+    //                         overflow: false,
+    //                     },
+    //                 })
+    //             },
+    //             // Autres opérations arithmétiques similaires...
+    //             _ => Ok(ExecutionResult::default())
+    //         },
+    //         DecodedInstruction::Memory(op) => match op {
+    //             MemoryOp::LoadImm { reg: _, value } => {
+    //                 println!("Exécution LoadImm: {}", value);
+    //                 Ok(ExecutionResult {
+    //                     value: *value,
+    //                     flags: StatusFlags::default(),
+    //                 })
+    //             },
+    //             MemoryOp::Store { reg, addr: _ } => {
+    //                 let value = registers.read_register(*reg)?;
+    //                 println!("Exécution Store: valeur {} depuis registre {:?}", value, reg);
+    //                 Ok(ExecutionResult {
+    //                     value: value as i64,
+    //                     flags: StatusFlags::default(),
+    //                 })
+    //             },
+    //             // Autres opérations mémoire...
+    //             _ => Ok(ExecutionResult::default())
+    //         },
+    //         DecodedInstruction::Control(_) => Ok(ExecutionResult::default())
+    //     }
+    // }
+
+
+    fn execute_instruction(&mut self, decoded: &DecodedInstruction, registers: &RegisterBank) -> VMResult<ExecutionResult> {
         match decoded {
-            DecodedInstruction::Arithmetic(op) => self.execute_arithmetic(op),
-            DecodedInstruction::Memory(op) => self.execute_memory(op),
-            DecodedInstruction::Control(op) => self.execute_control(op),
+            DecodedInstruction::Arithmetic(op) => match op {
+                ArithmeticOp::Add { dest, src1, src2 } => {
+                    let val1 = registers.read_register(*src1)? as i64;
+                    let val2 = registers.read_register(*src2)? as i64;
+                    let result = val1.wrapping_add(val2);
+
+                    println!("Exécution Add: {} + {} = {}", val1, val2, result);
+
+                    Ok(ExecutionResult {
+                        value: result,
+                        flags: StatusFlags {
+                            zero: result == 0,
+                            negative: result < 0,
+                            overflow: false,
+                        },
+                    })
+                },
+                ArithmeticOp::Sub { dest, src1, src2 } => {
+                    let val1 = registers.read_register(*src1)? as i64;
+                    let val2 = registers.read_register(*src2)? as i64;
+                    let result = val1.wrapping_sub(val2);
+
+                    println!("Exécution Sub: {} - {} = {}", val1, val2, result);
+
+                    Ok(ExecutionResult {
+                        value: result,
+                        flags: StatusFlags {
+                            zero: result == 0,
+                            negative: result < 0,
+                            overflow: false,
+                        },
+                    })
+                },
+                ArithmeticOp::Mul { dest, src1, src2 } => {
+                    let val1 = registers.read_register(*src1)? as i64;
+                    let val2 = registers.read_register(*src2)? as i64;
+                    let result = val1.wrapping_mul(val2);
+
+                    println!("Exécution Mul: {} * {} = {}", val1, val2, result);
+
+                    Ok(ExecutionResult {
+                        value: result,
+                        flags: StatusFlags {
+                            zero: result == 0,
+                            negative: result < 0,
+                            overflow: false,
+                        },
+                    })
+                },
+                ArithmeticOp::Div { dest, src1, src2 } => {
+                    let val1 = registers.read_register(*src1)? as i64;
+                    let val2 = registers.read_register(*src2)? as i64;
+
+                    if val2 == 0 {
+                        return Err(VMError::ArithmeticError("Division par zéro".into()));
+                    }
+
+                    let result = val1.wrapping_div(val2);
+
+                    println!("Exécution Div: {} / {} = {}", val1, val2, result);
+
+                    Ok(ExecutionResult {
+                        value: result,
+                        flags: StatusFlags {
+                            zero: result == 0,
+                            negative: result < 0,
+                            overflow: false,
+                        },
+                    })
+                },
+            },
+            DecodedInstruction::Memory(op) => match op {
+                MemoryOp::LoadImm { reg, value } => {
+                    println!("Exécution LoadImm: registre {:?}, valeur {}", reg, value);
+                    Ok(ExecutionResult {
+                        value: *value,
+                        flags: StatusFlags::default(),
+                    })
+                },
+                MemoryOp::Load { reg, addr } => {
+                    println!("Exécution Load: registre {:?}, adresse {:?}", reg, addr);
+                    Ok(ExecutionResult {
+                        value: 0, // La valeur sera chargée dans l'étage memory
+                        flags: StatusFlags::default(),
+                    })
+                },
+                MemoryOp::Store { reg, addr } => {
+                    let value = registers.read_register(*reg)?;
+                    println!("Exécution Store: valeur {} vers adresse {:?}", value, addr);
+                    Ok(ExecutionResult {
+                        value: value as i64,
+                        flags: StatusFlags::default(),
+                    })
+                },
+                MemoryOp::Move { dest, src } => {
+                    let value = registers.read_register(*src)?;
+                    println!("Exécution Move: {} de {:?} vers {:?}", value, src, dest);
+                    Ok(ExecutionResult {
+                        value: value as i64,
+                        flags: StatusFlags::default(),
+                    })
+                },
+            },
+            _ => Ok(ExecutionResult::default())
         }
     }
 
@@ -444,6 +722,28 @@ impl Pipeline {
                 overflow: false,
             },
         })
+    }
+
+    fn check_dependencies(&self, decoded: &DecodedInstruction, registers: &RegisterBank) -> bool {
+        match decoded {
+            DecodedInstruction::Arithmetic(op) => match op {
+                ArithmeticOp::Add { src1, src2, .. } => {
+                    !self.is_register_ready(*src1) || !self.is_register_ready(*src2)
+                },
+                // Similaire pour Sub, Mul, Div...
+                _ => false,
+            },
+            DecodedInstruction::Memory(op) => match op {
+                MemoryOp::Store { reg, .. } => !self.is_register_ready(*reg),
+                _ => false,
+            },
+            _ => false,
+        }
+    }
+    fn is_register_ready(&self, reg: RegisterId) -> bool {
+        // Vérifier si le registre n'est pas en train d'être modifié dans les étages précédents
+        !self.memory_state.destination.map_or(false, |dest| dest == reg) &&
+            !self.execute_state.destination.map_or(false, |dest| dest == reg)
     }
 
 
