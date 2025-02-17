@@ -146,17 +146,25 @@ impl PunkVM {
     }
 
     fn push_stack(&mut self, value: u64) -> VMResult<()> {
-        // À implémenter
+        // if let Some(stack) = &mut self.stack {
+        //     stack.push(value)?;
+        //     Ok(())
+        // } else {
+        //     Err(VMError::ExecutionError("Stack non initialisée".into()))
+        // }
+        self.stack.push(value)?;
         Ok(())
     }
 
     fn pop_stack(&mut self) -> VMResult<u64> {
         // À implémenter
-        Ok(0)
+        self.stack.pop()
+        // Ok(0)
     }
 
     fn halt(&mut self) -> VMResult<()> {
         // À implémenter
+
         Ok(())
     }
 
