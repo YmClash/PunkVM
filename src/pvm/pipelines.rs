@@ -8,6 +8,7 @@ use crate::pvm::memorys::MemoryController;
 use crate::pvm::registers::RegisterBank;
 use crate::pvm::forwardings::ForwardingSource;
 use crate::pvm::forwardings::ForwardingUnit;
+use crate::pvm::hazards::HazardUnit;
 
 /// Pipeline d'exécution
 // pub struct Pipeline {
@@ -76,21 +77,21 @@ impl Default for ExecutionResult {
     }
 }
 
-pub struct HazardUnit {
-    last_write_registers: Vec<RegisterId>,
-}
-
-impl HazardUnit {
-    pub fn new() -> Self {
-        Self {
-            last_write_registers: Vec::new(),
-        }
-    }
-
-    pub fn check_hazards(&self, instruction: &Instruction, registers: &RegisterBank) -> bool {
-        false // Implémentation basique pour commencer
-    }
-}
+// pub struct HazardUnit {
+//     pub last_write_registers: Vec<RegisterId>,
+// }
+//
+// impl HazardUnit {
+//     pub fn new() -> Self {
+//         Self {
+//             last_write_registers: Vec::new(),
+//         }
+//     }
+//
+//     pub fn check_hazards(&self, instruction: &Instruction, registers: &RegisterBank) -> bool {
+//         false // Implémentation basique pour commencer
+//     }
+// }
 
 #[derive(Default, Debug, Clone)]
 pub struct PipelineStats {
@@ -137,13 +138,13 @@ pub struct Pipeline {
 }
 
 #[derive(Clone, Debug)]
-struct RegisterDependency {
+pub struct RegisterDependency {
     reg_id: RegisterId,
     stage: PipelineStage,
 }
 
 #[derive(Clone, Debug, PartialEq)]
-enum PipelineStage {
+pub enum PipelineStage {
     Execute,
     Memory,
     Writeback,
@@ -296,8 +297,10 @@ impl Pipeline {
         if let Some(instruction) = &self.decode_state.instruction {
             println!("Décodage de l'instruction: {:?}", instruction);
 
+            // Vérifier les hazards avec l'instruction non décodée
             if self.hazard_unit.check_hazards(instruction, registers) {
                 self.stats.hazards += 1;
+                self.stats.stalls += 1;
                 return Ok(());
             }
 
@@ -321,60 +324,6 @@ impl Pipeline {
     }
 
     /// Exécute une instruction avec support du forwarding
-    fn execute_stage(&mut self, registers: &RegisterBank) -> VMResult<()> {
-        if self.memory_state.result.is_some() {
-            self.stats.stalls += 1;
-            println!("Execute - Stall dû à l'étage mémoire occupé");
-            return Ok(());
-        }
-
-        let decoded = self.execute_state.decoded.clone();
-
-        if let Some(decoded) = &decoded {
-            println!("Execute - Début exécution: {:?}", decoded);
-
-            // Déterminer le registre destination
-            self.execute_state.destination = match decoded {
-                DecodedInstruction::Arithmetic(op) => match op {
-                    ArithmeticOp::Add { dest, .. } => Some(*dest),
-                    ArithmeticOp::Sub { dest, .. } => Some(*dest),
-                    ArithmeticOp::Mul { dest, .. } => Some(*dest),
-                    ArithmeticOp::Div { dest, .. } => Some(*dest),
-                },
-                DecodedInstruction::Memory(op) => match op {
-                    MemoryOp::LoadImm { reg, .. } => Some(*reg),
-                    MemoryOp::Load { reg, .. } => Some(*reg),
-                    MemoryOp::Store { .. } => None,
-                    MemoryOp::Move { dest, .. } => Some(*dest),
-                },
-                DecodedInstruction::Control(_) => None,
-            };
-
-            // Exécuter l'instruction avec forwarding
-            self.execute_state.result = Some(match decoded {
-                DecodedInstruction::Memory(MemoryOp::Store { reg, .. }) => {
-                    // Utiliser le forwarding ou lire le registre
-                    let value = self.try_forward_value(*reg)
-                        .unwrap_or_else(|| registers.read_register(*reg).unwrap() as i64);
-
-                    println!("Execute - Store: forwarding/registre valeur {} depuis {:?}", value, reg);
-
-                    ExecutionResult {
-                        value,
-                        flags: StatusFlags::default(),
-                    }
-                },
-                _ => self.execute_with_forwarding(decoded, registers)?,
-            });
-
-            println!("Execute - Résultat: {:?}", self.execute_state.result);
-            self.stats.instructions_executed += 1;
-        }
-
-        self.memory_state = self.execute_state.clone();
-        self.execute_state = PipelineState::default();
-        Ok(())
-    }
     // fn execute_stage(&mut self, registers: &RegisterBank) -> VMResult<()> {
     //     if self.memory_state.result.is_some() {
     //         self.stats.stalls += 1;
@@ -382,13 +331,12 @@ impl Pipeline {
     //         return Ok(());
     //     }
     //
-    //     // Clone les données nécessaires pour éviter le double emprunt
     //     let decoded = self.execute_state.decoded.clone();
     //
     //     if let Some(decoded) = &decoded {
     //         println!("Execute - Début exécution: {:?}", decoded);
     //
-    //         // Définir le registre destination et exécuter l'instruction
+    //         // Déterminer le registre destination
     //         self.execute_state.destination = match decoded {
     //             DecodedInstruction::Arithmetic(op) => match op {
     //                 ArithmeticOp::Add { dest, .. } => Some(*dest),
@@ -405,31 +353,104 @@ impl Pipeline {
     //             DecodedInstruction::Control(_) => None,
     //         };
     //
-    //         // Exécuter l'instruction
-    //         let result = match decoded {
-    //             DecodedInstruction::Memory(MemoryOp::Store { reg, addr }) => {
-    //                 let value = registers.read_register(*reg)?;
+    //         // Exécuter l'instruction avec forwarding
+    //         self.execute_state.result = Some(match decoded {
+    //             DecodedInstruction::Memory(MemoryOp::Store { reg, .. }) => {
+    //                 // Utiliser le forwarding ou lire le registre
+    //                 let value = self.try_forward_value(*reg)
+    //                     .unwrap_or_else(|| registers.read_register(*reg).unwrap() as i64);
+    //
+    //                 println!("Execute - Store: forwarding/registre valeur {} depuis {:?}", value, reg);
+    //
     //                 ExecutionResult {
-    //                     value: value as i64,
+    //                     value,
     //                     flags: StatusFlags::default(),
     //                 }
     //             },
-    //             DecodedInstruction::Memory(MemoryOp::Load { .. }) => {
-    //                 ExecutionResult::default()
-    //             },
     //             _ => self.execute_with_forwarding(decoded, registers)?,
-    //         };
+    //         });
     //
-    //         println!("Execute - Résultat: {:?}", result);
-    //         self.execute_state.result = Some(result);
+    //         println!("Execute - Résultat: {:?}", self.execute_state.result);
     //         self.stats.instructions_executed += 1;
     //     }
     //
-    //     // Propager l'état vers l'étage suivant
     //     self.memory_state = self.execute_state.clone();
     //     self.execute_state = PipelineState::default();
     //     Ok(())
     // }
+
+    fn execute_stage(&mut self, registers: &RegisterBank) -> VMResult<()> {
+        // Vérifier si l'étage suivant est occupé
+        if self.memory_state.result.is_some() {
+            self.stats.stalls += 1;
+            println!("Execute - Stall dû à l'étage mémoire occupé");
+            return Ok(());
+        }
+
+        // Vérifier les dépendances de données
+        if let Some(decoded) = &self.execute_state.decoded {
+            if self.check_data_hazards(decoded, registers) {
+                self.stats.stalls += 1;
+                println!("Execute - Stall dû aux dépendances de données");
+                return Ok(());
+            }
+        }
+
+        let decoded = self.execute_state.decoded.clone();
+
+        if let Some(decoded) = &decoded {
+            println!("Execute - Début exécution: {:?}", decoded);
+
+            // Exécuter l'instruction avec forwarding
+            let result = match decoded {
+                DecodedInstruction::Memory(MemoryOp::Store { reg, .. }) => {
+                    // Utiliser le forwarding pour Store
+                    let value = self.try_forward_value(*reg)
+                        .unwrap_or_else(|| registers.read_register(*reg).unwrap() as i64);
+
+                    println!("Execute - Store: forwarding/registre valeur {} depuis {:?}", value, reg);
+
+                    ExecutionResult {
+                        value,
+                        flags: StatusFlags::default(),
+                    }
+                },
+                DecodedInstruction::Memory(MemoryOp::Load { reg, addr }) => {
+                    println!("Execute - Load depuis l'adresse {:?}", addr);
+                    ExecutionResult::default()
+                },
+                _ => self.execute_with_forwarding(decoded, registers)?,
+            };
+
+            // Mettre à jour les résultats
+            self.execute_state.result = Some(result);
+
+            // Déterminer le registre destination
+            self.execute_state.destination = match decoded {
+                DecodedInstruction::Arithmetic(op) => match op {
+                    ArithmeticOp::Add { dest, .. } => Some(*dest),
+                    ArithmeticOp::Sub { dest, .. } => Some(*dest),
+                    ArithmeticOp::Mul { dest, .. } => Some(*dest),
+                    ArithmeticOp::Div { dest, .. } => Some(*dest),
+                },
+                DecodedInstruction::Memory(op) => match op {
+                    MemoryOp::LoadImm { reg, .. } => Some(*reg),
+                    MemoryOp::Load { reg, .. } => Some(*reg),
+                    MemoryOp::Store { .. } => None,
+                    MemoryOp::Move { dest, .. } => Some(*dest),
+                },
+                _ => None,
+            };
+
+            self.stats.instructions_executed += 1;
+        }
+
+        // Propager l'état
+        self.memory_state = self.execute_state.clone();
+        self.execute_state = PipelineState::default();
+        Ok(())
+    }
+
 
     /// Étage Memory: Accès mémoire
     fn memory_stage(&mut self, memory: &mut MemoryController) -> VMResult<()> {
@@ -439,6 +460,8 @@ impl Pipeline {
                     if let Some(result) = &self.memory_state.result {
                         println!("Memory - Store: écriture de {} à l'adresse {:?}", result.value, addr);
                         memory.write(addr.0, result.value as u64)?;
+                        // Nettoyer le hazard après l'écriture
+                        self.hazard_unit.clear_hazards();
                     }
                 },
                 DecodedInstruction::Memory(MemoryOp::Load { reg, addr }) => {
@@ -448,13 +471,18 @@ impl Pipeline {
                         value: value as i64,
                         flags: StatusFlags::default(),
                     });
+                    // Nettoyer le hazard après la lecture
+                    self.hazard_unit.clear_hazards();
                 },
                 _ => {}
             }
         }
 
+
+
         self.writeback_state = self.memory_state.clone();
         self.memory_state = PipelineState::default();
+
         Ok(())
     }
 
@@ -979,6 +1007,28 @@ impl Pipeline {
 
             // Implémenter les autres opérations arithmétiques de manière similaire
             _ => Ok(ExecutionResult::default())
+        }
+    }
+
+
+
+    fn check_data_hazards(&self, decoded: &DecodedInstruction, registers: &RegisterBank) -> bool {
+        match decoded {
+            DecodedInstruction::Arithmetic(op) => {
+                match op {
+                    ArithmeticOp::Add { src1, src2, .. } |
+                    ArithmeticOp::Sub { src1, src2, .. } |
+                    ArithmeticOp::Mul { src1, src2, .. } |
+                    ArithmeticOp::Div { src1, src2, .. } => {
+                        // Vérifier si les registres sources sont en cours de modification
+                        !self.is_register_ready(*src1) || !self.is_register_ready(*src2)
+                    }
+                }
+            },
+            DecodedInstruction::Memory(MemoryOp::Store { reg, .. }) => {
+                !self.is_register_ready(*reg)
+            },
+            _ => false
         }
     }
 
