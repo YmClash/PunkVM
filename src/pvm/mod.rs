@@ -8,3 +8,4 @@ pub mod vm;
 pub mod caches;
 pub mod pipelines;
 pub mod forwardings;
+pub mod hazards;
