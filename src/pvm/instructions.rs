@@ -5,7 +5,7 @@ pub struct InstructionDecoder;
 
 
 /// Instruction décodée prête à être exécutée
-#[derive(Debug,Copy,Clone)]
+#[derive(Debug,Copy,Clone, PartialEq)]
 pub enum DecodedInstruction {
     Arithmetic(ArithmeticOp),
     Memory(MemoryOp),
@@ -47,7 +47,7 @@ pub enum Instruction{
 }
 
 
-#[derive(Debug, Clone,Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ArithmeticOp {
     Add { dest: RegisterId, src1: RegisterId, src2: RegisterId },
     Sub { dest: RegisterId, src1: RegisterId, src2: RegisterId },
@@ -55,7 +55,7 @@ pub enum ArithmeticOp {
     Div { dest: RegisterId, src1: RegisterId, src2: RegisterId },
 }
 
-#[derive(Debug, Clone,Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum MemoryOp {
     Load { reg: RegisterId, addr: Address },
     Store { reg: RegisterId, addr: Address },
@@ -64,7 +64,7 @@ pub enum MemoryOp {
 }
 
 
-#[derive(Debug, Clone,Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ControlOp {
     Jump { addr: Address },
     JumpIf { condition: RegisterId, addr: Address },
@@ -102,4 +102,79 @@ impl InstructionDecoder {
         // À implémenter
         todo!()
     }
+}
+
+
+impl From<DecodedInstruction> for Instruction {
+    fn from(decoded: DecodedInstruction) -> Self {
+        match decoded {
+            DecodedInstruction::Arithmetic(op) => match op {
+                ArithmeticOp::Add { dest, src1, src2 } => Instruction::Add(dest, src1, src2),
+                ArithmeticOp::Sub { dest, src1, src2 } => Instruction::Sub(dest, src1, src2),
+                ArithmeticOp::Mul { dest, src1, src2 } => Instruction::Mul(dest, src1, src2),
+                ArithmeticOp::Div { dest, src1, src2 } => Instruction::Div(dest, src1, src2),
+            },
+            DecodedInstruction::Memory(op) => match op {
+                MemoryOp::LoadImm { reg, value } => Instruction::LoadImm(reg, value),
+                MemoryOp::Load { reg, addr } => Instruction::Load(reg, addr),
+                MemoryOp::Store { reg, addr } => Instruction::Store(reg, addr),
+                MemoryOp::Move { dest, src } => Instruction::Move(dest, src),
+            },
+            DecodedInstruction::Control(op) => match op {
+                ControlOp::Jump { addr } => Instruction::Jump(addr),
+                ControlOp::JumpIf { condition, addr } => Instruction::JumpIf(condition, addr),
+                ControlOp::Call { addr } => Instruction::Call(addr),
+                ControlOp::Return => Instruction::Return,
+                ControlOp::Halt => Instruction::Halt,
+                ControlOp::Nop => Instruction::Nop,
+            },
+        }
+    }
+}
+
+
+// Optionnellement, on peut aussi implémenter From<Instruction> pour DecodedInstruction
+impl From<Instruction> for DecodedInstruction {
+    fn from(instruction: Instruction) -> Self {
+        match instruction {
+            Instruction::Add(dest, src1, src2) =>
+                DecodedInstruction::Arithmetic(ArithmeticOp::Add { dest, src1, src2 }),
+            Instruction::Sub(dest, src1, src2) =>
+                DecodedInstruction::Arithmetic(ArithmeticOp::Sub { dest, src1, src2 }),
+            Instruction::Mul(dest, src1, src2) =>
+                DecodedInstruction::Arithmetic(ArithmeticOp::Mul { dest, src1, src2 }),
+            Instruction::Div(dest, src1, src2) =>
+                DecodedInstruction::Arithmetic(ArithmeticOp::Div { dest, src1, src2 }),
+            Instruction::Load(reg, addr) =>
+                DecodedInstruction::Memory(MemoryOp::Load { reg, addr }),
+            Instruction::Store(reg, addr) =>
+                DecodedInstruction::Memory(MemoryOp::Store { reg, addr }),
+            Instruction::Move(dest, src) =>
+                DecodedInstruction::Memory(MemoryOp::Move { dest, src }),
+            Instruction::LoadImm(reg, value) =>
+                DecodedInstruction::Memory(MemoryOp::LoadImm { reg, value }),
+            Instruction::Jump(addr) =>
+                DecodedInstruction::Control(ControlOp::Jump { addr }),
+            Instruction::JumpIf(condition, addr) =>
+                DecodedInstruction::Control(ControlOp::JumpIf { condition, addr }),
+            Instruction::Call(addr) =>
+                DecodedInstruction::Control(ControlOp::Call { addr }),
+            Instruction::Return =>
+                DecodedInstruction::Control(ControlOp::Return),
+            Instruction::Halt =>
+                DecodedInstruction::Control(ControlOp::Halt),
+            Instruction::Nop =>
+                DecodedInstruction::Control(ControlOp::Nop),
+        }
+    }
+}
+
+
+#[test]
+fn test_instruction_conversion() {
+    let original = Instruction::Add(RegisterId(0), RegisterId(1), RegisterId(2));
+    let original_clone = original.clone(); // Clone l'instruction originale
+    let decoded: DecodedInstruction = original.into();
+    let back: Instruction = decoded.into();
+    assert_eq!(original_clone, back);
 }
