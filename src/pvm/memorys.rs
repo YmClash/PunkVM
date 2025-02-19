@@ -1,5 +1,13 @@
-use crate::pvm::caches::{Cache, CacheStatistics, CacheStats};
+use std::collections::HashMap;
+use crate::pvm::caches::{Cache, CacheStatistics};
 use crate::pvm::vm_errors::{VMError, VMResult};
+
+
+
+pub struct Memory{
+    data: HashMap<u64, u64>,
+}
+
 
 /// Contrôleur de mémoire
 pub struct MemoryController {
@@ -7,6 +15,40 @@ pub struct MemoryController {
     pub cache: Cache,
 }
 
+
+///implémentation de Memory
+
+impl Memory{
+
+    pub fn new() -> Self {
+        Self {
+            data: HashMap::new(),
+        }
+    }
+
+    pub fn read(&self, addr: u64) -> Result<u64, VMError> {
+        self.data
+            .get(&addr)
+            .copied()
+            .ok_or(VMError::MemoryError(format!("Address {} not found", addr)))
+    }
+
+    pub fn write(&mut self, addr:u64,value:u64) {
+        self.data.insert(addr, value);
+    }
+
+    pub fn clear(&mut self) {
+        self.data.clear();
+    }
+
+}
+
+
+
+
+
+
+/// implémentation de MemoryController
 impl MemoryController{
     pub fn new(memory_size: usize, cache_size: usize) -> VMResult<Self> {
         Ok(Self {
@@ -116,6 +158,28 @@ mod tests {
             assert_eq!(memory.read(addr).unwrap(), addr as u64);
         }
     }
+
+    #[test]
+    fn test_memory_operations() {
+        let mut memory = Memory::new();
+
+        // Test write and read
+        memory.write(0x1000, 42);
+        assert_eq!(memory.read(0x1000).unwrap(), 42);
+
+        // Test reading non-existent address
+        assert!(memory.read(0x2000).is_err());
+
+        // Test overwriting
+        memory.write(0x1000, 84);
+        assert_eq!(memory.read(0x1000).unwrap(), 84);
+
+        // Test clear
+        memory.clear();
+        assert!(memory.read(0x1000).is_err());
+    }
+
+
 
     // #[test]
     // fn test_cache_statistics() {
