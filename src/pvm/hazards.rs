@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use crate::pvm::instructions::{Address, ArithmeticOp, DecodedInstruction, Instruction, MemoryOp, RegisterId};
 use crate::pvm::pipelines::PipelineStage;
 use crate::pvm::registers::RegisterBank;
@@ -29,6 +30,24 @@ pub enum HazardType {
     DataDependency,
 }
 
+#[derive(Debug,Clone,Copy)]
+pub enum HazardResult{
+    None,
+    StoreLoad,
+    LoadUse,
+    DataDependency,
+}
+
+
+pub struct OptimizedHazardUnit {
+    // Utiliser des bitsets pour une détection plus rapide
+    pub hazard_bitmap: u64,
+    pub load_target: Option<(RegisterId, Address)>,
+    pub store_address: Option<Address>,
+    // Cache des derniers hazards pour éviter les recalculs
+    pub hazard_cache: HashMap<RegisterId, HazardType>,
+}
+
 
 impl HazardUnit {
     pub fn new() -> Self {
@@ -43,48 +62,45 @@ impl HazardUnit {
 
     // Vérifie les hazards pour une instruction décodée
 
-    pub fn check_hazards(&mut self, instruction: &Instruction, registers: &RegisterBank) -> bool {
+    pub fn check_hazards(&mut self, instruction: &Instruction, registers: &RegisterBank) -> HazardResult {
         match instruction {
             Instruction::Load(reg, addr) => {
                 // Vérifier Store-Load hazard
                 if let Some(store_addr) = self.store_address {
                     if store_addr == *addr {
                         println!("Store-Load hazard détecté sur l'adresse {:?}", addr);
-                        // Stall un cycle mais nettoyer le store_address
                         self.store_address = None;
-                        return true;
+                        return HazardResult::StoreLoad;
                     }
                 }
                 self.load_target = Some((*reg, *addr));
-                false
+                HazardResult::None
             },
             Instruction::Store(reg, addr) => {
                 self.store_address = Some(*addr);
                 // Vérifier si le registre source est en attente d'un Load
                 if let Some((target_reg, _)) = self.load_target {
                     if target_reg == *reg {
-                        return true;
+                        println!("Load-Store hazard détecté sur le registre {:?}", reg);
+                        return HazardResult::LoadUse;
                     }
                 }
-                false
+                HazardResult::None
             },
-            _ => {
-                // Pour les autres instructions, vérifier les dépendances avec les loads
+            Instruction::Add(_, src1, src2) |
+            Instruction::Sub(_, src1, src2) |
+            Instruction::Mul(_, src1, src2) |
+            Instruction::Div(_, src1, src2) => {
+                // Vérifier les dépendances avec les loads
                 if let Some((target_reg, _)) = self.load_target {
-                    match instruction {
-                        Instruction::Add(_, src1, src2) |
-                        Instruction::Sub(_, src1, src2) |
-                        Instruction::Mul(_, src1, src2) |
-                        Instruction::Div(_, src1, src2) => {
-                            if *src1 == target_reg || *src2 == target_reg {
-                                return true;
-                            }
-                        },
-                        _ => {}
+                    if *src1 == target_reg || *src2 == target_reg {
+                        println!("Data dependency hazard détecté");
+                        return HazardResult::DataDependency;
                     }
                 }
-                false
-            }
+                HazardResult::None
+            },
+            _ => HazardResult::None
         }
     }
 
