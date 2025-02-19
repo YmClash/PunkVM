@@ -2,19 +2,66 @@ use crate::pvm::instructions::{Address, ArithmeticOp, ControlOp, DecodedInstruct
 use crate::pvm::vm_errors::{VMError, VMResult};
 
 use std::collections::VecDeque;
-use std::collections::HashMap;
+use crate::pvm::buffers::{BypassBuffer, FetchBuffer, StoreOperation};
 use crate::pvm::caches::CacheStatistics;
-use crate::pvm::memorys::MemoryController;
+use crate::pvm::memorys::{Memory, MemoryController};
 use crate::pvm::registers::RegisterBank;
 use crate::pvm::forwardings::ForwardingSource;
 use crate::pvm::forwardings::ForwardingUnit;
-use crate::pvm::hazards::HazardUnit;
+use crate::pvm::hazards::{HazardResult, HazardType, HazardUnit};
+use crate::pvm::metrics::PipelineMetrics;
 
 /// Pipeline d'exécution
 // pub struct Pipeline {
 //     stages: Vec<Stage>,
 //     stalled: bool,
 // }
+
+
+/// Pipeline complet
+// #[derive(Debug)]
+pub struct Pipeline {
+    // États des différents étages
+    pub fetch_state: PipelineState,
+    pub decode_state: PipelineState,
+    pub execute_state: PipelineState,
+    pub memory_state: PipelineState,
+    pub writeback_state: PipelineState,
+
+    // Buffer d'instructions
+    pub instruction_buffer: VecDeque<Instruction>,
+
+    // Détection de hazards
+    pub hazard_unit: HazardUnit,
+
+    // Forwarding
+    pub forwarding_unit: ForwardingUnit,
+
+    // Statistiques
+    pub stats: PipelineStats,
+
+    // Métriques
+    pub metrics: PipelineMetrics,
+
+    // Nouveaux champs pour le suivi des métriques
+    pub current_hazard: Option<HazardType>,
+    pub forwarding_attempted: bool,
+    pub forwarding_successful: bool,
+    pub memory_access_in_progress: bool,
+    pub cache_hit: bool,
+
+    pub fetch_buffer: FetchBuffer,
+
+
+    pub bypass_buffer: BypassBuffer,
+    pub pending_stores: VecDeque<StoreOperation>,
+    pub memory: Memory,
+
+
+
+
+
+}
 
 #[derive(Debug)]
 enum Stage {
@@ -28,11 +75,11 @@ enum Stage {
 /// État d'une instruction dans le pipeline
 #[derive(Debug, Clone)]
 pub struct PipelineState {
-    instruction: Option<Instruction>,
-    decoded: Option<DecodedInstruction>,
-    result: Option<ExecutionResult>,
-    memory_result: Option<MemoryResult>,
-    destination: Option<RegisterId>,
+    pub instruction: Option<Instruction>,
+    pub decoded: Option<DecodedInstruction>,
+    pub result: Option<ExecutionResult>,
+    pub memory_result: Option<MemoryResult>,
+    pub destination: Option<RegisterId>,
 }
 
 
@@ -77,22 +124,6 @@ impl Default for ExecutionResult {
     }
 }
 
-// pub struct HazardUnit {
-//     pub last_write_registers: Vec<RegisterId>,
-// }
-//
-// impl HazardUnit {
-//     pub fn new() -> Self {
-//         Self {
-//             last_write_registers: Vec::new(),
-//         }
-//     }
-//
-//     pub fn check_hazards(&self, instruction: &Instruction, registers: &RegisterBank) -> bool {
-//         false // Implémentation basique pour commencer
-//     }
-// }
-
 #[derive(Default, Debug, Clone)]
 pub struct PipelineStats {
     pub cycles: usize,
@@ -114,28 +145,6 @@ pub struct DetailedStats {
 }
 
 
-/// Pipeline complet
-// #[derive(Debug)]
-pub struct Pipeline {
-    // États des différents étages
-    pub fetch_state: PipelineState,
-    pub decode_state: PipelineState,
-    pub execute_state: PipelineState,
-    pub memory_state: PipelineState,
-    pub writeback_state: PipelineState,
-
-    // Buffer d'instructions
-    pub instruction_buffer: VecDeque<Instruction>,
-
-    // Détection de hazards
-    pub hazard_unit: HazardUnit,
-
-    // Forwarding
-    pub forwarding_unit: ForwardingUnit,
-
-    // Statistiques
-    pub stats: PipelineStats,
-}
 
 #[derive(Clone, Debug)]
 pub struct RegisterDependency {
@@ -152,11 +161,6 @@ pub enum PipelineStage {
 
 
 
-
-
-
-
-
 impl Default for PipelineState {
     fn default() -> Self {
         Self {
@@ -168,6 +172,22 @@ impl Default for PipelineState {
         }
     }
 }
+
+// Les structs d'état à implémenter
+#[derive(Default)]
+pub struct FetchState {}
+
+#[derive(Default)]
+pub struct DecodeState {}
+
+#[derive(Default)]
+pub struct ExecuteState {}
+
+#[derive(Default)]
+pub struct MemoryState {}
+
+#[derive(Default)]
+pub struct WritebackState {}
 
 
 
@@ -185,6 +205,22 @@ impl Pipeline {
             hazard_unit: HazardUnit::new(),
             forwarding_unit: ForwardingUnit::new(),
             stats: PipelineStats::default(),
+            metrics: PipelineMetrics::default(),
+
+            current_hazard: None,
+            forwarding_attempted: false,
+            forwarding_successful: false,
+            memory_access_in_progress: false,
+            cache_hit: false,
+            fetch_buffer: FetchBuffer::new(4), // buffer de taille 4
+
+
+
+            bypass_buffer: BypassBuffer::new(32), // Taille du bypass buffer
+            pending_stores: VecDeque::new(),
+            memory: Memory::new(),
+
+
         }
     }
     pub fn load_instructions(&mut self, program: Vec<Instruction>) -> VMResult<()> {
@@ -213,55 +249,56 @@ impl Pipeline {
 
 
     /// Exécute un cycle complet du pipeline
-    // pub fn cycle(
-    //     &mut self,
-    //     registers: &mut RegisterBank,
-    //     memory: &mut MemoryController,
-    // ) -> VMResult<()> {
-    //     // Mise à jour des statistiques
-    //     self.stats.cycles += 1;
-    //
-    //     // Exécution des étages dans l'ordre inverse pour éviter les conflits
-    //     self.writeback_stage(registers)?;
-    //     self.memory_stage(memory)?;
-    //     self.execute_stage()?;
-    //     self.decode_stage(registers)?;
-    //     self.fetch_stage()?;
-    //
-    //     Ok(())
-    // }
-
     pub fn cycle(
         &mut self,
         registers: &mut RegisterBank,
         memory: &mut MemoryController,
     ) -> VMResult<()> {
+        self.update_stage_metrics();
         self.stats.cycles += 1;
+        self.metrics.total_cycles += 1;
 
-        if let Err(e) = self.writeback_stage(registers) {
-            println!("Erreur dans l'étage Writeback: {:?}", e);
-            return Err(e);
+        // Mise à jour des métriques avant l'exécution des étages
+        if self.writeback_state.result.is_some() {
+            self.metrics.total_instructions += 1;
         }
 
-        if let Err(e) = self.memory_stage(memory) {
-            println!("Erreur dans l'étage Memory: {:?}", e);
-            return Err(e);
-        }
+        // if let Err(e) = self.writeback_stage(registers) {
+        //     println!("Erreur dans l'étage Writeback: {:?}", e);
+        //     return Err(e);
+        // }
+        //
+        // if let Err(e) = self.memory_stage(memory) {
+        //     println!("Erreur dans l'étage Memory: {:?}", e);
+        //     return Err(e);
+        // }
+        //
+        // if let Err(e) = self.execute_stage(registers) {  // Ajout du paramètre registers
+        //     println!("Erreur dans l'étage Execute: {:?}", e);
+        //     return Err(e);
+        // }
+        //
+        // if let Err(e) = self.decode_stage(registers) {
+        //     println!("Erreur dans l'étage Decode: {:?}", e);
+        //     return Err(e);
+        // }
+        //
+        // if let Err(e) = self.fetch_stage() {
+        //     println!("Erreur dans l'étage Fetch: {:?}", e);
+        //     return Err(e);
+        // }
 
-        if let Err(e) = self.execute_stage(registers) {  // Ajout du paramètre registers
-            println!("Erreur dans l'étage Execute: {:?}", e);
-            return Err(e);
-        }
+        self.update_stage_metrics();
 
-        if let Err(e) = self.decode_stage(registers) {
-            println!("Erreur dans l'étage Decode: {:?}", e);
-            return Err(e);
-        }
+        self.writeback_stage(registers)?;
+        self.memory_stage(memory)?;
+        self.execute_stage(registers)?;
+        self.decode_stage(registers)?;
+        self.fetch_stage()?;
 
-        if let Err(e) = self.fetch_stage() {
-            println!("Erreur dans l'étage Fetch: {:?}", e);
-            return Err(e);
-        }
+        // Mise à jour des métriques après l'ex
+
+
 
         Ok(())
     }
@@ -288,35 +325,98 @@ impl Pipeline {
     }
 
     /// Étage Decode: Décodage de l'instruction
+    // fn decode_stage(&mut self, registers: &RegisterBank) -> VMResult<()> {
+    //
+    //     if self.execute_state.decoded.is_some() {
+    //         self.stats.stalls += 1;
+    //         return Ok(());
+    //     }
+    //
+    //     if let Some(instruction) = &self.decode_state.instruction {
+    //         println!("Décodage de l'instruction: {:?}", instruction);
+    //
+    //         // Vérifier les hazards avec l'instruction non décodée
+    //         if self.hazard_unit.check_hazards(instruction, registers) {
+    //             self.stats.hazards += 1;
+    //             self.stats.stalls += 1;
+    //             return Ok(());
+    //         }
+    //
+    //         match self.decode_instruction(instruction) {
+    //             Ok(decoded) => {
+    //                 println!("Instruction décodée avec succès: {:?}", decoded);
+    //                 self.decode_state.decoded = Some(decoded);
+    //                 self.stats.instructions_decoded += 1;
+    //             }
+    //             Err(e) => {
+    //                 println!("Erreur lors du décodage: {:?}", e);
+    //                 return Err(e);
+    //             }
+    //         }
+    //     }
+    //
+    //     self.execute_state = self.decode_state.clone();
+    //     self.decode_state = PipelineState::default();
+    //
+    //     Ok(())
+    // }
+
+
     fn decode_stage(&mut self, registers: &RegisterBank) -> VMResult<()> {
+        // Vérifier si l'étage d'exécution est occupé
         if self.execute_state.decoded.is_some() {
             self.stats.stalls += 1;
             return Ok(());
         }
 
+        // Traiter l'instruction si présente
         if let Some(instruction) = &self.decode_state.instruction {
             println!("Décodage de l'instruction: {:?}", instruction);
 
-            // Vérifier les hazards avec l'instruction non décodée
-            if self.hazard_unit.check_hazards(instruction, registers) {
-                self.stats.hazards += 1;
-                self.stats.stalls += 1;
-                return Ok(());
-            }
-
-            match self.decode_instruction(instruction) {
-                Ok(decoded) => {
-                    println!("Instruction décodée avec succès: {:?}", decoded);
-                    self.decode_state.decoded = Some(decoded);
-                    self.stats.instructions_decoded += 1;
-                }
-                Err(e) => {
-                    println!("Erreur lors du décodage: {:?}", e);
-                    return Err(e);
+            // Vérifier les hazards avec le nouveau système de résultat
+            match self.hazard_unit.check_hazards(instruction, registers) {
+                HazardResult::None => {
+                    // Pas de hazard, continuer le décodage normal
+                    match self.decode_instruction(instruction) {
+                        Ok(decoded) => {
+                            println!("Instruction décodée avec succès: {:?}", decoded);
+                            self.decode_state.decoded = Some(decoded);
+                            self.stats.instructions_decoded += 1;
+                        }
+                        Err(e) => {
+                            println!("Erreur lors du décodage: {:?}", e);
+                            return Err(e);
+                        }
+                    }
+                },
+                HazardResult::StoreLoad => {
+                    println!("Gestion du Store-Load hazard");
+                    self.stats.hazards += 1;
+                    self.metrics.hazard_metrics.total_hazards += 1;
+                    self.metrics.hazard_metrics.store_load_hazards += 1;
+                    self.stats.stalls += 1;
+                    return Ok(());
+                },
+                HazardResult::LoadUse => {
+                    println!("Gestion du Load-Use hazard");
+                    self.stats.hazards += 1;
+                    self.metrics.hazard_metrics.total_hazards += 1;
+                    self.metrics.hazard_metrics.load_use_hazards += 1;
+                    self.stats.stalls += 1;
+                    return Ok(());
+                },
+                HazardResult::DataDependency => {
+                    println!("Gestion de la dépendance de données");
+                    self.stats.hazards += 1;
+                    self.metrics.hazard_metrics.total_hazards += 1;
+                    self.metrics.hazard_metrics.data_hazards += 1;
+                    self.stats.stalls += 1;
+                    return Ok(());
                 }
             }
         }
 
+        // Avancer l'état vers l'étage suivant
         self.execute_state = self.decode_state.clone();
         self.decode_state = PipelineState::default();
 
@@ -324,62 +424,22 @@ impl Pipeline {
     }
 
     /// Exécute une instruction avec support du forwarding
-    // fn execute_stage(&mut self, registers: &RegisterBank) -> VMResult<()> {
-    //     if self.memory_state.result.is_some() {
-    //         self.stats.stalls += 1;
-    //         println!("Execute - Stall dû à l'étage mémoire occupé");
-    //         return Ok(());
-    //     }
-    //
-    //     let decoded = self.execute_state.decoded.clone();
-    //
-    //     if let Some(decoded) = &decoded {
-    //         println!("Execute - Début exécution: {:?}", decoded);
-    //
-    //         // Déterminer le registre destination
-    //         self.execute_state.destination = match decoded {
-    //             DecodedInstruction::Arithmetic(op) => match op {
-    //                 ArithmeticOp::Add { dest, .. } => Some(*dest),
-    //                 ArithmeticOp::Sub { dest, .. } => Some(*dest),
-    //                 ArithmeticOp::Mul { dest, .. } => Some(*dest),
-    //                 ArithmeticOp::Div { dest, .. } => Some(*dest),
-    //             },
-    //             DecodedInstruction::Memory(op) => match op {
-    //                 MemoryOp::LoadImm { reg, .. } => Some(*reg),
-    //                 MemoryOp::Load { reg, .. } => Some(*reg),
-    //                 MemoryOp::Store { .. } => None,
-    //                 MemoryOp::Move { dest, .. } => Some(*dest),
-    //             },
-    //             DecodedInstruction::Control(_) => None,
-    //         };
-    //
-    //         // Exécuter l'instruction avec forwarding
-    //         self.execute_state.result = Some(match decoded {
-    //             DecodedInstruction::Memory(MemoryOp::Store { reg, .. }) => {
-    //                 // Utiliser le forwarding ou lire le registre
-    //                 let value = self.try_forward_value(*reg)
-    //                     .unwrap_or_else(|| registers.read_register(*reg).unwrap() as i64);
-    //
-    //                 println!("Execute - Store: forwarding/registre valeur {} depuis {:?}", value, reg);
-    //
-    //                 ExecutionResult {
-    //                     value,
-    //                     flags: StatusFlags::default(),
-    //                 }
-    //             },
-    //             _ => self.execute_with_forwarding(decoded, registers)?,
-    //         });
-    //
-    //         println!("Execute - Résultat: {:?}", self.execute_state.result);
-    //         self.stats.instructions_executed += 1;
-    //     }
-    //
-    //     self.memory_state = self.execute_state.clone();
-    //     self.execute_state = PipelineState::default();
-    //     Ok(())
-    // }
-
     fn execute_stage(&mut self, registers: &RegisterBank) -> VMResult<()> {
+
+        //execute_stage pour mettre à jour les métriques de forwarding
+        if let Some(decoded) = &self.execute_state.decoded {
+            // Vérifier si le forwarding est nécessaire
+            let forwarding_needed = self.needs_forwarding(decoded);
+            if forwarding_needed {
+                self.metrics.forwarding_metrics.total_forwards += 1;
+                // Tenter le forwarding
+                if self.try_forward_value(self.get_source_register(decoded)).is_some() {
+                    self.metrics.forwarding_metrics.successful_forwards += 1;
+                } else {
+                    self.metrics.forwarding_metrics.failed_forwards += 1;
+                }
+            }
+        }
         // Vérifier si l'étage suivant est occupé
         if self.memory_state.result.is_some() {
             self.stats.stalls += 1;
@@ -507,7 +567,7 @@ impl Pipeline {
     }
 
     /// Décode une instruction
-    fn decode_instruction(&self, instruction: &Instruction) -> VMResult<DecodedInstruction> {
+    pub fn decode_instruction(&self, instruction: &Instruction) -> VMResult<DecodedInstruction> {
         match instruction {
             // Instructions arithmétiques
             Instruction::Add(dest, src1, src2) => Ok(DecodedInstruction::Arithmetic(
@@ -779,7 +839,7 @@ impl Pipeline {
             _ => false,
         }
     }
-    fn is_register_ready(&self, reg: RegisterId) -> bool {
+    pub fn is_register_ready(&self, reg: RegisterId) -> bool {
         // Vérifier si le registre n'est pas en train d'être modifié dans les étages précédents
         !self.memory_state.destination.map_or(false, |dest| dest == reg) &&
             !self.execute_state.destination.map_or(false, |dest| dest == reg)
@@ -787,7 +847,7 @@ impl Pipeline {
 
     /// Vérifie si une valeur peut être forwardée pour un registre
     pub fn try_forward_value(&self, reg: RegisterId) -> Option<i64> {
-        self.forwarding_unit.get_forwarded_value(reg)
+        self.forwarding_unit.get_forwarded_value_optimized(reg)
     }
 
     /// Met à jour le forwarding après l'exécution
@@ -1032,6 +1092,61 @@ impl Pipeline {
         }
     }
 
+    fn optimize_execute_stage(&mut self, registers: &RegisterBank) -> VMResult<()> {
+        // Early exit if no work to do
+        if self.execute_state.decoded.is_none() {
+            return Ok(());
+        }
+
+        // Copier les données nécessaires pour éviter le double emprunt
+        let decoded = self.execute_state.decoded.clone();
+
+        if let Some(ref decoded) = decoded {
+            if !self.needs_hazard_check(decoded) {
+                // Clone la partie nécessaire pour l'exécution rapide
+                let fast_path_result = self.execute_fast_path_impl(decoded, registers)?;
+                self.execute_state.result = Some(fast_path_result);
+                return Ok(());
+            }
+        }
+
+        // Normal execution path
+        // path normal d'exéc
+        self.execute_stage(registers)
+    }
+
+    fn needs_hazard_check(&self, decoded: &DecodedInstruction) -> bool {
+        matches!(decoded,
+            DecodedInstruction::Memory(_) |
+            DecodedInstruction::Arithmetic(ArithmeticOp::Add { .. })
+        )
+    }
+
+
+
+    // Nouvelle méthode qui implémente la logique d'exécution rapide
+    fn execute_fast_path_impl(&self, decoded: &DecodedInstruction, registers: &RegisterBank) -> VMResult<ExecutionResult> {
+        // Implémentation de l'exécution rapide
+        match decoded {
+            DecodedInstruction::Arithmetic(op) => {
+                // Logique pour les opérations arithmétiques simples
+                self.execute_arithmetic(op)
+            }
+            // Autres cas...
+            _ => Ok(ExecutionResult::default())
+        }
+    }
+
+    // Garde la méthode originale execute_fast_path mais délègue à impl
+    fn execute_fast_path(&mut self, decoded: &DecodedInstruction, registers: &RegisterBank) -> VMResult<()> {
+        let result = self.execute_fast_path_impl(decoded, registers)?;
+        self.execute_state.result = Some(result);
+        Ok(())
+    }
+
+
+
+
 }
 
 
@@ -1202,4 +1317,30 @@ mod tests {
         println!("Pipeline terminé en {} cycles avec {} stalls",
                  cycles, pipeline.stats.stalls);
     }
+
+
+    // #[test]
+    // fn test_pipeline_performance_optimized() {
+    //     let (mut pipeline, mut register_bank, mut memory_controller) = setup_test_env();
+    //
+    //     // Programme de test avec mix d'instructions
+    //     let program = create_complex_test_program();
+    //     pipeline.load_instructions(program).unwrap();
+    //
+    //     let mut total_cycles = 0;
+    //     while !pipeline.is_empty().unwrap() {
+    //         pipeline.cycle(&mut register_bank, &mut memory_controller).unwrap();
+    //         total_cycles += 1;
+    //     }
+    //
+    //     println!("Performance Metrics:");
+    //     println!("IPC: {:.2}", pipeline.metrics.ipc);
+    //     println!("Stalls: {}", pipeline.stats.stalls);
+    //     println!("Reorderings: {}", pipeline.metrics.reorder_count);
+    //     println!("Bypass hits: {}", pipeline.metrics.bypass_hits);
+    //
+    //
+    // }
+
+
 }
