@@ -26,7 +26,10 @@ pub struct ForwardingInfo {
 pub struct ForwardingUnit {
     // Table de correspondance entre registres et leurs valeurs forwardées
     pub forward_table: HashMap<RegisterId, ForwardingInfo>,
+    pub last_execution_result: Option<ExecutionResult>,
 }
+
+
 
 
 
@@ -35,6 +38,7 @@ impl ForwardingUnit{
     pub fn new() -> Self {
         Self {
             forward_table: HashMap::new(),
+            last_execution_result: None,
         }
     }
 
@@ -52,8 +56,22 @@ impl ForwardingUnit{
     }
 
     /// Vérifie si une valeur est disponible pour le forwarding
-    pub fn get_forwarded_value(&self, reg: RegisterId) -> Option<i64> {
+    pub fn get_forwarded_value_optimized(&self, reg: RegisterId) -> Option<i64> {
+        // Check fast path first (most recent result)
+        if let Some(recent_value) = self.fast_path_check(reg) {
+            return Some(recent_value);
+        }
+
+        // Then check forwarding table
         self.forward_table.get(&reg).map(|info| info.value)
+    }
+
+    // Modification de la méthode fast_path_check
+    fn fast_path_check(&self, reg: RegisterId) -> Option<i64> {
+        if let Some(info) = self.forward_table.get(&reg) {
+            return Some(info.value);
+        }
+        None
     }
 
     /// Détermine les dépendances de données pour une instruction
@@ -105,7 +123,7 @@ mod tests {
         };
 
         forwarding.register_result(reg, &result, ForwardingSource::Execute);
-        assert_eq!(forwarding.get_forwarded_value(reg), Some(42));
+        assert_eq!(forwarding.get_forwarded_value_optimized(reg), Some(42));
     }
 
     #[test]
@@ -122,8 +140,8 @@ mod tests {
                                    ForwardingSource::Memory);
 
         forwarding.clear_stage(ForwardingSource::Execute);
-        assert_eq!(forwarding.get_forwarded_value(reg1), None);
-        assert_eq!(forwarding.get_forwarded_value(reg2), Some(24));
+        assert_eq!(forwarding.get_forwarded_value_optimized(reg1), None);
+        assert_eq!(forwarding.get_forwarded_value_optimized(reg2), Some(24));
     }
 
     #[test]
