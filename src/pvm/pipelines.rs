@@ -1,15 +1,17 @@
+//src/pvm/cache_configs.rs
+use std::collections::VecDeque;
+use crate::pvm::cache_configs::{CacheConfig, CacheSystem, WritePolicy};
+use crate::pvm::cache_stats::CacheStatistics;
+use crate::pvm::caches::Cache;
 use crate::pvm::instructions::{Address, ArithmeticOp, ControlOp, DecodedInstruction, Instruction, MemoryOp, RegisterId};
 use crate::pvm::vm_errors::{VMError, VMResult};
-
-use std::collections::VecDeque;
 use crate::pvm::buffers::{BypassBuffer, FetchBuffer, StoreOperation};
-use crate::pvm::caches::CacheStatistics;
-use crate::pvm::memorys::{Memory, MemoryController};
+use crate::pvm::memorys::MemoryController;
 use crate::pvm::registers::RegisterBank;
-use crate::pvm::forwardings::ForwardingSource;
-use crate::pvm::forwardings::ForwardingUnit;
+use crate::pvm::forwardings::{ForwardingSource, ForwardingUnit};
 use crate::pvm::hazards::{HazardResult, HazardType, HazardUnit};
 use crate::pvm::metrics::PipelineMetrics;
+
 
 /// Pipeline d'exécution
 // pub struct Pipeline {
@@ -30,19 +32,15 @@ pub struct Pipeline {
 
     // Buffer d'instructions
     pub instruction_buffer: VecDeque<Instruction>,
-
     // Détection de hazards
     pub hazard_unit: HazardUnit,
-
     // Forwarding
     pub forwarding_unit: ForwardingUnit,
 
     // Statistiques
     pub stats: PipelineStats,
-
     // Métriques
     pub metrics: PipelineMetrics,
-
     // Nouveaux champs pour le suivi des métriques
     pub current_hazard: Option<HazardType>,
     pub forwarding_attempted: bool,
@@ -53,12 +51,10 @@ pub struct Pipeline {
     pub fetch_buffer: FetchBuffer,
 
 
+    // Cache et mémoire
+    pub cache_system: CacheSystem,
     pub bypass_buffer: BypassBuffer,
     pub pending_stores: VecDeque<StoreOperation>,
-    pub memory: Memory,
-
-
-
 
 
 }
@@ -71,6 +67,8 @@ enum Stage {
     Memory,
     Writeback,
 }
+
+
 
 /// État d'une instruction dans le pipeline
 #[derive(Debug, Clone)]
@@ -216,9 +214,10 @@ impl Pipeline {
 
 
 
-            bypass_buffer: BypassBuffer::new(32), // Taille du bypass buffer
-            pending_stores: VecDeque::new(),
-            memory: Memory::new(),
+            // Initialisation du système de cache
+            cache_system: CacheSystem::new(),
+            bypass_buffer: BypassBuffer::new(32),
+            pending_stores: VecDeque::new()
 
 
         }
@@ -512,39 +511,79 @@ impl Pipeline {
     }
 
 
-    /// Étage Memory: Accès mémoire
+    /// Modifications du memory_stage pour utiliser le cache
     fn memory_stage(&mut self, memory: &mut MemoryController) -> VMResult<()> {
         if let Some(decoded) = &self.memory_state.decoded {
             match decoded {
                 DecodedInstruction::Memory(MemoryOp::Store { reg, addr }) => {
                     if let Some(result) = &self.memory_state.result {
                         println!("Memory - Store: écriture de {} à l'adresse {:?}", result.value, addr);
-                        memory.write(addr.0, result.value as u64)?;
-                        // Nettoyer le hazard après l'écriture
+
+                        // Utiliser d'abord le bypass buffer
+                        self.bypass_buffer.push_bypass(addr.0, result.value as u64);
+
+                        // Écrire dans le cache
+                        self.cache_system.write(addr.0, result.value as u64)?;
+
                         self.hazard_unit.clear_hazards();
                     }
                 },
                 DecodedInstruction::Memory(MemoryOp::Load { reg, addr }) => {
-                    let value = memory.read(addr.0)?;
-                    println!("Memory - Load: lecture de {} depuis l'adresse {:?}", value, addr);
-                    self.memory_state.result = Some(ExecutionResult {
-                        value: value as i64,
-                        flags: StatusFlags::default(),
-                    });
-                    // Nettoyer le hazard après la lecture
+                    // Vérifier d'abord le bypass buffer
+                    if let Some(value) = self.bypass_buffer.try_bypass(addr.0) {
+                        self.cache_hit = true;
+                        println!("Memory - Load: lecture de {} depuis le bypass buffer", value);
+                        self.memory_state.result = Some(ExecutionResult {
+                            value: value as i64,
+                            flags: StatusFlags::default(),
+                        });
+                    } else {
+                        // Essayer de lire depuis le cache
+                        match self.cache_system.read(addr.0) {
+                            Ok(value) => {
+                                self.cache_hit = true;
+                                println!("Memory - Load: lecture de {} depuis le cache", value);
+                                self.memory_state.result = Some(ExecutionResult {
+                                    value: value as i64,
+                                    flags: StatusFlags::default(),
+                                });
+                            },
+                            Err(_) => {
+                                // Cache miss, lire depuis la mémoire
+                                self.cache_hit = false;
+                                let value = memory.read(addr.0)?;
+                                println!("Memory - Load: lecture de {} depuis la mémoire", value);
+                                self.memory_state.result = Some(ExecutionResult {
+                                    value: value as i64,
+                                    flags: StatusFlags::default(),
+                                });
+                            }
+                        }
+                    }
                     self.hazard_unit.clear_hazards();
                 },
                 _ => {}
             }
         }
 
-
-
         self.writeback_state = self.memory_state.clone();
         self.memory_state = PipelineState::default();
 
         Ok(())
     }
+
+    // Ajout de méthodes pour la gestion du cache
+    pub fn get_cache_statistics(&self) -> String {
+        self.cache_system.get_statistics()
+    }
+
+    pub fn flush_caches(&mut self) -> VMResult<()> {
+        self.cache_system.reset()?;
+        self.bypass_buffer = BypassBuffer::new(32);
+        self.pending_stores.clear();
+        Ok(())
+    }
+
 
     /// Étage Writeback: Écriture des résultats
     fn writeback_stage(&mut self, registers: &mut RegisterBank) -> VMResult<()> {
