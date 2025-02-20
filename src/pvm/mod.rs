@@ -12,4 +12,11 @@ pub mod hazards;
 pub mod metrics;
 pub mod buffers;
 pub mod optimizings;
-mod pipeline_errors;
+pub mod pipeline_errors;
+pub mod cache_stats;
+pub mod cache_configs;
+
+// Re-export
+pub use cache_stats::CacheStatistics;
+pub use cache_configs::{CacheConfig, CacheState, WritePolicy, ReplacementPolicy};
+pub use caches::Cache;
