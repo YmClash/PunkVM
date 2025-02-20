@@ -80,54 +80,6 @@ pub struct CacheMetrics {
 
 impl Pipeline {
 
-
-
-
-    // pub fn update_stage_metrics(&mut self) {
-    //     // Mise à jour des métriques générales
-    //     self.metrics.total_cycles += 1;
-    //
-    //     // Mise à jour des métriques de stall
-    //     if self.fetch_state.instruction.is_none() {
-    //         self.metrics.fetch_metrics.stall_cycles += 1;
-    //     } else {
-    //         self.metrics.fetch_metrics.busy_cycles += 1;
-    //     }
-    //
-    //     // Execute stage metrics
-    //     if self.execute_state.decoded.is_some() {
-    //         self.metrics.execute_metrics.busy_cycles += 1;
-    //     }
-    //
-    //     // Memory stage metrics
-    //     if let Some(decoded) = &self.memory_state.decoded {
-    //         match decoded {
-    //             DecodedInstruction::Memory(MemoryOp::Load { .. }) |
-    //             DecodedInstruction::Memory(MemoryOp::Store { .. }) => {
-    //                 self.metrics.memory_metrics.total_accesses += 1;
-    //             }
-    //             _ => {}
-    //         }
-    //     }
-    //
-    //     // Mise à jour des métriques de hazard
-    //     if !self.hazard_unit.last_write_registers.is_empty() {
-    //         self.metrics.hazard_metrics.total_hazards += 1;
-    //     }
-    //
-    //     // Calcul de l'IPC
-    //     if self.metrics.total_cycles > 0 {
-    //         self.metrics.ipc = self.metrics.total_instructions as f64 / self.metrics.total_cycles as f64;
-    //     }
-    //
-    //     // Mise à jour des autres métriques
-    //     self.update_hazard_metrics();
-    //     self.update_forwarding_metrics();
-    //     self.update_memory_metrics();
-    // }
-
-
-
     pub fn update_stage_metrics(&mut self) {
         // Mise à jour des métriques de stage
         if self.fetch_state.instruction.is_none() {
@@ -241,6 +193,22 @@ impl Pipeline {
             _ => RegisterId(0), // Default case
         }
     }
+
+
+    // pub fn get_metrics(&self) -> CacheMetrics {
+    //     CacheMetrics {
+    //         total_accesses: self.statistics.hits + self.statistics.misses,
+    //         reads: self.statistics.hits,
+    //         writes: self.statistics.write_hits + self.statistics.write_misses,
+    //         cache_hits: self.statistics.hits + self.statistics.write_hits,
+    //         cache_misses: self.statistics.misses + self.statistics.write_misses,
+    //         average_access_time: if self.statistics.total_accesses() > 0 {
+    //             self.statistics.hits as f64 / self.statistics.total_accesses() as f64
+    //         } else {
+    //             0.0
+    //         },
+    //     }
+    // }
 
 
 
