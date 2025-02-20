@@ -105,27 +105,37 @@ impl BypassBuffer {
 
 impl Pipeline{
     pub fn execute_load(&mut self, addr: u64) -> Result<u64, PipelineError> {
+        // Vérifier d'abord le bypass buffer
         if let Some(value) = self.bypass_buffer.try_bypass(addr) {
             return Ok(value);
         }
+        // Sinon, essayer le cache
         self.memory_access(addr)
     }
 
     pub fn execute_store(&mut self, addr: u64, value: u64) -> Result<(), PipelineError> {
+        // Mettre à jour le bypass buffer
         self.bypass_buffer.push_bypass(addr, value);
+
+        // Ajouter aux stores en attente
         self.pending_stores.push_back(StoreOperation { addr, value });
         Ok(())
     }
 
     pub fn commit_stores(&mut self) {
         while let Some(store) = self.pending_stores.pop_front() {
-            self.memory.write(store.addr, store.value);
+            // Écrire dans le cache
+            if let Err(e) = self.cache_system.write(store.addr, store.value) {
+                println!("Erreur d'écriture dans le cache: {:?}", e);
+            }
+            // Invalider l'entrée dans le bypass
             self.bypass_buffer.invalidate(store.addr);
         }
     }
 
-    fn memory_access(&self, addr: u64) -> Result<u64, PipelineError> {
-        self.memory.read(addr).map_err(|e| PipelineError::MemoryError(e.to_string()))
+    fn memory_access(&mut self, addr: u64) -> Result<u64, PipelineError> {
+        self.cache_system.read(addr)
+            .map_err(|e| PipelineError::MemoryError(e.to_string()))
     }
 
 
@@ -136,7 +146,6 @@ impl Pipeline{
 // Tests unitaires
 #[cfg(test)]
 mod tests {
-    use crate::pvm::memorys::MemoryController;
     use super::*;
 
     #[test]
@@ -165,28 +174,7 @@ mod tests {
 
         // Test après commit
         pipeline.commit_stores();
-        assert_eq!(pipeline.memory.read(0x2000).unwrap(), 123);
+        // Vérifier dans le cache
+        assert_eq!(pipeline.cache_system.read(0x2000).unwrap(), 123);
     }
-
-    // #[test]
-    // fn test_pipeline_integration() {
-    //     // suppose MemoryController::new(...) existe
-    //     let mut pipeline = Pipeline {
-    //         memory_controller: MemoryController::new(1024, 128).unwrap(),
-    //         bypass_buffer: BypassBuffer::new(4),
-    //         pending_stores: Vec::new(),
-    //     };
-    //
-    //     pipeline.execute_store(0x2000, 123).unwrap();
-    //     // On lit direct dans le bypass
-    //     assert_eq!(pipeline.execute_load(0x2000).unwrap(), 123);
-    //
-    //     // Après le commit, c’est dans la mémoire
-    //     pipeline.commit_stores();
-    //     assert_eq!(
-    //         pipeline.memory_controller.read(0x2000).unwrap(),
-    //         123
-    //     );
-    // }
 }
-
