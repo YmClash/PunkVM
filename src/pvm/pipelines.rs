@@ -106,6 +106,8 @@ impl PipelineState {
 pub struct ExecutionResult {
     pub value: i64,
     pub flags: StatusFlags,
+    pub branch_taken: bool,
+    pub target_address: Option<u64>,
 }
 
 /// Résultat d'opération mémoire
@@ -120,6 +122,7 @@ pub struct StatusFlags {
     pub zero: bool,
     pub negative: bool,
     pub overflow: bool,
+    pub carry: bool,
 }
 
 impl Default for StatusFlags {
@@ -128,6 +131,7 @@ impl Default for StatusFlags {
             zero: false,
             negative: false,
             overflow: false,
+            carry: false,
         }
     }
 }
@@ -138,6 +142,8 @@ impl Default for ExecutionResult {
         Self {
             value: 0,
             flags: StatusFlags::default(),
+            branch_taken: false,
+            target_address: None,
         }
     }
 }
@@ -506,6 +512,8 @@ impl Pipeline {
                     ExecutionResult {
                         value,
                         flags: StatusFlags::default(),
+                        branch_taken: false,
+                        target_address: None,
                     }
                 },
                 DecodedInstruction::Memory(MemoryOp::Load { reg, addr }) => {
@@ -570,6 +578,9 @@ impl Pipeline {
                         self.memory_state.result = Some(ExecutionResult {
                             value: value as i64,
                             flags: StatusFlags::default(),
+                            branch_taken: false,
+                            target_address: None,
+
                         });
                     } else {
                         // Essayer de lire depuis le cache
@@ -580,6 +591,8 @@ impl Pipeline {
                                 self.memory_state.result = Some(ExecutionResult {
                                     value: value as i64,
                                     flags: StatusFlags::default(),
+                                    branch_taken: false,
+                                    target_address: None,
                                 });
                             },
                             Err(_) => {
@@ -590,6 +603,8 @@ impl Pipeline {
                                 self.memory_state.result = Some(ExecutionResult {
                                     value: value as i64,
                                     flags: StatusFlags::default(),
+                                    branch_taken: false,
+                                    target_address: None,
                                 });
                             }
                         }
@@ -689,58 +704,19 @@ impl Pipeline {
             Instruction::Halt => Ok(DecodedInstruction::Control(
                 ControlOp::Halt
             )),
+            // Instruction Compares
+            Instruction::Cmp(src1, src2) => Ok(DecodedInstruction::Compare {
+                src1: *src1,
+                src2: *src2
+            }),
         }
     }
 
-    /// Exécute une instruction décodée
-    // fn execute_instruction(&mut self, decoded: &DecodedInstruction, registers: &RegisterBank) -> VMResult<ExecutionResult> {
-    //     match decoded {
-    //         DecodedInstruction::Arithmetic(op) => match op {
-    //             ArithmeticOp::Add { dest, src1, src2 } => {
-    //                 let val1 = registers.read_register(*src1)?;
-    //                 let val2 = registers.read_register(*src2)?;
-    //                 let result = val1.wrapping_add(val2);
-    //
-    //                 println!("Exécution Add: {} + {} = {}", val1, val2, result);
-    //
-    //                 Ok(ExecutionResult {
-    //                     value: result as i64,
-    //                     flags: StatusFlags {
-    //                         zero: result == 0,
-    //                         negative: (result as i64) < 0,
-    //                         overflow: false,
-    //                     },
-    //                 })
-    //             },
-    //             // Autres opérations arithmétiques similaires...
-    //             _ => Ok(ExecutionResult::default())
-    //         },
-    //         DecodedInstruction::Memory(op) => match op {
-    //             MemoryOp::LoadImm { reg: _, value } => {
-    //                 println!("Exécution LoadImm: {}", value);
-    //                 Ok(ExecutionResult {
-    //                     value: *value,
-    //                     flags: StatusFlags::default(),
-    //                 })
-    //             },
-    //             MemoryOp::Store { reg, addr: _ } => {
-    //                 let value = registers.read_register(*reg)?;
-    //                 println!("Exécution Store: valeur {} depuis registre {:?}", value, reg);
-    //                 Ok(ExecutionResult {
-    //                     value: value as i64,
-    //                     flags: StatusFlags::default(),
-    //                 })
-    //             },
-    //             // Autres opérations mémoire...
-    //             _ => Ok(ExecutionResult::default())
-    //         },
-    //         DecodedInstruction::Control(_) => Ok(ExecutionResult::default())
-    //     }
-    // }
+     /// Exécute une instruction décodée
 
-
-    fn execute_instruction(&mut self, decoded: &DecodedInstruction, registers: &RegisterBank) -> VMResult<ExecutionResult> {
+    pub fn execute_instruction(&mut self, decoded: &DecodedInstruction, registers: &mut RegisterBank) -> VMResult<ExecutionResult> {
         match decoded {
+
             DecodedInstruction::Arithmetic(op) => match op {
                 ArithmeticOp::Add { dest, src1, src2 } => {
                     let val1 = registers.read_register(*src1)? as i64;
@@ -755,7 +731,10 @@ impl Pipeline {
                             zero: result == 0,
                             negative: result < 0,
                             overflow: false,
+                            carry: false,
                         },
+                        branch_taken: false,
+                        target_address: None,
                     })
                 },
                 ArithmeticOp::Sub { dest, src1, src2 } => {
@@ -771,7 +750,10 @@ impl Pipeline {
                             zero: result == 0,
                             negative: result < 0,
                             overflow: false,
+                            carry: false,
                         },
+                        branch_taken: false,
+                        target_address: None,
                     })
                 },
                 ArithmeticOp::Mul { dest, src1, src2 } => {
@@ -787,7 +769,10 @@ impl Pipeline {
                             zero: result == 0,
                             negative: result < 0,
                             overflow: false,
+                            carry: false,
                         },
+                        branch_taken: false,
+                        target_address: None,
                     })
                 },
                 ArithmeticOp::Div { dest, src1, src2 } => {
@@ -808,7 +793,11 @@ impl Pipeline {
                             zero: result == 0,
                             negative: result < 0,
                             overflow: false,
+                            carry: false,
                         },
+                        branch_taken: false,
+                        target_address: None,
+
                     })
                 },
             },
@@ -818,6 +807,8 @@ impl Pipeline {
                     Ok(ExecutionResult {
                         value: *value,
                         flags: StatusFlags::default(),
+                        branch_taken: false,
+                        target_address: None,
                     })
                 },
                 MemoryOp::Load { reg, addr } => {
@@ -825,6 +816,8 @@ impl Pipeline {
                     Ok(ExecutionResult {
                         value: 0, // La valeur sera chargée dans l'étage memory
                         flags: StatusFlags::default(),
+                        branch_taken: false,
+                        target_address: None,
                     })
                 },
                 MemoryOp::Store { reg, addr } => {
@@ -833,6 +826,8 @@ impl Pipeline {
                     Ok(ExecutionResult {
                         value: value as i64,
                         flags: StatusFlags::default(),
+                        branch_taken: false,
+                        target_address: None,
                     })
                 },
                 MemoryOp::Move { dest, src } => {
@@ -841,8 +836,32 @@ impl Pipeline {
                     Ok(ExecutionResult {
                         value: value as i64,
                         flags: StatusFlags::default(),
+                        branch_taken: false,
+                        target_address: None,
                     })
                 },
+            },
+            DecodedInstruction::Compare { src1, src2 } => {
+                let val1 = registers.read_register(*src1)?;
+                let val2 = registers.read_register(*src2)?;
+
+                let mut flags = registers.get_status_flags_mut();
+                flags.zero = val1 == val2;
+                flags.negative = val1 < val2;
+                flags.overflow = false; // À implémenter si nécessaire
+                flags.carry = false;    // À implémenter si nécessaire
+
+                // mettre à jour les flags
+                registers.update_flags(flags)?;
+
+                Ok(ExecutionResult {
+                    value: 0,
+                    flags: flags,
+                    branch_taken: false,
+                    target_address: None,
+                    // written_registers: vec![],
+                })
+
             },
             _ => Ok(ExecutionResult::default())
         }
@@ -868,7 +887,10 @@ impl Pipeline {
                 zero: false,
                 negative: false,
                 overflow: false,
+                carry: false,
             },
+            branch_taken: false,
+            target_address: None,
         })
     }
 
@@ -880,7 +902,10 @@ impl Pipeline {
                 zero: false,
                 negative: false,
                 overflow: false,
+                carry: false,
             },
+            branch_taken: false,
+            target_address: None,
         })
     }
 
@@ -892,7 +917,10 @@ impl Pipeline {
                 zero: false,
                 negative: false,
                 overflow: false,
+                carry: false,
             },
+            branch_taken: false,
+            target_address: None,
         })
     }
 
@@ -948,7 +976,10 @@ impl Pipeline {
                                 zero: result == 0,
                                 negative: result < 0,
                                 overflow: false,
+                                carry: false,
                             },
+                            branch_taken: false,
+                            target_address: None,
                         };
 
                         self.update_forwarding(*dest, &execution_result)?;
@@ -967,7 +998,10 @@ impl Pipeline {
                                 zero: result == 0,
                                 negative: result < 0,
                                 overflow: false,
+                                carry: false,
                             },
+                            branch_taken: false,
+                            target_address: None,
                         };
 
                         self.update_forwarding(*dest, &execution_result)?;
@@ -986,7 +1020,10 @@ impl Pipeline {
                                 zero: result == 0,
                                 negative: result < 0,
                                 overflow: false,
+                                carry: false,
                             },
+                            branch_taken: false,
+                            target_address: None,
                         };
 
                         self.update_forwarding(*dest, &execution_result)?;
@@ -1010,7 +1047,10 @@ impl Pipeline {
                                 zero: result == 0,
                                 negative: result < 0,
                                 overflow: false,
+                                carry: false,
                             },
+                            branch_taken: false,
+                            target_address: None,
                         };
 
                         self.update_forwarding(*dest, &execution_result)?;
@@ -1024,6 +1064,9 @@ impl Pipeline {
                         let execution_result = ExecutionResult {
                             value: *value,
                             flags: StatusFlags::default(),
+                            branch_taken: false,
+                            target_address: None,
+
                         };
                         self.update_forwarding(*reg, &execution_result)?;
                         Ok(execution_result)
@@ -1035,6 +1078,8 @@ impl Pipeline {
                         let execution_result = ExecutionResult {
                             value: val,
                             flags: StatusFlags::default(),
+                            branch_taken: false,
+                            target_address: None,
                         };
                         self.update_forwarding(*dest, &execution_result)?;
                         Ok(execution_result)
@@ -1048,6 +1093,9 @@ impl Pipeline {
                         Ok(ExecutionResult {
                             value,
                             flags: StatusFlags::default(),
+                            branch_taken: false,
+                            target_address: None,
+
                         })
                     }
 
@@ -1072,7 +1120,10 @@ impl Pipeline {
                         zero: val1.wrapping_add(val2) == 0,
                         negative: val1.wrapping_add(val2) < 0,
                         overflow: false,
+                        carry: false,
                     },
+                    branch_taken: false,
+                    target_address: None,
                 };
 
                 self.update_forwarding(*dest, &result)?;
@@ -1090,7 +1141,10 @@ impl Pipeline {
                         zero: val1.wrapping_sub(val2) == 0,
                         negative: val1.wrapping_sub(val2) < 0,
                         overflow: false,
+                        carry: false,
                     },
+                    branch_taken: false,
+                    target_address: None,
                 };
 
                 self.update_forwarding(*dest, &result)?;
@@ -1108,7 +1162,10 @@ impl Pipeline {
                         zero: val1.wrapping_mul(val2) == 0,
                         negative: val1.wrapping_mul(val2) < 0,
                         overflow: false,
+                        carry: false,
                     },
+                    branch_taken: false,
+                    target_address: None,
                 };
 
                 self.update_forwarding(*dest, &result)?;
@@ -1131,7 +1188,10 @@ impl Pipeline {
                         zero: val1.wrapping_div(val2) == 0,
                         negative: val1.wrapping_div(val2) < 0,
                         overflow: false,
+                        carry: false,
                     },
+                    branch_taken: false,
+                    target_address: None,
                 };
 
                 self.update_forwarding(*dest, &result)?;
@@ -1196,7 +1256,6 @@ impl Pipeline {
     }
 
 
-
     // Nouvelle méthode qui implémente la logique d'exécution rapide
     fn execute_fast_path_impl(&self, decoded: &DecodedInstruction, registers: &RegisterBank) -> VMResult<ExecutionResult> {
         // Implémentation de l'exécution rapide
@@ -1225,12 +1284,7 @@ impl Pipeline {
     }
 
 
-
-
 }
-
-
-
 
 
 #[cfg(test)]
@@ -1397,30 +1451,6 @@ mod tests {
         println!("Pipeline terminé en {} cycles avec {} stalls",
                  cycles, pipeline.stats.stalls);
     }
-
-
-    // #[test]
-    // fn test_pipeline_performance_optimized() {
-    //     let (mut pipeline, mut register_bank, mut memory_controller) = setup_test_env();
-    //
-    //     // Programme de test avec mix d'instructions
-    //     let program = create_complex_test_program();
-    //     pipeline.load_instructions(program).unwrap();
-    //
-    //     let mut total_cycles = 0;
-    //     while !pipeline.is_empty().unwrap() {
-    //         pipeline.cycle(&mut register_bank, &mut memory_controller).unwrap();
-    //         total_cycles += 1;
-    //     }
-    //
-    //     println!("Performance Metrics:");
-    //     println!("IPC: {:.2}", pipeline.metrics.ipc);
-    //     println!("Stalls: {}", pipeline.stats.stalls);
-    //     println!("Reorderings: {}", pipeline.metrics.reorder_count);
-    //     println!("Bypass hits: {}", pipeline.metrics.bypass_hits);
-    //
-    //
-    // }
 
 
 }
