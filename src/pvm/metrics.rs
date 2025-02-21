@@ -1,5 +1,6 @@
 //src/pvm/metrics.rs
 use std::collections::HashMap;
+use crate::pvm::branch_predictor::BranchMetrics;
 use crate::pvm::forwardings::ForwardingSource;
 use crate::pvm::hazards::HazardType;
 use crate::pvm::instructions::{Address, ArithmeticOp, DecodedInstruction, Instruction, MemoryOp, RegisterId};
@@ -25,6 +26,9 @@ pub struct PipelineMetrics {
     pub reorder_count: u64,
     pub bypass_hits: u64,
     pub fetch_buffer_utilization: f64,
+
+    pub branch_metrics: BranchMetrics,
+    pub flush_count: usize,
 
 }
 
@@ -209,6 +213,29 @@ impl Pipeline {
     //         },
     //     }
     // }
+
+    pub fn get_branch_stats(&self) -> String {
+        let metrics = &self.branch_predictor.metrics;
+        let accuracy = if metrics.total_branches > 0 {
+            (metrics.correct_predictions as f64 / metrics.total_branches as f64) * 100.0
+        } else {
+            0.0
+        };
+
+        format!(
+            "Branch Prediction Stats:\n\
+             Total Branches: {}\n\
+             Correct Predictions: {}\n\
+             Incorrect Predictions: {}\n\
+             Accuracy: {:.2}%\n\
+             Pipeline Flushes: {}\n",
+            metrics.total_branches,
+            metrics.correct_predictions,
+            metrics.incorrect_predictions,
+            accuracy,
+            self.metrics.flush_count
+        )
+    }
 
 
 
