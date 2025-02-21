@@ -20,6 +20,7 @@ pub struct MemoryController {
 
 impl Memory {
     pub fn new() -> VMResult<Self> {
+        // Crée un L2, puis un L1 branché sur L2
         let l2_config = CacheConfig::new_l2();
         let l1_config = CacheConfig::new_l1();
 
@@ -32,29 +33,47 @@ impl Memory {
         })
     }
 
+
+    /// Lecture avec le cache:
+    ///  1) cache.read(...) => Ok => renvoie
+    ///  2) si Err => on cherche data.get(...) => si absent => Err
     pub fn read(&mut self, addr: u64) -> VMResult<u64> {
         match self.cache.read(addr) {
-            Ok(value) => Ok(value),
+            Ok(value) => {
+                // Trouvé dans le cache
+                Ok(value)
+            }
             Err(_) => {
+                // Pas trouvé ni en L1 ni en L2 => on check "data"
                 self.data
                     .get(&addr)
                     .copied()
-                    .ok_or_else(|| VMError::memory_error(&format!("Address {:#x} not found", addr)))
+                    .ok_or_else(|| VMError::memory_error(&format!(
+                        "Address {:#x} not found", addr
+                    )))
             }
         }
     }
 
+    /// Ecrit d'abord dans le cache.
+    /// Si WriteThrough, on actualise `data`.
     pub fn write(&mut self, addr: u64, value: u64) -> VMResult<()> {
         self.cache.write(addr, value)?;
 
+        // Si c'est WriteThrough => on stocke aussi dans data
         if self.cache.get_write_policy() == WritePolicy::WriteThrough {
             self.data.insert(addr, value);
         }
         Ok(())
     }
 
+    /// Vide tout: data.clear() + cache.reset() => plus de traces => read(...) -> Err
     pub fn clear(&mut self) {
         self.data.clear();
+        // On force un reset complet du cache
+        if let Some(l2_cache) = &mut self.cache.next_level {
+            l2_cache.reset().unwrap_or_default();
+        }
         self.cache.reset().unwrap_or_default();
     }
 
@@ -65,6 +84,7 @@ impl Memory {
 
 impl MemoryController {
     pub fn new(memory_size: usize, cache_size: usize) -> VMResult<Self> {
+        // Simple L1 direct, pas de next_level
         let l1_config = CacheConfig {
             size: cache_size,
             lines_size: 64,
@@ -83,42 +103,68 @@ impl MemoryController {
         Self::new(DEFAULT_MEMORY_SIZE, DEFAULT_MEMORY_SIZE / 4)
     }
 
+    /// Remet main_memory à 0 + reset le cache
     pub fn reset(&mut self) -> VMResult<()> {
         self.main_memory.fill(0);
         self.cache.reset()
     }
 
-    pub fn read(&mut self, addr: u64) -> VMResult<u64> {
-        let addr = addr as usize;
-        self.check_bounds(addr, 8)?;
 
-        // Vérifier d'abord dans le cache
-        match self.cache.read(addr as u64) {
+    /// Lit 8 octets à l’adresse `addr`, en passant par `cache`.
+    ///  1) On tente un `cache.read(...)`
+    ///  2) s'il y a Err => on lit main_memory => on “allocate” => write en cache
+    // pub fn read(&mut self, addr: u64) -> VMResult<u64> {
+    //     let addr_usize = addr as usize;
+    //     self.check_bounds(addr_usize, 8)?;
+    //
+    //     match self.cache.read(addr) {
+    //         Ok(value) => Ok(value),
+    //         Err(_) => {
+    //             // Miss => lire "main_memory"
+    //             let mut bytes = [0u8; 8];
+    //             bytes.copy_from_slice(&self.main_memory[addr_usize..addr_usize + 8]);
+    //             let value = u64::from_le_bytes(bytes);
+    //
+    //             // On "place" la donnée dans le cache => write
+    //             self.cache.write(addr, value)?;
+    //             Ok(value)
+    //         }
+    //     }
+    // }
+
+    pub fn read(&mut self, addr: u64) -> VMResult<u64> {
+        let addr_usize = addr as usize;
+        self.check_bounds(addr_usize, 8)?;
+
+        match self.cache.read(addr) {
             Ok(value) => Ok(value),
             Err(_) => {
-                // Cache miss, lire depuis la mémoire principale
+                // Miss => incrémenter le compteur
+                self.cache.increment_misses();
+
+                // Lire depuis la mémoire principale
                 let mut bytes = [0u8; 8];
-                bytes.copy_from_slice(&self.main_memory[addr..addr + 8]);
+                bytes.copy_from_slice(&self.main_memory[addr_usize..addr_usize + 8]);
                 let value = u64::from_le_bytes(bytes);
 
-                // Mettre à jour le cache
-                self.cache.write(addr as u64, value)?;
+                // Mettre en cache
+                self.cache.write(addr, value)?;
                 Ok(value)
             }
         }
     }
 
+    // Écrit 8 octets. Politique “WriteThrough” => on écrit main_memory aussi
     pub fn write(&mut self, addr: u64, value: u64) -> VMResult<()> {
-        let addr = addr as usize;
-        self.check_bounds(addr, 8)?;
+        let addr_usize = addr as usize;
+        self.check_bounds(addr_usize, 8)?;
 
-        // Mettre à jour le cache
-        self.cache.write(addr as u64, value)?;
+        // Ecrit dans cache
+        self.cache.write(addr, value)?;
 
-        // Écrire dans la mémoire principale si write-through
         if self.cache.get_write_policy() == WritePolicy::WriteThrough {
             let bytes = value.to_le_bytes();
-            self.main_memory[addr..addr + 8].copy_from_slice(&bytes);
+            self.main_memory[addr_usize..addr_usize + 8].copy_from_slice(&bytes);
         }
 
         Ok(())
@@ -139,6 +185,10 @@ impl MemoryController {
     }
 }
 
+
+/// -----------------------------------------------------------------------------
+/// ------------------------------ TESTS  ----------------------------------------
+/// -----------------------------------------------------------------------------
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -158,7 +208,9 @@ mod tests {
     #[test]
     fn test_memory_bounds() {
         let mut memory = MemoryController::new(16, 256).unwrap();
+        // on ne peut pas écrire à l'index 16 (out of bounds)
         assert!(memory.write(16, 0x1234).is_err());
+        // idem en lecture
         assert!(memory.read(16).is_err());
     }
 
@@ -172,43 +224,74 @@ mod tests {
         }
     }
 
+    /// test_memory_cache_coherence:
+    /// 1) On écrit dans memory: 0x1000 => 42
+    /// 2) On lit => 42
+    /// 3) On overwrite => 84 => lit => 84
+    /// 4) .clear() => plus rien
+    /// => read(0x1000) => Err
     #[test]
     fn test_memory_cache_coherence() {
         let mut memory = Memory::new().unwrap();
 
-        // Test write-through behavior
+        // 1) write => 42
         memory.write(0x1000, 42).unwrap();
         assert_eq!(memory.read(0x1000).unwrap(), 42);
 
-        // Test cache hit
+        // 2) relit => 42
         assert_eq!(memory.read(0x1000).unwrap(), 42);
 
-        // Test overwrite
+        // 3) overwrite => 84 => relit => 84
         memory.write(0x1000, 84).unwrap();
         assert_eq!(memory.read(0x1000).unwrap(), 84);
 
-        // Test clear
+        // 4) clear
         memory.clear();
-        assert!(memory.read(0x1000).is_err());
+
+        // => on veut un Err
+        assert!(
+            memory.read(0x1000).is_err(),
+            "Après clear(), read(0x1000) devrait être Err()"
+        );
     }
 
+    /// test_cache_statistics:
+    /// 1) write(0, 42)
+    /// 2) read(0) -> miss
+    /// 3) read(0) -> hit
+    /// => stats.hits>0, total_accesses()>hits
     #[test]
     fn test_cache_statistics() {
         let mut memory = MemoryController::with_default_size().unwrap();
 
-        // Perform some memory accesses
+        // 1) On write => c'est un "write" => ça incrémente (write_hits ou write_misses)
+        //    Si la ligne n'est pas en cache => c'est un "miss" ?
+        //    Dans un WriteThrough NoWriteAllocate scenario, on n'ajoute pas la ligne,
+        //    ou si on a un "store miss" => ???
+
+        // 2) On read(0) => 1er read => devrais être un MISS => on rapatrie la valeur "0" ?
+        //    Eh, on a mis 42 => oh c'est main_memory => ???
+
         memory.write(0, 42).unwrap();
-        memory.read(0).unwrap();
-        memory.read(0).unwrap(); // Should be a cache hit
+
+        // 2) 1er read => on s'attend à un "miss"
+        let _ = memory.read(0).unwrap();
+        // 3) 2eme read => "hit"
+
+        let _ = memory.read(0).unwrap();
 
         let stats = memory.get_cache_stats().unwrap();
-        assert!(stats.hits > 0);
-        assert!(stats.total_accesses() > stats.hits);
+
+        // On veut >=1 hit
+        assert!(
+            stats.hits > 0,
+            "On veut au moins 1 hit sur la 2eme lecture"
+        );
+
+        // total_accesses() > hits => il y a eu un miss
+        assert!(
+            stats.total_accesses() > stats.hits,
+            "Il doit y avoir au moins 1 miss => total_accesses()>hits"
+        );
     }
 }
-
-
-
-
-
-
