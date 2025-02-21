@@ -1,3 +1,5 @@
+//src/pvm/registers.rs
+
 use crate::pvm::instructions::RegisterId;
 use crate::pvm::pipelines::StatusFlags;
 use crate::pvm::vm_errors::{VMError, VMResult};
@@ -44,6 +46,7 @@ impl RegisterBank {
     }
 
 
+
     pub fn reset(&mut self) -> VMResult<()> {
         for reg in &mut self.registers {
             *reg = Register::default();
@@ -88,25 +91,36 @@ impl RegisterBank {
     }
 
 
-
-    pub fn write_register(&mut self, reg_id: RegisterId, value: i64) -> VMResult<()> {
-        let index = reg_id.0 as usize;
-        if let Some(reg) = self.registers.get_mut(index) {
-            reg.value = value as u64;
-            // Mise à jour des flags
-            reg.flags.zero = value == 0;
-            reg.flags.negative = value < 0;
-            Ok(())
-        } else {
-            Err(VMError::RegisterError(format!("Register ID invalide: {:?}", reg_id)))
-        }
+    pub fn write_register(&mut self, reg: RegisterId, value: i64) -> VMResult<()> {
+        self.write(reg.0 as usize, value as u64)
     }
 
-    pub fn read_register(&self, reg_id: RegisterId) -> VMResult<u64> {
-        let index = reg_id.0 as usize;
-        self.registers.get(index)
-            .map(|reg| reg.value)
-            .ok_or_else(|| VMError::RegisterError(format!("Register ID invalide: {:?}", reg_id)))
+    pub fn read_register(&self, reg: RegisterId) -> VMResult<i64> {
+        self.read(reg.0 as usize)
+            .map(|reg| reg.value as i64)
+    }
+
+    pub fn get_status_flags_mut(&mut self) -> StatusFlags {
+        // Retourne-les flags du dernier registre utilisé
+        if let Some(last_reg) = self.registers.last() {
+            StatusFlags {
+                zero: last_reg.flags.zero,
+                negative: last_reg.flags.negative,
+                overflow: false,
+                carry: last_reg.flags.carry,
+            }
+        } else {
+            StatusFlags::default()
+        }
+    }
+    pub fn update_status_flags(&mut self, val1: i64, val2: i64) -> VMResult<()> {
+        let flags = StatusFlags {
+            zero: val1 == val2,
+            negative: val1 < val2,
+            overflow: false,
+            carry: false,
+        };
+        self.update_flags(flags)
     }
 
 }
@@ -197,6 +211,7 @@ mod tests {
             zero: true,
             negative: false,
             overflow: true,
+            carry: false,
         };
 
         // Test que Copy fonctionne
