@@ -120,6 +120,9 @@ mod tests {
         let result = ExecutionResult {
             value: 42,
             flags: StatusFlags::default(),
+            branch_taken: false,
+            target_address: None,
+
         };
 
         forwarding.register_result(reg, &result, ForwardingSource::Execute);
@@ -133,10 +136,10 @@ mod tests {
         let reg2 = RegisterId(2);
 
         forwarding.register_result(reg1,
-                                   &ExecutionResult { value: 42, flags: StatusFlags::default() },
+                                   &ExecutionResult { value: 42, flags: StatusFlags::default(), branch_taken: false, target_address: None },
                                    ForwardingSource::Execute);
         forwarding.register_result(reg2,
-                                   &ExecutionResult { value: 24, flags: StatusFlags::default() },
+                                   &ExecutionResult { value: 24, flags: StatusFlags::default(), branch_taken: false, target_address: None },
                                    ForwardingSource::Memory);
 
         forwarding.clear_stage(ForwardingSource::Execute);
