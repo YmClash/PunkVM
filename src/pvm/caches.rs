@@ -51,11 +51,11 @@ impl Default for CacheLine {
 
 #[derive(Debug, Clone)]
 pub struct Cache {
-    config: CacheConfig,
-    lines: Vec<Vec<CacheLine>>,
-    access_count: u64,
-    statistics: CacheStatistics,
-    next_level: Option<Box<Cache>>,
+    pub config: CacheConfig,
+    pub lines: Vec<Vec<CacheLine>>,
+    pub access_count: u64,
+    pub statistics: CacheStatistics,
+    pub next_level: Option<Box<Cache>>,
 }
 
 impl Cache {
@@ -90,6 +90,14 @@ impl Cache {
         self.access_count = 0;
         Ok(())
     }
+    // pub fn reset(&mut self) -> VMResult<()> {
+    //     self.entries.clear();
+    //     self.statistics = CacheStatistics::default();
+    //     if let Some(next_level) = &mut self.next_level {
+    //         next_level.reset()?;
+    //     }
+    //     Ok(())
+    // }
 
     /// Méthode d'écriture (write) avec la même séparation
     // pub fn write(&mut self, addr: u64, value: u64) -> Result<(), VMError> {
@@ -522,6 +530,10 @@ impl Cache {
                 self.statistics.misses += 1;
             }
         }
+    }
+
+    pub fn increment_misses(&mut self) {
+        self.statistics.misses += 1;
     }
 
 

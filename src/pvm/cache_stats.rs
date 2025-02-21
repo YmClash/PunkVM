@@ -45,7 +45,7 @@ impl CacheStatistics {
     }
 
     pub fn total_accesses(&self) -> usize {
-        self.hits + self.misses
+        self.hits + self.misses + self.write_hits + self.write_misses
     }
 
 }
