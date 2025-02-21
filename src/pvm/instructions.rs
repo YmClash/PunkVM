@@ -1,6 +1,7 @@
-use crate::pvm::registers::RegisterBank;
+
 //src/pvm/instructions.rs
 use crate::pvm::vm_errors::VMResult;
+use crate::pvm::registers::RegisterBank;
 
 /// Décodeur d'instructions
 pub struct InstructionDecoder;
@@ -12,6 +13,8 @@ pub enum DecodedInstruction {
     Arithmetic(ArithmeticOp),
     Memory(MemoryOp),
     Control(ControlOp),
+    Branch(BranchOp),
+    Compare{src1: RegisterId, src2: RegisterId},
 }
 
 /// Adresse mémoire
@@ -46,6 +49,8 @@ pub enum Instruction{
 
     Nop,                                       // nop
     Halt,                                      // halt
+
+    Cmp(RegisterId, RegisterId),                // cmp r1, r2
 }
 
 
@@ -78,6 +83,15 @@ pub enum ControlOp {
     Nop,
     Halt,
 }
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum BranchOp {
+    Equal,
+    NotEqual,
+    LessThan,
+    GreaterThan,
+    LessOrEqual,
+    GreaterOrEqual
+}
 
 
 /// Identifiant de registre
@@ -99,6 +113,7 @@ impl Instruction {
             Instruction::Jump(_) |
             Instruction::JumpIf(_, _) |
             Instruction::Call(_)
+
         )
     }
 
@@ -179,6 +194,17 @@ impl From<DecodedInstruction> for Instruction {
                 ControlOp::Halt => Instruction::Halt,
                 ControlOp::Nop => Instruction::Nop,
             },
+            DecodedInstruction::Branch(op) => match op {
+                BranchOp::Equal => Instruction::Cmp(RegisterId(0), RegisterId(0)),
+                BranchOp::NotEqual => Instruction::Cmp(RegisterId(0), RegisterId(0)),
+                BranchOp::LessThan => Instruction::Cmp(RegisterId(0), RegisterId(0)),
+                BranchOp::GreaterThan => Instruction::Cmp(RegisterId(0), RegisterId(0)),
+                BranchOp::LessOrEqual => Instruction::Cmp(RegisterId(0), RegisterId(0)),
+                BranchOp::GreaterOrEqual => Instruction::Cmp(RegisterId(0), RegisterId(0),
+                ),
+            },
+            DecodedInstruction::Compare { src1, src2 } => Instruction::Cmp(src1, src2),
+
         }
     }
 }
@@ -216,6 +242,8 @@ impl From<Instruction> for DecodedInstruction {
                 DecodedInstruction::Control(ControlOp::Halt),
             Instruction::Nop =>
                 DecodedInstruction::Control(ControlOp::Nop),
+            Instruction::Cmp(src1, src2) =>
+                DecodedInstruction::Compare { src1, src2 },
         }
     }
 }
@@ -225,8 +253,11 @@ impl From<Instruction> for DecodedInstruction {
 
 #[cfg(test)]
 mod tests {
+    use crate::pvm::pipelines::Pipeline;
     use super::*;
     use crate::pvm::registers::RegisterBank;
+    use crate::pvm::memorys::MemoryController;
+    use crate::pvm::pipelines::{ExecutionResult};
 
     // Helper pour créer une banque de registres avec des valeurs prédéfinies
     fn setup_test_registers() -> RegisterBank {
@@ -338,6 +369,139 @@ mod tests {
         let decoded: DecodedInstruction = original.into();
         let back: Instruction = decoded.into();
         assert_eq!(original_clone, back);
+    }
+
+    // // Ajout des tests
+    #[test]
+    fn test_cmp_instruction_basic() {
+        let mut register_bank = RegisterBank::new(8).unwrap();
+
+        // Préparer les registres avec write_register (au lieu de write)
+        register_bank.write_register(RegisterId(0), 42).unwrap();
+        register_bank.write_register(RegisterId(1), 42).unwrap();
+        register_bank.write_register(RegisterId(2), 100).unwrap();
+
+        // Créer l'instruction Cmp
+        let cmp_instruction = Instruction::Cmp(RegisterId(0), RegisterId(1));
+        let decoded: DecodedInstruction = cmp_instruction.into();
+
+        // Vérifier la conversion
+        match decoded {
+            DecodedInstruction::Compare { src1, src2 } => {
+                assert_eq!(src1, RegisterId(0));
+                assert_eq!(src2, RegisterId(1));
+            },
+            _ => panic!("Mauvais décodage de l'instruction Cmp"),
+        }
+    }
+    #[test]
+    fn test_cmp_flags() {
+        let mut register_bank = RegisterBank::new(8).unwrap();
+        let mut pipeline = Pipeline::new();
+
+        // Test d'égalité (cas 1)
+        register_bank.write_register(RegisterId(0), 42).unwrap();
+        register_bank.write_register(RegisterId(1), 42).unwrap();
+
+        let cmp_equal = DecodedInstruction::Compare {
+            src1: RegisterId(0),
+            src2: RegisterId(1)
+        };
+
+        pipeline.execute_instruction(&cmp_equal, &mut register_bank).unwrap();
+        let flags = register_bank.get_status_flags_mut();
+        assert!(flags.zero, "Les valeurs égales devraient donner un flag zero=true");
+        assert!(!flags.negative, "Les valeurs égales devraient donner un flag negative=false");
+
+        // Test d'infériorité (cas 2)
+        register_bank.write_register(RegisterId(0), 40).unwrap();
+        register_bank.write_register(RegisterId(1), 42).unwrap();
+
+        let cmp_less = DecodedInstruction::Compare {
+            src1: RegisterId(0),
+            src2: RegisterId(1)
+        };
+
+        pipeline.execute_instruction(&cmp_less, &mut register_bank).unwrap();
+        let flags = register_bank.get_status_flags_mut();
+        assert!(!flags.zero, "Les valeurs différentes devraient donner un flag zero=false");
+        assert!(flags.negative, "La valeur inférieure devrait donner un flag negative=true");
+
+        // Test de supériorité (cas 3)
+        register_bank.write_register(RegisterId(0), 44).unwrap();
+        register_bank.write_register(RegisterId(1), 42).unwrap();
+
+        let cmp_greater = DecodedInstruction::Compare {
+            src1: RegisterId(0),
+            src2: RegisterId(1)
+        };
+
+        pipeline.execute_instruction(&cmp_greater, &mut register_bank).unwrap();
+        let flags = register_bank.get_status_flags_mut();
+        assert!(!flags.zero, "Les valeurs différentes devraient donner un flag zero=false");
+        assert!(!flags.negative, "La valeur supérieure devrait donner un flag negative=false");
+    }
+
+
+
+    #[test]
+    fn test_cmp_with_branch_execution() {
+        let mut pipeline = Pipeline::new();
+        let mut register_bank = RegisterBank::new(8).unwrap();
+        let mut memory_controller = MemoryController::new(1024, 256).unwrap();
+
+        let program = vec![
+            Instruction::LoadImm(RegisterId(0), 42),
+            Instruction::LoadImm(RegisterId(1), 42),
+            Instruction::Cmp(RegisterId(0), RegisterId(1)),
+            // Utiliser RegisterId pour la condition
+            Instruction::JumpIf(RegisterId(0), Address(8)),
+            Instruction::LoadImm(RegisterId(2), 1),
+            Instruction::LoadImm(RegisterId(2), 2),
+        ];
+
+        pipeline.load_instructions(program).unwrap();
+
+        while !pipeline.is_empty().unwrap() {
+            pipeline.cycle(&mut register_bank, &mut memory_controller).unwrap();
+        }
+
+        // Vérifier le résultat final
+        let result = register_bank.read_register(RegisterId(2)).unwrap();
+        assert_eq!(result, 2, "Le branchement n'a pas fonctionné correctement");
+    }
+
+    #[test]
+    fn test_cmp_instruction() {
+        let mut pipeline = Pipeline::new();
+        let mut registers = RegisterBank::new(8).unwrap();
+
+        // Préparer les registres
+        registers.write_register(RegisterId(0), 42).unwrap();
+        registers.write_register(RegisterId(1), 42).unwrap();
+        registers.write_register(RegisterId(2), 100).unwrap();
+
+        // Test d'égalité
+        let cmp_equal = DecodedInstruction::Compare {
+            src1: RegisterId(0),
+            src2: RegisterId(1)
+        };
+
+        let result = pipeline.execute_instruction(&cmp_equal, &mut registers).unwrap();
+        let flags = result.flags;
+        assert!(flags.zero);
+        assert!(!flags.negative);
+
+        // Test inférieur
+        let cmp_less = DecodedInstruction::Compare {
+            src1: RegisterId(0),
+            src2: RegisterId(2)
+        };
+
+        let result = pipeline.execute_instruction(&cmp_less, &mut registers).unwrap();
+        let flags = result.flags;
+        assert!(!flags.zero);
+        assert!(flags.negative);
     }
 }
 
