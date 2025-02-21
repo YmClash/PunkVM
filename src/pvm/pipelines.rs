@@ -1,5 +1,6 @@
 //src/pvm/cache_configs.rs
 use std::collections::VecDeque;
+use crate::pvm::branch_predictor::{BranchPrediction, BranchPredictor, PredictorType};
 use crate::pvm::cache_configs::{CacheConfig, CacheSystem, WritePolicy};
 use crate::pvm::cache_stats::CacheStatistics;
 use crate::pvm::caches::Cache;
@@ -56,6 +57,14 @@ pub struct Pipeline {
     pub bypass_buffer: BypassBuffer,
     pub pending_stores: VecDeque<StoreOperation>,
 
+    // Branch predictor
+    pub branch_predictor: BranchPredictor,
+    pub predicted_branches: VecDeque<(u64, BranchPrediction)>, // Pour le suivi
+
+    // programme counter
+    pub pc: u64,
+
+
 
 }
 
@@ -78,6 +87,17 @@ pub struct PipelineState {
     pub result: Option<ExecutionResult>,
     pub memory_result: Option<MemoryResult>,
     pub destination: Option<RegisterId>,
+
+}
+impl PipelineState {
+    pub fn get_branch(&self) -> Option<&DecodedInstruction> {
+        self.decoded.as_ref().and_then(|decoded| {
+            match decoded {
+                DecodedInstruction::Control(_) => Some(decoded),
+                _ => None
+            }
+        })
+    }
 }
 
 
@@ -217,8 +237,12 @@ impl Pipeline {
             // Initialisation du système de cache
             cache_system: CacheSystem::new(),
             bypass_buffer: BypassBuffer::new(32),
-            pending_stores: VecDeque::new()
+            pending_stores: VecDeque::new(),
 
+            // Ajout du branch predictor
+            branch_predictor: BranchPredictor::new(PredictorType::Dynamic), // Par défaut on utilise le prédicteur dynamique
+            predicted_branches: VecDeque::new(),
+            pc: 0,
 
         }
     }
@@ -248,11 +272,45 @@ impl Pipeline {
 
 
     /// Exécute un cycle complet du pipeline
-    pub fn cycle(
-        &mut self,
-        registers: &mut RegisterBank,
-        memory: &mut MemoryController,
-    ) -> VMResult<()> {
+    pub fn cycle(&mut self, registers: &mut RegisterBank, memory: &mut MemoryController) -> VMResult<()> {
+        // Phase de fetch avec prédiction
+        if let Some(instr) = &self.fetch_state.instruction {
+            if instr.is_branch() {
+                let prediction = self.branch_predictor.predict(self.pc);
+                self.predicted_branches.push_back((self.pc, prediction));
+
+                if prediction == BranchPrediction::Taken {
+                    self.pc = instr.get_target_address();
+                }
+            }
+        }
+
+        // Phase d'exécution avec vérification de la prédiction
+        if let Some(branch) = self.execute_state.get_branch() {
+            // Sauvegarder les valeurs nécessaires avant de modifier self
+            let target_addr = branch.get_target_address();
+            let taken = branch.is_taken(registers);
+
+            // Récupérer la prédiction
+            if let Some((branch_pc, prediction)) = self.predicted_branches.pop_front() {
+                self.branch_predictor.update(branch_pc, taken, prediction);
+
+                // Vérifier si la prédiction était incorrecte
+                let mispredicted = (taken && prediction == BranchPrediction::NotTaken) ||
+                    (!taken && prediction == BranchPrediction::Taken);
+
+                if mispredicted {
+                    self.flush_pipeline();
+                    self.pc = if taken {
+                        target_addr
+                    } else {
+                        branch_pc + 4
+                    };
+                }
+            }
+        }
+
+
         self.update_stage_metrics();
         self.stats.cycles += 1;
         self.metrics.total_cycles += 1;
@@ -262,30 +320,6 @@ impl Pipeline {
             self.metrics.total_instructions += 1;
         }
 
-        // if let Err(e) = self.writeback_stage(registers) {
-        //     println!("Erreur dans l'étage Writeback: {:?}", e);
-        //     return Err(e);
-        // }
-        //
-        // if let Err(e) = self.memory_stage(memory) {
-        //     println!("Erreur dans l'étage Memory: {:?}", e);
-        //     return Err(e);
-        // }
-        //
-        // if let Err(e) = self.execute_stage(registers) {  // Ajout du paramètre registers
-        //     println!("Erreur dans l'étage Execute: {:?}", e);
-        //     return Err(e);
-        // }
-        //
-        // if let Err(e) = self.decode_stage(registers) {
-        //     println!("Erreur dans l'étage Decode: {:?}", e);
-        //     return Err(e);
-        // }
-        //
-        // if let Err(e) = self.fetch_stage() {
-        //     println!("Erreur dans l'étage Fetch: {:?}", e);
-        //     return Err(e);
-        // }
 
         self.update_stage_metrics();
 
@@ -1181,6 +1215,13 @@ impl Pipeline {
         let result = self.execute_fast_path_impl(decoded, registers)?;
         self.execute_state.result = Some(result);
         Ok(())
+    }
+
+    fn flush_pipeline(&mut self) {
+        self.fetch_state = PipelineState::default();
+        self.decode_state = PipelineState::default();
+        self.predicted_branches.clear();
+        self.metrics.flush_count += 1;
     }
 
 
