@@ -1,4 +1,5 @@
-use crate::pvm::instructions::{ArithmeticOp, ControlOp, MemoryOp};
+//src/pvm/executions.rs
+use crate::pvm::instructions::{ArithmeticOp, BranchOp, ControlOp, MemoryOp, RegisterId};
 use crate::pvm::pipelines::StatusFlags;
 use crate::pvm::vm::PunkVM;
 use crate::pvm::vm_errors::{VMError, VMResult};
@@ -18,6 +19,7 @@ impl PunkVM {
                     zero: result == 0,
                     negative: result < 0,
                     overflow: false, // Mis à jour si overflow détecté
+                    carry: false, // Mis à jour si overflow détecté
                 };
 
                 self.register_bank.write_register(*dest, result)?;
@@ -33,6 +35,7 @@ impl PunkVM {
                     zero: result == 0,
                     negative: result < 0,
                     overflow: false,
+                    carry: false, // Mis à jour si overflow détecté
                 };
 
                 self.register_bank.write_register(*dest, result)?;
@@ -48,6 +51,7 @@ impl PunkVM {
                     zero: result == 0,
                     negative: result < 0,
                     overflow: false,
+                    carry: false, // Mis à jour si overflow détecté
                 };
 
                 self.register_bank.write_register(*dest, result)?;
@@ -68,7 +72,9 @@ impl PunkVM {
                     zero: result == 0,
                     negative: result < 0,
                     overflow: false,
+                    carry: false, // Mis à jour si overflow détecté
                 };
+
 
                 self.register_bank.write_register(*dest, result)?;
                 self.register_bank.update_flags(flags)?;
@@ -133,6 +139,83 @@ impl PunkVM {
         }
         Ok(())
     }
+
+
+    pub fn execute_branch(&mut self, op: &BranchOp) -> VMResult<()> {
+        match op {
+            BranchOp::Equal => {
+                let flags = self.register_bank.get_status_flags_mut();
+                if flags.zero {
+                    // Mettre à jour le PC
+                    let current_pc = self.get_program_counter()?;
+                    let new_pc = current_pc.wrapping_add(4); // ou une autre valeur appropriée
+                    self.set_program_counter(new_pc)?;
+                }
+            },
+            BranchOp::NotEqual => {
+                let flags = self.register_bank.get_status_flags_mut();
+                if !flags.zero {
+                    let current_pc = self.get_program_counter()?;
+                    let new_pc = current_pc.wrapping_add(4);
+                    self.set_program_counter(new_pc)?;
+                }
+            },
+            BranchOp::LessThan => {
+                let flags = self.register_bank.get_status_flags_mut();
+                if flags.negative {
+                    let current_pc = self.get_program_counter()?;
+                    let new_pc = current_pc.wrapping_add(4);
+                    self.set_program_counter(new_pc)?;
+                }
+            },
+            BranchOp::GreaterThan => {
+                let flags = self.register_bank.get_status_flags_mut();
+                if !flags.negative && !flags.zero {
+                    let current_pc = self.get_program_counter()?;
+                    let new_pc = current_pc.wrapping_add(4);
+                    self.set_program_counter(new_pc)?;
+                }
+            },
+            BranchOp::LessOrEqual => {
+                let flags = self.register_bank.get_status_flags_mut();
+                if flags.negative || flags.zero {
+                    let current_pc = self.get_program_counter()?;
+                    let new_pc = current_pc.wrapping_add(4);
+                    self.set_program_counter(new_pc)?;
+                }
+            },
+            BranchOp::GreaterOrEqual => {
+                let flags = self.register_bank.get_status_flags_mut();
+                if !flags.negative {
+                    let current_pc = self.get_program_counter()?;
+                    let new_pc = current_pc.wrapping_add(4);
+                    self.set_program_counter(new_pc)?;
+                }
+            },
+
+        }
+        Ok(())
+    }
+
+    // execute_compare
+
+    pub fn execute_compare(&mut self, src1: RegisterId, src2: RegisterId) -> VMResult<()> {
+        let val1 = self.register_bank.read_register(src1)?;
+        let val2 = self.register_bank.read_register(src2)?;
+
+        let flags = StatusFlags {
+            zero: val1 == val2,
+            negative: val1 < val2,
+            overflow: false,
+            carry: false,
+        };
+
+        self.register_bank.update_flags(flags)?;
+        Ok(())
+    }
+
+
+
 
     // Méthodes auxiliaires pour le contrôle de flux
     fn set_program_counter(&mut self, addr: u64) -> VMResult<()> {

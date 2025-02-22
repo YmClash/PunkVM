@@ -1,59 +1,87 @@
-Roadmap Mise à Jour
-Phase 1 - Court Terme (En cours)
-✓ Architecture de base
-✓ Système de cache
-✓ Pipeline basique
-✓ Gestion des registres
-✓ Instructions arithmétiques de base
-✓ Instructions mémoire de base
-Phase 2 - Moyen Terme (Prochaines étapes)
+# Roadmap Mise à Jour
 
-Optimisations prioritaires :
+## Phase 1 : Optimisations Actuelles ✓
 
-Améliorer la détection et gestion des hazards
-Optimiser la synchronisation du pipeline
-Implémenter le forwarding des données
-Ajouter des statistiques plus détaillées
+- [x] Implémentation du pipeline de base
 
+- [x] Système de forwarding
 
-Tests et Debug :
+- [x] Gestion des hazards
 
-Augmenter la couverture de tests
-Ajouter des tests de performance
-Implémenter un système de debug step-by-step
-Ajouter des outils de visualisation du pipeline
+- [x] Métriques de performance
 
+## Phase 2 : Optimisations Avancées (En cours)
 
-Nouvelles fonctionnalités :
+- [ ] Cache L1/L2
 
-Support complet des instructions de contrôle
-Système de prédiction de branchement
-Instructions vectorielles simples
-Support des interruptions
+    - Implémentation d'une hiérarchie de cache
 
+    - Politique de remplacement optimisée
 
+    - Prefetching intelligent
 
-Phase 3 - Long Terme
+- [ ] Branch Prediction
 
-Améliorations avancées :
+    - Prédicteur 2-bit
 
-Optimisations du pipeline
-Support multi-cœur
-Cache L2/L3
-Prédiction de branchement avancée
+    - Branch Target Buffer
 
+    - Return Address Stack
 
-Outils de développement :
+- [ ] Memory Subsystem
 
-Débogueur graphique
-Assembleur
-Compilateur simple
-Simulateur de périphériques
+    - Memory Access Reordering
 
+    - Store Buffer
 
-Documentation :
+    - Load Queue Optimization
 
-Documentation complète de l'API
-Guides d'utilisation
-Exemples de programmes
-Benchmarks
+## Phase 3 : Améliorations Futures
+
+- [ ] Superscalar Execution
+
+    - Multiple Issue
+
+    - Out-of-Order Execution
+
+    - Register Renaming
+
+- [ ] Advanced Memory Management
+
+    - Virtual Memory Support
+
+    - TLB Implementation
+
+    - Memory Protection
+
+- [ ] Performance Monitoring
+
+    - Hardware Performance Counters
+
+    - Detailed Pipeline Analysis
+
+    - Power Management
+
+## Phase 4 : Features Additionnelles
+
+- [ ] SIMD Support
+
+- [ ] FPU Implementation
+
+- [ ] Exception Handling
+
+- [ ] Interrupt Management
+
+- [ ] Debug Interface
+
+## Phase 5 : Tooling & Documentation
+
+- [ ] Profiling Tools
+
+- [ ] Debug Tools
+
+- [ ] Documentation Complète
+
+- [ ] Benchmarking Suite
+
+- [ ] Performance Analysis Tools
