@@ -109,11 +109,3 @@ Les contributions sont les bienvenues! Consultez [CONTRIBUTING.md](CONTRIBUTING.
 
 PunkVM est distribué sous la licence MIT. Voir [LICENSE](LICENSE) pour plus d'informations.
 
-[//]: # (## Contact)
-
-[//]: # ()
-[//]: # (- Créateur: [YmC]&#40;mailto:votre.email@example.com&#41;)
-
-[//]: # (- Twitter: [@votrecompte]&#40;https://twitter.com/votrecompte&#41;)
-
-[//]: # (- Site Web: [https://example.com]&#40;https://example.com&#41;)
