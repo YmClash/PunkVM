@@ -1,5 +1,111 @@
 // //src/pvm/buffers.rs
-//
+
+
+/// Store buffer pour les écritures mémoire
+pub struct StoreBuffer {
+    capacity: usize,        // Taille maximale du buffer
+    entries: Vec<(u32, u8)>,    // Entrées du buffer (adresse -> valeur)
+}
+
+
+
+impl StoreBuffer{
+    /// Crée un nouveau store buffer
+    pub fn new(capacity: usize) -> Self {
+        Self {
+            capacity,
+            entries: Vec::with_capacity(capacity),
+        }
+    }
+
+    /// Ajoute une entrée au store buffer
+    pub fn add(&mut self, addr: u32, value: u8) {
+        // Vérifier si l'adresse est déjà dans le buffer
+        if let Some(idx) = self.entries.iter().position(|&(a, _)| a == addr) {
+            // Remplacer la valeur existante
+            self.entries[idx] = (addr, value);
+        } else {
+            // Si le buffer est plein, vider la plus ancienne entrée
+            if self.entries.len() >= self.capacity {
+                self.entries.remove(0);
+            }
+
+            // Ajouter la nouvelle entrée
+            self.entries.push((addr, value));
+        }
+    }
+
+    pub fn lookup_byte(&self, addr: u32) -> Option<u8> {
+        // Recherche de la dernière entrée correspondant à l'adresse
+        self.entries
+            .iter()
+            .rev()
+            .find(|&&(a, _)| a == addr)
+            .map(|&(_, value)| value)
+    }
+
+    /// Vérifie si une adresse est dans le store buffer
+    pub fn has_address(&self, addr: u32) -> bool {
+        self.entries.iter().any(|&(a, _)| a == addr)
+    }
+
+    /// Vide le store buffer en écrivant toutes les données en mémoire
+    pub fn flush(&mut self, memory: &mut [u8]) {
+        for (addr, value) in &self.entries {
+            if (*addr as usize) < memory.len() {
+                memory[*addr as usize] = *value;
+            }
+        }
+
+        self.entries.clear();
+    }
+
+    /// Nettoie le store buffer
+    pub fn clear(&mut self) {
+        self.entries.clear();
+    }
+
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // use crate::pvm::instructions::Address;
 // use std::collections::VecDeque;
 // use crate::pvm::instructions::Instruction;
