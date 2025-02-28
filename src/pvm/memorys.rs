@@ -1,3 +1,319 @@
+//src/pvm/memorys.rs
+
+
+use std::io;
+
+
+use crate::pvm::caches::L1Cache;
+use crate::pvm::buffers::StoreBuffer;
+
+/// Configuration du systeme memoire
+#[derive(Debug, Clone, Copy)]
+pub struct MemoryConfig{
+    pub size: usize,
+    pub l1_cache_size: usize,
+    // pub l2_cache_size: usize,
+    pub store_buffer_size: usize,
+}
+
+
+/// Statistiques du système mémoire
+#[derive(Debug, Clone, Copy, Default)]
+pub struct MemoryStats {
+    /// Nombre de hits dans le cache
+    pub hits: u64,
+    /// Nombre de misses dans le cache
+    pub misses: u64,
+    /// Nombre de hits dans le store buffer
+    pub sb_hits: u64,
+    /// Nombre d'écritures
+    pub writes: u64,
+    /// Nombre de lectures
+    pub reads: u64,
+}
+
+
+
+impl Default for MemoryConfig {
+    fn default() -> Self {
+        Self{
+            size: 1024 * 1024, // 1MB
+            l1_cache_size: 4 * 1024,
+            // l2_cache_size: 512 * 1024, // 512KB
+            store_buffer_size: 8,
+        }
+    }
+}
+
+///  Structure memoire VM
+pub struct Memory {
+    memory: Vec<u8>,    // Mémoire principale
+    l1_cache: L1Cache,      // Cache L1
+    store_buffer: StoreBuffer,  // Store buffer
+    stats: MemoryStats,   // Statistiques de la mémoire
+}
+
+impl Memory{
+    /// Crée un nouveau système mémoire
+    pub fn new(config: MemoryConfig) -> Self {
+        Self {
+            memory: vec![0; config.size],
+            l1_cache: L1Cache::new(config.l1_cache_size),
+            store_buffer: StoreBuffer::new(config.store_buffer_size),
+            stats: MemoryStats::default(),
+        }
+    }
+
+    /// Lit un byte à l'adresse spécifiée
+    pub fn read_byte(&mut self, addr: u32) -> io::Result<u8> {
+        self.check_address(addr)?;
+
+        // Vérifier d'abord dans le store buffer
+        if let Some(value) = self.store_buffer.lookup_byte(addr) {
+            self.stats.sb_hits += 1;
+            return Ok(value);
+        }
+
+        // Vérifier ensuite dans le cache L1
+        if let Some(value) = self.l1_cache.lookup_byte(addr) {
+            self.stats.hits += 1;
+            return Ok(value);
+        }
+
+        // Si absent du cache, lire depuis la mémoire principale
+        self.stats.misses += 1;
+        let value = self.memory[addr as usize];
+
+        // Mettre à jour le cache
+        self.l1_cache.update(addr, value);
+
+        Ok(value)
+    }
+
+    /// Lit un mot (16 bits) à l'adresse spécifiée
+    pub fn read_word(&mut self, addr: u32) -> io::Result<u16> {
+        self.check_address(addr + 1)?;
+
+        // Si les données sont dans le store buffer ou cache, utiliser les fonctions optimisées
+        if self.store_buffer.has_address(addr) || self.l1_cache.has_address(addr) {
+            let low_byte = self.read_byte(addr)?;
+            let high_byte = self.read_byte(addr + 1)?;
+            return Ok(u16::from_le_bytes([low_byte, high_byte]));
+        }
+
+        // Sinon, lire directement depuis la mémoire (puis mettre à jour le cache)
+        self.stats.misses += 1;
+
+        let low_byte = self.memory[addr as usize];
+        let high_byte = self.memory[(addr + 1) as usize];
+
+        let value = u16::from_le_bytes([low_byte, high_byte]);
+
+        // Mettre à jour le cache pour les deux bytes
+        self.l1_cache.update(addr, low_byte);
+        self.l1_cache.update(addr + 1, high_byte);
+
+        Ok(value)
+    }
+
+    /// Lit un double mot (32 bits) à l'adresse spécifiée
+    pub fn read_dword(&mut self, addr: u32) -> io::Result<u32> {
+        self.check_address(addr + 3)?;
+
+        // Si les données sont dans le store buffer ou cache, utiliser les fonctions optimisées
+        if self.store_buffer.has_address(addr) || self.l1_cache.has_address(addr) {
+            let b0 = self.read_byte(addr)?;
+            let b1 = self.read_byte(addr + 1)?;
+            let b2 = self.read_byte(addr + 2)?;
+            let b3 = self.read_byte(addr + 3)?;
+            return Ok(u32::from_le_bytes([b0, b1, b2, b3]));
+        }
+
+        // Sinon, lire directement depuis la mémoire (puis mettre à jour le cache)
+        self.stats.misses += 1;
+
+        let b0 = self.memory[addr as usize];
+        let b1 = self.memory[(addr + 1) as usize];
+        let b2 = self.memory[(addr + 2) as usize];
+        let b3 = self.memory[(addr + 3) as usize];
+
+        let value = u32::from_le_bytes([b0, b1, b2, b3]);
+
+        // Mettre à jour le cache pour les quatre bytes
+        self.l1_cache.update(addr, b0);
+        self.l1_cache.update(addr + 1, b1);
+        self.l1_cache.update(addr + 2, b2);
+        self.l1_cache.update(addr + 3, b3);
+
+        Ok(value)
+    }
+
+    /// Lit un quad mot (64 bits) à l'adresse spécifiée
+    pub fn read_qword(&mut self, addr: u32) -> io::Result<u64> {
+        self.check_address(addr + 7)?;
+
+        // Si les données sont dans le store buffer ou cache, utiliser les fonctions optimisées
+        if self.store_buffer.has_address(addr) || self.l1_cache.has_address(addr) {
+            let b0 = self.read_byte(addr)?;
+            let b1 = self.read_byte(addr + 1)?;
+            let b2 = self.read_byte(addr + 2)?;
+            let b3 = self.read_byte(addr + 3)?;
+            let b4 = self.read_byte(addr + 4)?;
+            let b5 = self.read_byte(addr + 5)?;
+            let b6 = self.read_byte(addr + 6)?;
+            let b7 = self.read_byte(addr + 7)?;
+            return Ok(u64::from_le_bytes([b0, b1, b2, b3, b4, b5, b6, b7]));
+        }
+
+        // Sinon, lire directement depuis la mémoire (puis mettre à jour le cache)
+        self.stats.misses += 1;
+
+        let b0 = self.memory[addr as usize];
+        let b1 = self.memory[(addr + 1) as usize];
+        let b2 = self.memory[(addr + 2) as usize];
+        let b3 = self.memory[(addr + 3) as usize];
+        let b4 = self.memory[(addr + 4) as usize];
+        let b5 = self.memory[(addr + 5) as usize];
+        let b6 = self.memory[(addr + 6) as usize];
+        let b7 = self.memory[(addr + 7) as usize];
+
+        let value = u64::from_le_bytes([b0, b1, b2, b3, b4, b5, b6, b7]);
+
+        // Mettre à jour le cache pour les huit bytes
+        self.l1_cache.update(addr, b0);
+        self.l1_cache.update(addr + 1, b1);
+        self.l1_cache.update(addr + 2, b2);
+        self.l1_cache.update(addr + 3, b3);
+        self.l1_cache.update(addr + 4, b4);
+        self.l1_cache.update(addr + 5, b5);
+        self.l1_cache.update(addr + 6, b6);
+        self.l1_cache.update(addr + 7, b7);
+
+        Ok(value)
+    }
+
+    /// Écrit un byte à l'adresse spécifiée
+    pub fn write_byte(&mut self, addr: u32, value: u8) -> io::Result<()> {
+        self.check_address(addr)?;
+
+        // Ajouter d'abord au store buffer
+        self.store_buffer.add(addr, value);
+
+        // Mise à jour du cache L1
+        self.l1_cache.update(addr, value);
+
+        // Écriture directe en mémoire (politique write-through)
+        self.memory[addr as usize] = value;
+
+        Ok(())
+    }
+
+    /// Écrit un mot (16 bits) à l'adresse spécifiée
+    pub fn write_word(&mut self, addr: u32, value: u16) -> io::Result<()> {
+        self.check_address(addr + 1)?;
+
+        let bytes = value.to_le_bytes();
+
+        // Écrire chaque byte séparément
+        self.write_byte(addr, bytes[0])?;
+        self.write_byte(addr + 1, bytes[1])?;
+
+        Ok(())
+    }
+
+    /// Écrit un double mot (32 bits) à l'adresse spécifiée
+    pub fn write_dword(&mut self, addr: u32, value: u32) -> io::Result<()> {
+        self.check_address(addr + 3)?;
+
+        let bytes = value.to_le_bytes();
+
+        // Écrire chaque byte séparément
+        self.write_byte(addr, bytes[0])?;
+        self.write_byte(addr + 1, bytes[1])?;
+        self.write_byte(addr + 2, bytes[2])?;
+        self.write_byte(addr + 3, bytes[3])?;
+
+        Ok(())
+    }
+
+    /// Écrit un quad mot (64 bits) à l'adresse spécifiée
+    pub fn write_qword(&mut self, addr: u32, value: u64) -> io::Result<()> {
+        self.check_address(addr + 7)?;
+
+        let bytes = value.to_le_bytes();
+
+        // Écrire chaque byte séparément
+        self.write_byte(addr, bytes[0])?;
+        self.write_byte(addr + 1, bytes[1])?;
+        self.write_byte(addr + 2, bytes[2])?;
+        self.write_byte(addr + 3, bytes[3])?;
+        self.write_byte(addr + 4, bytes[4])?;
+        self.write_byte(addr + 5, bytes[5])?;
+        self.write_byte(addr + 6, bytes[6])?;
+        self.write_byte(addr + 7, bytes[7])?;
+
+        Ok(())
+    }
+
+    /// Écrit un bloc de données à l'adresse spécifiée
+    pub fn write_block(&mut self, addr: u32, data: &[u8]) -> io::Result<()> {
+        self.check_address(addr + data.len() as u32 - 1)?;
+
+        // Écriture byte par byte pour bénéficier des mécanismes de cache et store buffer
+        for (i, &byte) in data.iter().enumerate() {
+            self.write_byte(addr + i as u32, byte)?;
+        }
+
+        Ok(())
+    }
+
+    /// Vide le store buffer en écrivant toutes les données en mémoire
+    pub fn flush_store_buffer(&mut self) -> io::Result<()> {
+        self.store_buffer.flush(&mut self.memory);
+        Ok(())
+    }
+
+    /// Vérifie si une adresse est valide
+    fn check_address(&self, addr: u32) -> io::Result<()> {
+        if addr as usize >= self.memory.len() {
+            Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("Adresse mémoire invalide: 0x{:08X}", addr),
+            ))
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Réinitialise le système mémoire
+    pub fn reset(&mut self) {
+        self.memory.iter_mut().for_each(|byte| *byte = 0);
+        self.l1_cache.clear();
+        self.store_buffer.clear();
+        self.stats = MemoryStats::default();
+    }
+
+    /// Retourne les statistiques mémoire
+    pub fn stats(&self) -> MemoryStats {
+        self.stats
+    }
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // //src/pvm/memorys.rs
 //
 // use std::collections::HashMap;
