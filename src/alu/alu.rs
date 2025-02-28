@@ -51,11 +51,12 @@ impl ALU {
     /// Crée une nouvelle instance ALU
     pub fn new() -> Self {
         Self {
-            flags: AlUFlags::default(),
+            flags: ALUFlags::default(),
         }
     }
 
     /// Exécute une opération ALU
+    /// Compute
     pub fn execute(&mut self, operation: ALUOperation, a: u64, b: u64) -> Result<u64, String> {
         let result = match operation {
             ALUOperation::Add => {
@@ -331,5 +332,3 @@ pub enum BranchCondition {
     Negative,     // SF = 1
     Positive,     // SF = 0
 }
-
-
