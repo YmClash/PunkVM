@@ -1,4 +1,132 @@
 // //src/pvm/caches.rs
+
+use std::collections::HashMap;
+
+/// Cache L1 pour la mémoire
+pub struct L1Cache {
+    size: usize,             // Taille totale de la cache en bytes
+    lines: usize,            // Nombre de lignes
+    line_size: usize,        // Taille de chaque ligne en bytes
+    data: HashMap<u32, Vec<u8>>, // Données de la cache (addresse -> données)
+    lru: HashMap<u32, u64>, // LRU  counter pour chaque ligne
+    lru_counter: u64, // Compteur LRU global
+
+}
+
+
+impl L1Cache {
+
+    pub fn new(size: usize) -> Self {
+        // Taille de ligne fixée à 64 bytes (typique pour les caches L1)
+        let line_size = 64;
+        let lines = size / line_size;
+
+        Self {
+            size,
+            lines,
+            line_size,
+            data: HashMap::with_capacity(lines),
+            lru: HashMap::with_capacity(lines),
+            lru_counter: 0,
+        }
+    }
+
+    /// Vérifie si une adresse est dans le cache
+    pub fn has_address(&self, addr: u32) -> bool {
+        let line_addr = self.get_line_addr(addr);
+        self.data.contains_key(&line_addr)
+    }
+
+    /// Recherche un byte dans le cache
+    pub fn lookup_byte(&mut self, addr: u32) -> Option<u8> {
+        let line_addr = self.get_line_addr(addr);
+        let offset = self.get_offset(addr);
+
+        if let Some(line) = self.data.get(&line_addr) {
+            // Mettre à jour le compteur LRU
+            self.lru_counter += 1;
+            self.lru.insert(line_addr, self.lru_counter);
+
+            Some(line[offset])
+        } else {
+            None
+        }
+    }
+
+    /// Updatae le cache avec de nouvelles valeur
+    pub fn update(&mut self, addr: u32, value: u8) {
+        let line_addr = self.get_line_addr(addr);
+        let offset = self.get_offset(addr);
+
+        // Si la ligne n'existe pas, la créer
+        if !self.data.contains_key(&line_addr) {
+            // Si le cache est plein, éviction LRU
+            if self.data.len() >= self.lines {
+                let lru_line = self.lru
+                    .iter()
+                    .min_by_key(|(_, &count)| count)
+                    .map(|(&addr, _)| addr)
+                    .unwrap_or(0);
+
+                self.data.remove(&lru_line);
+                self.lru.remove(&lru_line);
+            }
+
+            // Créer une nouvelle ligne
+            let mut line = vec![0; self.line_size];
+            line[offset] = value;
+
+            self.data.insert(line_addr, line);
+        } else {
+            // Mettre à jour la ligne existante
+            if let Some(line) = self.data.get_mut(&line_addr) {
+                line[offset] = value;
+            }
+        }
+
+        // Mettre à jour le compteur LRU
+        self.lru_counter += 1;
+        self.lru.insert(line_addr, self.lru_counter);
+    }
+
+    /// Nettoyer le cache
+    pub fn clear(&mut self) {
+        self.data.clear();
+        self.lru.clear();
+        self.lru_counter = 0;
+    }
+
+    /// Calcule l'adresse de la ligne de cache pour une adresse donnée
+    pub fn get_line_addr(&self, addr: u32) -> u32 {
+        addr - (addr % self.line_size as u32)
+    }
+
+    /// Calcule l'offset dans la ligne pour une adresse mémoire
+    pub fn get_offset(&self, addr: u32) -> usize {
+        (addr % self.line_size as u32) as usize
+    }
+
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 //
 // use crate::pvm::vm_errors::{VMError, VMResult,};
 // use crate::pvm::cache_stats::CacheStatistics;
