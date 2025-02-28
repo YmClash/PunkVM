@@ -14,7 +14,7 @@ pub mod buffers;
 pub mod optimizings;
 pub mod pipeline_errors;
 pub mod cache_stats;
-pub mod cache_configs;
+// pub mod cache_configs;
 pub mod branch_predictor;
 
 // Re-export

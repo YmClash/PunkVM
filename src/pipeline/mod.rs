@@ -1,17 +1,18 @@
-mod fetch;
-mod decode;
-mod execute;
-mod memory;
-mod writeback;
-mod hazard;
-mod forward;
+pub mod fetch;
+pub mod decode;
+pub mod execute;
+pub mod memory;
+pub mod writeback;
+pub mod hazard;
+pub mod forward;
 
-use std::io;
 
+
+use crate::alu::alu::ALU;
 use crate::bytecode::opcodes::Opcode;
-use crate::alu::ALU;
+
 use crate::bytecode::instructions::Instruction;
-use crate::memory::Memory;
+use crate::pvm::memorys::Memory;
 
 /// Structure représentant le pipeline à 5 étages
 pub struct Pipeline {
@@ -305,7 +306,7 @@ impl Pipeline {
 /// Implémentation des étages du pipeline
 pub mod stage {
     /// Trait commun pour tous les étages du pipeline
-    pub trait PipelineStage {
+    pub trait PipelineStage<'a> {
         /// Type d'entrée de l'étage
         type Input;
         /// Type de sortie de l'étage
@@ -316,5 +317,19 @@ pub mod stage {
 
         /// Réinitialise l'état de l'étage
         fn reset(&mut self);
+    }
+
+    // Implémentation par défaut pour le trait
+    impl<'a, T: PipelineStage<'a>> PipelineStage<'a> for &mut T {
+        type Input = T::Input;
+        type Output = T::Output;
+
+        fn process(&mut self, input: &Self::Input) -> Result<Self::Output, String> {
+            (**self).process(input)
+        }
+
+        fn reset(&mut self) {
+            (**self).reset();
+        }
     }
 }
