@@ -6,7 +6,7 @@ use crate::pipeline::{FetchDecodeRegister, DecodeExecuteRegister, stage::Pipelin
 
 /// implementation de l'étage Decode du pipeline
 pub struct DecodeStage {
-    /// Registre intermédiaire Decode -> Execute
+    // Registre intermédiaire Decode -> Execute
     // pub decode_register: Option<DecodeExecuteRegister>,
     //données de l'état interne si nécessaire
 }
@@ -19,6 +19,7 @@ impl DecodeStage {
     }
 
     /// Traite l'étage Decode
+
     pub fn process(&mut self, fd_reg: &FetchDecodeRegister, registers: &[u64]) -> Result<DecodeExecuteRegister, String> {
         let instruction = &fd_reg.instruction;
 
@@ -244,16 +245,20 @@ impl DecodeStage {
     }
 }
 
-impl PipelineStage for DecodeStage {
-    type Input = (FetchDecodeRegister, &'static [u64]);
+
+
+
+impl<'a> PipelineStage<'a> for DecodeStage {
+    type Input = (FetchDecodeRegister, &'a [u64]);
     type Output = DecodeExecuteRegister;
 
     fn process(&mut self, input: &Self::Input) -> Result<Self::Output, String> {
         let (fd_reg, registers) = input;
-        self.process(fd_reg, registers)
+        self.process(fd_reg, *registers)
     }
 
     fn reset(&mut self) {
-        self.reset();
+        // Reset direct sans appel récursif
     }
 }
+
