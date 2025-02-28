@@ -55,7 +55,7 @@ impl FetchStage {
         }
     }
 
-    /// Traite l'étage Fetch
+    // Traite l'étage Fetch
     pub fn process(&mut self, pc: u32, instructions: &[Instruction]) -> Result<FetchDecodeRegister, String> {
         // Si le buffer est vide ou ne contient pas l'instruction à PC, le remplir
         if self.fetch_buffer.is_empty() || !self.fetch_buffer.iter().any(|(addr, _)| *addr == pc) {
@@ -86,8 +86,8 @@ impl FetchStage {
 
 }
 
-impl PipelineStage for FetchStage {
-    type Input = (u32, &'static [Instruction]);
+impl<'a> PipelineStage<'a> for FetchStage {
+    type Input = (u32, &'a [Instruction]);
     type Output = FetchDecodeRegister;
 
     fn process(&mut self, input: &Self::Input) -> Result<Self::Output, String> {
@@ -96,6 +96,7 @@ impl PipelineStage for FetchStage {
     }
 
     fn reset(&mut self) {
-        self.reset();
+        // Reset direct sans appel récursif
+        self.fetch_buffer.clear();
     }
 }
