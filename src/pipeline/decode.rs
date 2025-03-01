@@ -2,7 +2,7 @@
 
 use crate::bytecode::instructions::{ArgValue, Instruction};
 use crate::bytecode::opcodes::Opcode;
-use crate::pipeline::{FetchDecodeRegister, DecodeExecuteRegister, stage::PipelineStage};
+use crate::pipeline::{FetchDecodeRegister, DecodeExecuteRegister, /*stage::PipelineStage*/};
 
 /// implementation de l'étage Decode du pipeline
 pub struct DecodeStage {
@@ -18,9 +18,8 @@ impl DecodeStage {
         Self {}
     }
 
-    /// Traite l'étage Decode
-
-    pub fn process(&mut self, fd_reg: &FetchDecodeRegister, registers: &[u64]) -> Result<DecodeExecuteRegister, String> {
+    /// Traite l'étage Decode directement
+    pub fn process_direct(&mut self, fd_reg: &FetchDecodeRegister, registers: &[u64]) -> Result<DecodeExecuteRegister, String> {
         let instruction = &fd_reg.instruction;
 
         // Extraction des registres source et destination
@@ -46,6 +45,34 @@ impl DecodeStage {
             mem_addr,
         })
     }
+
+    // Traite l'étage Decode
+    // pub fn process(&mut self, fd_reg: &FetchDecodeRegister, registers: &[u64]) -> Result<DecodeExecuteRegister, String> {
+    //     let instruction = &fd_reg.instruction;
+    //
+    //     // Extraction des registres source et destination
+    //     let (rs1, rs2, rd) = self.extract_registers(instruction)?;
+    //
+    //     // Extraction de la valeur immédiate
+    //     let immediate = self.extract_immediate(instruction)?;
+    //
+    //     // Calcul de l'adresse de branchement (si instruction de branchement)
+    //     let branch_addr = self.calculate_branch_address(instruction, fd_reg.pc)?;
+    //
+    //     // Calcul de l'adresse mémoire (si instruction mémoire)
+    //     let mem_addr = self.calculate_memory_address(instruction, registers)?;
+    //
+    //     Ok(DecodeExecuteRegister {
+    //         instruction: instruction.clone(),
+    //         pc: fd_reg.pc,
+    //         rs1,
+    //         rs2,
+    //         rd,
+    //         immediate,
+    //         branch_addr,
+    //         mem_addr,
+    //     })
+    // }
 
     /// Extrait les registres source et destination
     fn extract_registers(&self, instruction: &Instruction) -> Result<(Option<usize>, Option<usize>, Option<usize>), String> {
@@ -247,18 +274,18 @@ impl DecodeStage {
 
 
 
-
-impl<'a> PipelineStage<'a> for DecodeStage {
-    type Input = (FetchDecodeRegister, &'a [u64]);
-    type Output = DecodeExecuteRegister;
-
-    fn process(&mut self, input: &Self::Input) -> Result<Self::Output, String> {
-        let (fd_reg, registers) = input;
-        self.process(fd_reg, *registers)
-    }
-
-    fn reset(&mut self) {
-        // Reset direct sans appel récursif
-    }
-}
-
+//
+// impl<'a> PipelineStage<'a> for DecodeStage {
+//     type Input = (FetchDecodeRegister, &'a [u64]);
+//     type Output = DecodeExecuteRegister;
+//
+//     fn process(&mut self, input: &Self::Input) -> Result<Self::Output, String> {
+//         let (fd_reg, registers) = input;
+//         self.process(fd_reg, *registers)
+//     }
+//
+//     fn reset(&mut self) {
+//         // Reset direct sans appel récursif
+//     }
+// }
+//
