@@ -2,8 +2,10 @@
 
 
 use crate::bytecode::decode_errors::DecodeError;
-use super::format::{ArgType, InstructionFormat};
-use super::opcodes::Opcode;
+// use super::format::{ArgType, InstructionFormat};
+use crate::bytecode::format::{ArgType, InstructionFormat};
+// use super::opcodes::Opcode;
+use crate::bytecode::opcodes::Opcode;
 
 /// Represente le type de taille d'instruction
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
