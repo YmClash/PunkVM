@@ -1,4 +1,4 @@
-//src
+//src/bytecode/opcodes.rs
 
 /// Représente les opcodes supportés par PunkVM
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

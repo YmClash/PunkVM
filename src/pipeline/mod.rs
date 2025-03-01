@@ -220,14 +220,16 @@ impl Pipeline {
 
         // Writeback - Écrit les résultats dans les registres
         if let Some(wb_reg) = &state.memory_writeback {
-            self.writeback.process(wb_reg, registers)?;
+            // self.writeback.process(wb_reg, registers)?;
+            self.writeback.process_direct(wb_reg, registers)?;
             state.instructions_completed += 1;
             self.stats.instructions += 1;
         }
 
         // Memory - Accède à la mémoire
         if let Some(mem_reg) = &state.execute_memory {
-            let wb_reg = self.memory.process(mem_reg, memory)?;
+            // let wb_reg = self.memory.process(mem_reg, memory)?;
+            let wb_reg = self.memory.process_direct(mem_reg, memory)?;
             state.memory_writeback = Some(wb_reg);
 
             // Si c'est une instruction HALT, marquer le pipeline comme terminé
@@ -251,8 +253,8 @@ impl Pipeline {
                 );
             }
 
-            let mem_reg = self.execute.process(&ex_reg, alu)?;
-
+            // let mem_reg = self.execute.process(&ex_reg, alu)?;
+            let mem_reg = self.execute.process_direct(&ex_reg, alu)?;
             // Si c'est un branchement pris, mettre à jour le PC
             if mem_reg.branch_taken {
                 if let Some(target) = mem_reg.branch_target {
@@ -272,14 +274,16 @@ impl Pipeline {
         // Decode - Décode l'instruction
         if !state.stalled {
             if let Some(fd_reg) = &state.fetch_decode {
-                let ex_reg = self.decode.process(fd_reg, registers)?;
+                // let ex_reg = self.decode.process(fd_reg, registers)?;
+                let ex_reg = self.decode.process_direct(fd_reg, registers)?;
                 state.decode_execute = Some(ex_reg);
             } else {
                 state.decode_execute = None;
             }
 
             // Fetch - Récupère l'instruction suivante
-            let fd_reg = self.fetch.process(pc, instructions)?;
+            // let fd_reg = self.fetch.process(pc, instructions)?;
+            let fd_reg = self.fetch.process_direct(pc, instructions)?;
             state.fetch_decode = Some(fd_reg);
 
             // Par défaut, incrémenter le PC
@@ -303,33 +307,36 @@ impl Pipeline {
     }
 }
 
-/// Implémentation des étages du pipeline
-pub mod stage {
-    /// Trait commun pour tous les étages du pipeline
-    pub trait PipelineStage<'a> {
-        /// Type d'entrée de l'étage
-        type Input;
-        /// Type de sortie de l'étage
-        type Output;
 
-        /// Traite une entrée et produit une sortie
-        fn process(&mut self, input: &Self::Input) -> Result<Self::Output, String>;
 
-        /// Réinitialise l'état de l'étage
-        fn reset(&mut self);
-    }
 
-    // Implémentation par défaut pour le trait
-    impl<'a, T: PipelineStage<'a>> PipelineStage<'a> for &mut T {
-        type Input = T::Input;
-        type Output = T::Output;
-
-        fn process(&mut self, input: &Self::Input) -> Result<Self::Output, String> {
-            (**self).process(input)
-        }
-
-        fn reset(&mut self) {
-            (**self).reset();
-        }
-    }
-}
+// /// Implémentation des étages du pipeline
+// pub mod stage {
+//     /// Trait commun pour tous les étages du pipeline
+//     pub trait PipelineStage<'a> {
+//         /// Type d'entrée de l'étage
+//         type Input;
+//         /// Type de sortie de l'étage
+//         type Output;
+//
+//         /// Traite une entrée et produit une sortie
+//         fn process(&mut self, input: &Self::Input) -> Result<Self::Output, String>;
+//
+//         /// Réinitialise l'état de l'étage
+//         fn reset(&mut self);
+//     }
+//
+//     // Implémentation par défaut pour le trait
+//     impl<'a, T: PipelineStage<'a>> PipelineStage<'a> for &mut T {
+//         type Input = T::Input;
+//         type Output = T::Output;
+//
+//         fn process(&mut self, input: &Self::Input) -> Result<Self::Output, String> {
+//             (**self).process(input)
+//         }
+//
+//         fn reset(&mut self) {
+//             (**self).reset();
+//         }
+//     }
+// }
