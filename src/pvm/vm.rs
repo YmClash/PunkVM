@@ -3,11 +3,12 @@ use std::path::Path;
 use std::io;
 
 
-use crate::bytecode::BytecodeFile;
-use crate::pipeline::{Pipeline, PipelineState};
-use crate::memory::{Memory, MemoryConfig};
-use crate::alu::ALU;
+
+use crate::pipeline::{Pipeline};
+use crate::alu::alu::ALU;
+use crate::bytecode::files::SegmentType::{Code, Data, ReadOnlyData};
 use crate::BytecodeFile;
+use crate::pvm::memorys::{Memory, MemoryConfig};
 
 /// Configuration de la machine virtuelle
 #[derive(Debug, Clone)]
@@ -169,7 +170,7 @@ impl PunkVM {
 
         // Cycle du pipeline
         let pipeline_state = self.pipeline.cycle(
-            self.pc,
+            self.pc as u32,
             &mut self.registers,
             &mut self.memory,
             &mut self.alu,
@@ -177,7 +178,7 @@ impl PunkVM {
         )?;
 
         // Mise à jour du PC
-        self.pc = pipeline_state.next_pc;
+        self.pc = pipeline_state.next_pc as usize;
 
         // Mise à jour des compteurs
         self.cycles += 1;
@@ -231,7 +232,7 @@ impl PunkVM {
         let code_segment = program
             .segments
             .iter()
-            .find(|s| s.segment_type == crate::bytecode::SegmentType::Code)
+            .find(|s| s.segment_type == Code)
             .ok_or_else(|| io::Error::new(
                 io::ErrorKind::InvalidData,
                 "Segment de code manquant dans le programme",
@@ -267,7 +268,7 @@ impl PunkVM {
         if let Some(data_segment) = program
             .segments
             .iter()
-            .find(|s| s.segment_type == crate::bytecode::SegmentType::Data)
+            .find(|s| s.segment_type == Data)
         {
             if data_segment.size > 0 {
                 self.memory.write_block(data_segment.load_addr, &program.data)?;
@@ -278,7 +279,7 @@ impl PunkVM {
         if let Some(ro_segment) = program
             .segments
             .iter()
-            .find(|s| s.segment_type == crate::bytecode::SegmentType::ReadOnlyData)
+            .find(|s| s.segment_type == ReadOnlyData)
         {
             if ro_segment.size > 0 {
                 self.memory.write_block(ro_segment.load_addr, &program.readonly_data)?;
@@ -288,7 +289,6 @@ impl PunkVM {
         Ok(())
     }
 }
-
 
 
 
