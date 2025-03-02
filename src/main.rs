@@ -1,7 +1,7 @@
 // examples/simple_vm.rs
 
 
-use PunkVM::bytecode::files::BytecodeVersion;
+use PunkVM::bytecode::files::{BytecodeVersion, SegmentMetadata, SegmentType};
 use PunkVM::bytecode::format::{ArgType, InstructionFormat};
 use PunkVM::bytecode::instructions::Instruction;
 use PunkVM::bytecode::opcodes::Opcode;
@@ -12,7 +12,7 @@ use PunkVM::pvm::vm::VMConfig;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Création d'un programme simple qui calcule la somme des nombres de 1 à 10
     println!("Création du programme de test...");
-    let bytecode = create_test_program()?;
+    let bytecode = create_minimal_test_program()?;
 
     // Configuration de la VM
     let config = VMConfig {
@@ -28,22 +28,100 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         enable_hazard_detection: true, // Activer la détection de hazards
     };
 
-    // Création de la VM
+    let config = VMConfig::default();
+
+    let mut vm = PunkVM::pvm::vm::PunkVM::with_config(VMConfig::default());
+    //
+    // println!("Début du chargement du programme...");
+    //
+    // // Création de la VM
+    // println!("Initialisation de la VM...");
+    // // let mut vm = PunkVM::with_config(config);
+    //
+    // println!("1. Réinitialisation de la VM...");
+    // vm.reset();
+    //
+    //
+    // // // Chargement du programme
+    // // println!("Chargement du programme...");
+    // // vm.load_program_from_bytecode(bytecode)?;
+    // // // vm.load_program(&bytecode)?;
+    //
+    // println!("2. Chargement du code en mémoire...");
+    // // Remplacer par votre méthode réelle de chargement ou par du code de test
+    // vm.load_code_segment(&bytecode)?;
+    //
+    // println!("3. Chargement des données...");
+    // vm.load_data_segments(&bytecode)?;
+    //
+    // println!("4. Stockage du programme");
+    // vm.program = Some(bytecode);
+    //
+    // println!("5. Programme chargé avec succès !");
+    //
+    //
+    // println!("Programme chargé avec succès !");
+    //
+    // // Exécution du programme
+    // println!("Exécution du programme...");
+    // vm.run()?;
+    //
+    // // Affichage des résultats
+    // println!("Programme terminé !");
+    // println!("Résultat (R1): {}", vm.registers[1]);
+    println!("Test de PunkVM sans débordement de pile");
+
+    // Créer une VM avec la configuration par défaut
     println!("Initialisation de la VM...");
-    // let mut vm = PunkVM::with_config(config);
-    let mut vm = PunkVM::pvm::vm::PunkVM::with_config(config);
+    // let mut vm = PunkVM::new();
 
-    // Chargement du programme
-    println!("Chargement du programme...");
-    vm.load_program_from_bytecode(bytecode)?;
+    // Créer un programme bytecode minimal
+    println!("Création du programme de test...");
+    let mut program = BytecodeFile::new();
 
-    // Exécution du programme
+    // Ajouter quelques instructions simples
+    // NOP - ne fait rien
+    program.add_instruction(Instruction::create_no_args(Opcode::Nop));
+
+    // ADD R0, R1 - addition de registres
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Add, 0, 1));
+
+    // HALT - termine l'exécution
+    program.add_instruction(Instruction::create_no_args(Opcode::Halt));
+
+    // Définir les segments et métadonnées
+    let code_size = program.code.iter().map(|instr| instr.total_size()).sum::<usize>() as u32;
+    program.segments = vec![
+        SegmentMetadata::new(SegmentType::Code, 0, code_size, 0)
+    ];
+    program.data = Vec::new();
+    program.readonly_data = Vec::new();
+
+    // Charger le programme dans la VM
+    println!("Début du chargement du programme...");
+    match vm.load_program_from_bytecode(program) {
+        Ok(_) => println!("Programme chargé avec succès"),
+        Err(e) => {
+            println!("Erreur lors du chargement du programme: {}", e);
+            return Ok(());
+        }
+    }
+
+    // Initialiser quelques registres
+    vm.registers[0] = 5;  // R0 = 5
+    vm.registers[1] = 7;  // R1 = 7
+
+    // Exécuter la VM
     println!("Exécution du programme...");
-    vm.run()?;
+    match vm.run() {
+        Ok(_) => println!("Exécution terminée avec succès"),
+        Err(e) => println!("Erreur lors de l'exécution: {}", e),
+    }
 
-    // Affichage des résultats
-    println!("Programme terminé !");
-    println!("Résultat (R1): {}", vm.registers[1]);
+    // Afficher les résultats
+    println!("État final:");
+    println!("  R0 = {}", vm.registers[0]);
+    println!("  R1 = {}", vm.registers[1]);
 
     // Affichage des statistiques
     let stats = vm.stats();
@@ -60,7 +138,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Crée un programme de test qui calcule la somme des nombres de 1 à 10
+
+fn create_minimal_test_program() -> Result<BytecodeFile, Box<dyn std::error::Error>> {
+    let mut bytecode = BytecodeFile::new();
+
+    // Définition de la version
+    bytecode.version = BytecodeVersion::new(0, 1, 0, 0);
+
+    // Juste quelques instructions simples
+    bytecode.add_instruction(Instruction::create_reg_imm8(Opcode::Load, 0, 1));
+    bytecode.add_instruction(Instruction::create_no_args(Opcode::Halt));
+
+    Ok(bytecode)
+}
+
+// Crée un programme de test qui calcule la somme des nombres de 1 à 10
 fn create_test_program() -> Result<BytecodeFile, Box<dyn std::error::Error>> {
     let mut bytecode = BytecodeFile::new();
 
