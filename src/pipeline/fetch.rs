@@ -110,6 +110,131 @@ impl FetchStage {
 
 }
 
+
+
+
+
+// Test unitaire pour l'étage Fetch
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::bytecode::opcodes::Opcode;
+    use crate::bytecode::instructions::Instruction;
+    use crate::bytecode::format::InstructionFormat;
+    use crate::bytecode::format::ArgType;
+
+    #[test]
+    fn test_fetch_stage_creation() {
+        let fetch = FetchStage::new(16);
+        assert_eq!(fetch.buffer_size, 16);
+        assert_eq!(fetch.fetch_buffer.len(), 0);
+    }
+
+    #[test]
+    fn test_fetch_stage_reset() {
+        let mut fetch = FetchStage::new(16);
+
+        // Créer des instructions pour remplir le buffer
+        let nop = Instruction::create_no_args(Opcode::Nop);
+        let instructions = vec![nop.clone()];
+
+        // Remplir le buffer
+        fetch.prefetch(0, &instructions);
+        assert_eq!(fetch.fetch_buffer.len(), 1);
+
+        // Réinitialiser
+        fetch.reset();
+        assert_eq!(fetch.fetch_buffer.len(), 0);
+    }
+
+    #[test]
+    fn test_fetch_stage_prefetch() {
+        let mut fetch = FetchStage::new(16);
+
+        // Créer une séquence d'instructions
+        let nop1 = Instruction::create_no_args(Opcode::Nop);
+        let nop2 = Instruction::create_no_args(Opcode::Nop);
+        let nop3 = Instruction::create_no_args(Opcode::Nop);
+
+        let instructions = vec![nop1, nop2, nop3];
+
+        // Précharger à partir de la première instruction
+        fetch.prefetch(0, &instructions);
+
+        // Vérifier que les instructions ont été préchargées
+        assert_eq!(fetch.fetch_buffer.len(), 3);
+        assert_eq!(fetch.fetch_buffer[0].0, 0); // Première instruction à l'adresse 0
+        assert_eq!(fetch.fetch_buffer[1].0, instructions[0].total_size() as u32); // Deuxième instruction
+        assert_eq!(fetch.fetch_buffer[2].0, instructions[0].total_size() as u32 + instructions[1].total_size() as u32); // Troisième instruction
+    }
+
+    #[test]
+    fn test_fetch_stage_process_direct() {
+        let mut fetch = FetchStage::new(16);
+
+        // Créer une instruction simple
+        let nop = Instruction::create_no_args(Opcode::Nop);
+        let instructions = vec![nop.clone()];
+
+        // Traiter l'instruction
+        let result = fetch.process_direct(0, &instructions);
+
+        // Vérifier que l'instruction a été correctement récupérée
+        assert!(result.is_ok());
+        let fd_reg = result.unwrap();
+        assert_eq!(fd_reg.pc, 0);
+        assert_eq!(fd_reg.instruction.opcode, Opcode::Nop);
+    }
+
+    #[test]
+    fn test_fetch_stage_process_direct_multiple_instructions() {
+        let mut fetch = FetchStage::new(16);
+
+        // Créer une séquence d'instructions
+        let add = Instruction::create_reg_reg(Opcode::Add, 0, 1); // ADD R0, R1
+        let sub = Instruction::create_reg_reg(Opcode::Sub, 2, 3); // SUB R2, R3
+
+        let instructions = vec![add.clone(), sub.clone()];
+
+        // Traiter la première instruction
+        let result1 = fetch.process_direct(0, &instructions);
+        assert!(result1.is_ok());
+        let fd_reg1 = result1.unwrap();
+        assert_eq!(fd_reg1.pc, 0);
+        assert_eq!(fd_reg1.instruction.opcode, Opcode::Add);
+
+        // Calculer l'adresse de la deuxième instruction
+        let pc2 = add.total_size() as u32;
+
+        // Traiter la deuxième instruction
+        let result2 = fetch.process_direct(pc2, &instructions);
+        assert!(result2.is_ok());
+        let fd_reg2 = result2.unwrap();
+        assert_eq!(fd_reg2.pc, pc2);
+        assert_eq!(fd_reg2.instruction.opcode, Opcode::Sub);
+    }
+
+    #[test]
+    fn test_fetch_stage_instruction_not_found() {
+        let mut fetch = FetchStage::new(16);
+
+        // Créer une instruction
+        let nop = Instruction::create_no_args(Opcode::Nop);
+        let instructions = vec![nop];
+
+        // Essayer de récupérer une instruction à une adresse invalide
+        let result = fetch.process_direct(100, &instructions);
+
+        // Vérifier que l'erreur est correcte
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Instruction non trouvée"));
+    }
+}
+
+
+
+
+
 //
 //
 // impl<'a> PipelineStage<'a> for FetchStage {

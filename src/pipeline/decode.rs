@@ -1,4 +1,4 @@
-
+//src/pipeline/decode.rs
 
 use crate::bytecode::instructions::{ArgValue, Instruction};
 use crate::bytecode::opcodes::Opcode;
@@ -272,6 +272,137 @@ impl DecodeStage {
     }
 }
 
+
+
+// Test unitaire pour l'étage Decode
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::bytecode::opcodes::Opcode;
+    use crate::bytecode::instructions::Instruction;
+    use crate::bytecode::format::InstructionFormat;
+    use crate::bytecode::format::ArgType;
+
+    #[test]
+    fn test_decode_stage_creation() {
+        let decode = DecodeStage::new();
+        // Pas grand-chose à tester pour la création, car l'étage n'a pas d'état interne
+        // Juste s'assurer que la création réussit
+        assert!(true);
+    }
+
+    #[test]
+    fn test_decode_stage_extract_registers_add() {
+        let decode = DecodeStage::new();
+
+        // Instruction ADD R0, R1
+        let add_instruction = Instruction::create_reg_reg(Opcode::Add, 0, 1);
+
+        let result = decode.extract_registers(&add_instruction);
+        assert!(result.is_ok());
+
+        let (rs1, rs2, rd) = result.unwrap();
+        assert_eq!(rd, Some(0)); // R0 est le registre destination
+        assert_eq!(rs1, Some(0)); // Dans certaines architectures, rd est aussi rs1
+        assert_eq!(rs2, Some(1)); // R1 est le deuxième registre source
+    }
+
+    #[test]
+    fn test_decode_stage_extract_immediate() {
+        let decode = DecodeStage::new();
+
+        // Instruction avec valeur immédiate (ADD R0, 5)
+        let add_imm_instruction = Instruction::create_reg_imm8(Opcode::Add, 0, 5);
+
+        let result = decode.extract_immediate(&add_imm_instruction);
+        assert!(result.is_ok());
+
+        let immediate = result.unwrap();
+        assert_eq!(immediate, Some(5));
+    }
+
+    #[test]
+    fn test_decode_stage_calculate_branch_address() {
+        let decode = DecodeStage::new();
+
+        // Instruction de saut relatif (JMP +8)
+        let jmp_instruction = Instruction::new(
+            Opcode::Jmp,
+            InstructionFormat::new(ArgType::None, ArgType::RelativeAddr),
+            vec![8, 0, 0, 0] // Saut relatif de 8 bytes
+        );
+
+        let pc = 100;
+        let result = decode.calculate_branch_address(&jmp_instruction, pc);
+        assert!(result.is_ok());
+
+        let branch_addr = result.unwrap();
+        assert_eq!(branch_addr, Some(108)); // PC + 8
+    }
+
+    #[test]
+    fn test_decode_stage_calculate_memory_address() {
+        let decode = DecodeStage::new();
+
+        // Instruction LOAD avec offset (LOAD R0, [R1+4])
+        let load_instruction = Instruction::new(
+            Opcode::Load,
+            InstructionFormat::new(ArgType::Register, ArgType::RegisterOffset),
+            vec![0, 1, 4] // R0 = Mem[R1+4]
+        );
+
+        // Initialiser les registres
+        let mut registers = vec![0; 16];
+        registers[1] = 100; // R1 contient l'adresse 100
+
+        let result = decode.calculate_memory_address(&load_instruction, &registers);
+        assert!(result.is_ok());
+
+        let mem_addr = result.unwrap();
+        assert_eq!(mem_addr, Some(104)); // 100 + 4
+    }
+
+    #[test]
+    fn test_decode_stage_process_direct() {
+        let mut decode = DecodeStage::new();
+
+        // Créer une instruction ADD R0, R1
+        let add_instruction = Instruction::create_reg_reg(Opcode::Add, 0, 1);
+
+        // Créer un registre Fetch → Decode
+        let fd_reg = FetchDecodeRegister {
+            instruction: add_instruction,
+            pc: 100,
+        };
+
+        // Initialiser les registres
+        let registers = vec![5, 7, 0, 0, 0, 0, 0, 0];
+
+        // Décoder l'instruction
+        let result = decode.process_direct(&fd_reg, &registers);
+        assert!(result.is_ok());
+
+        // Vérifier le résultat
+        let de_reg = result.unwrap();
+        assert_eq!(de_reg.pc, 100);
+        assert_eq!(de_reg.rs1, Some(0));
+        assert_eq!(de_reg.rs2, Some(1));
+        assert_eq!(de_reg.rd, Some(0));
+        assert_eq!(de_reg.immediate, None);
+        assert_eq!(de_reg.branch_addr, None);
+        assert_eq!(de_reg.mem_addr, None);
+    }
+
+    #[test]
+    fn test_decode_stage_reset() {
+        let mut decode = DecodeStage::new();
+
+        // L'étage Decode n'a pas d'état interne, donc reset() ne fait rien
+        // On s'assure juste que la méthode peut être appelée sans erreur
+        decode.reset();
+        assert!(true);
+    }
+}
 
 
 //
