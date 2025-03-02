@@ -120,3 +120,118 @@ impl InstructionFormat {
         Self::new(ArgType::None, ArgType::None)
     }
 }
+
+
+
+// Test unitaire pour les formats d'instruction
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_arg_type_from_u8() {
+        // Test des conversions valides
+        assert_eq!(ArgType::from_u8(0x0), Some(ArgType::None));
+        assert_eq!(ArgType::from_u8(0x1), Some(ArgType::Register));
+        assert_eq!(ArgType::from_u8(0x5), Some(ArgType::Immediate32));
+
+        // Test des conversions avec bits supplémentaires (masquage)
+        assert_eq!(ArgType::from_u8(0xF0), Some(ArgType::None));
+        assert_eq!(ArgType::from_u8(0xF1), Some(ArgType::Register));
+
+        // Test avec valeur invalide
+        assert_eq!(ArgType::from_u8(0xA), None);
+    }
+
+    #[test]
+    fn test_arg_type_size() {
+        // Test des tailles d'arguments
+        assert_eq!(ArgType::None.size(), 0);
+        assert_eq!(ArgType::Register.size(), 1);
+        assert_eq!(ArgType::Immediate8.size(), 1);
+        assert_eq!(ArgType::Immediate16.size(), 2);
+        assert_eq!(ArgType::Immediate32.size(), 4);
+        assert_eq!(ArgType::Immediate64.size(), 8);
+        assert_eq!(ArgType::AbsoluteAddr.size(), 4);
+        assert_eq!(ArgType::RelativeAddr.size(), 4);
+        assert_eq!(ArgType::RegisterOffset.size(), 2);
+    }
+
+    #[test]
+    fn test_instruction_format_new() {
+        let format = InstructionFormat::new(ArgType::Register, ArgType::Immediate8);
+
+        assert_eq!(format.arg1_type, ArgType::Register);
+        assert_eq!(format.arg2_type, ArgType::Immediate8);
+    }
+
+    #[test]
+    fn test_instruction_format_encode_decode() {
+        // Test d'encodage
+        let format = InstructionFormat::new(ArgType::Register, ArgType::Immediate8);
+        let encoded = format.encode();
+
+        assert_eq!(encoded, 0x13); // (1 << 4) | 3
+
+        // Test de décodage
+        let decoded = InstructionFormat::decode(encoded).unwrap();
+
+        assert_eq!(decoded.arg1_type, ArgType::Register);
+        assert_eq!(decoded.arg2_type, ArgType::Immediate8);
+    }
+
+    #[test]
+    fn test_instruction_format_args_size() {
+        // Test avec différentes combinaisons
+        let format1 = InstructionFormat::new(ArgType::None, ArgType::None);
+        assert_eq!(format1.args_size(), 0);
+
+        let format2 = InstructionFormat::new(ArgType::Register, ArgType::Immediate8);
+        assert_eq!(format2.args_size(), 2); // 1 + 1
+
+        let format3 = InstructionFormat::new(ArgType::Register, ArgType::Immediate32);
+        assert_eq!(format3.args_size(), 5); // 1 + 4
+
+        let format4 = InstructionFormat::new(ArgType::RegisterOffset, ArgType::AbsoluteAddr);
+        assert_eq!(format4.args_size(), 6); // 2 + 4
+    }
+
+    #[test]
+    fn test_instruction_format_predefined() {
+        // Test des formats prédéfinis
+        let reg_reg = InstructionFormat::reg_reg();
+        assert_eq!(reg_reg.arg1_type, ArgType::Register);
+        assert_eq!(reg_reg.arg2_type, ArgType::Register);
+
+        let reg_imm8 = InstructionFormat::reg_imm8();
+        assert_eq!(reg_imm8.arg1_type, ArgType::Register);
+        assert_eq!(reg_imm8.arg2_type, ArgType::Immediate8);
+
+        let no_args = InstructionFormat::no_args();
+        assert_eq!(no_args.arg1_type, ArgType::None);
+        assert_eq!(no_args.arg2_type, ArgType::None);
+
+        let single_reg = InstructionFormat::single_reg();
+        assert_eq!(single_reg.arg1_type, ArgType::Register);
+        assert_eq!(single_reg.arg2_type, ArgType::None);
+
+        let addr_only = InstructionFormat::addr_only();
+        assert_eq!(addr_only.arg1_type, ArgType::None);
+        assert_eq!(addr_only.arg2_type, ArgType::AbsoluteAddr);
+    }
+
+    #[test]
+    fn test_instruction_format_invalid_decode() {
+        // Test avec des bits invalides pour arg1_type
+        let result = InstructionFormat::decode(0xA0);
+        assert!(result.is_none());
+
+        // Test avec des bits invalides pour arg2_type
+        let result = InstructionFormat::decode(0x0A);
+        assert!(result.is_none());
+
+        // Test avec les deux types invalides
+        let result = InstructionFormat::decode(0xAA);
+        assert!(result.is_none());
+    }
+}
