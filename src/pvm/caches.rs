@@ -109,10 +109,121 @@ impl L1Cache {
 
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
 
+    #[test]
+    fn test_cache_creation() {
+        let cache = L1Cache::new(1024);
+        assert_eq!(cache.size, 1024);
+        assert_eq!(cache.line_size, 64);
+        assert_eq!(cache.lines, 16); // 1024 / 64 = 16
+    }
 
+    #[test]
+    fn test_cache_line_addressing() {
+        let cache = L1Cache::new(1024);
 
+        // Test alignement d'adresse sur une ligne
+        assert_eq!(cache.get_line_addr(0x100), 0x100);
+        assert_eq!(cache.get_line_addr(0x12F), 0x100);
+        assert_eq!(cache.get_line_addr(0x130), 0x100);
+        assert_eq!(cache.get_line_addr(0x13F), 0x100);
+        assert_eq!(cache.get_line_addr(0x140), 0x140);
 
+        // Test calcul d'offset dans une ligne
+        assert_eq!(cache.get_offset(0x100), 0);
+        assert_eq!(cache.get_offset(0x12F), 0x2F);
+        assert_eq!(cache.get_offset(0x13F), 0x3F);
+    }
+
+    #[test]
+    fn test_cache_hit_miss() {
+        let mut cache = L1Cache::new(1024);
+
+        // Initialement, l'adresse n'est pas dans le cache
+        assert!(!cache.has_address(0x100));
+        assert_eq!(cache.lookup_byte(0x100), None);
+
+        // Mettre à jour le cache
+        cache.update(0x100, 42);
+
+        // Maintenant, l'adresse devrait être dans le cache
+        assert!(cache.has_address(0x100));
+        assert_eq!(cache.lookup_byte(0x100), Some(42));
+
+        // Une adresse dans la même ligne devrait également être dans le cache
+        assert!(cache.has_address(0x101));
+        assert_eq!(cache.lookup_byte(0x101), Some(0)); // Valeur par défaut
+
+        // Une adresse dans une autre ligne ne devrait pas être dans le cache
+        assert!(!cache.has_address(0x200));
+        assert_eq!(cache.lookup_byte(0x200), None);
+    }
+
+    #[test]
+    fn test_cache_lru_eviction() {
+        let mut cache = L1Cache::new(128); // 2 lignes seulement (128 / 64)
+
+        // Remplir les deux lignes du cache
+        cache.update(0x000, 1);
+        cache.update(0x040, 2);
+
+        // Vérifier que les deux lignes sont dans le cache
+        assert!(cache.has_address(0x000));
+        assert!(cache.has_address(0x040));
+
+        // Accéder à la première ligne pour mettre à jour son LRU
+        cache.lookup_byte(0x000);
+
+        // Ajouter une troisième ligne, ce qui devrait évincer la deuxième ligne (la moins récemment utilisée)
+        cache.update(0x080, 3);
+
+        // Vérifier que la première et la troisième ligne sont dans le cache, mais pas la deuxième
+        assert!(cache.has_address(0x000));
+        assert!(!cache.has_address(0x040));
+        assert!(cache.has_address(0x080));
+    }
+
+    #[test]
+    fn test_cache_clear() {
+        let mut cache = L1Cache::new(1024);
+
+        // Mettre à jour quelques adresses
+        cache.update(0x100, 42);
+        cache.update(0x200, 43);
+
+        // Vérifier qu'elles sont dans le cache
+        assert!(cache.has_address(0x100));
+        assert!(cache.has_address(0x200));
+
+        // Effacer le cache
+        cache.clear();
+
+        // Vérifier que le cache est vide
+        assert!(!cache.has_address(0x100));
+        assert!(!cache.has_address(0x200));
+    }
+
+    #[test]
+    fn test_cache_update_existing_line() {
+        let mut cache = L1Cache::new(1024);
+
+        // Mettre à jour une adresse
+        cache.update(0x100, 42);
+        assert_eq!(cache.lookup_byte(0x100), Some(42));
+
+        // Mettre à jour la même adresse avec une valeur différente
+        cache.update(0x100, 43);
+        assert_eq!(cache.lookup_byte(0x100), Some(43));
+
+        // Mettre à jour une adresse différente dans la même ligne
+        cache.update(0x101, 44);
+        assert_eq!(cache.lookup_byte(0x100), Some(43));
+        assert_eq!(cache.lookup_byte(0x101), Some(44));
+    }
+}
 
 
 
