@@ -161,3 +161,91 @@ impl Opcode {
     }
 
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_opcode_from_u8() {
+        // Test des valeurs valides
+        assert_eq!(Opcode::from_u8(0x00), Some(Opcode::Nop));
+        assert_eq!(Opcode::from_u8(0x01), Some(Opcode::Add));
+        assert_eq!(Opcode::from_u8(0x60), Some(Opcode::Load));
+
+        // Test des valeurs invalides
+        assert_eq!(Opcode::from_u8(0xFF), None);
+        assert_eq!(Opcode::from_u8(0x09), None);
+    }
+
+    #[test]
+    fn test_opcode_is_valid() {
+        assert!(Opcode::Add.is_valid());
+        assert!(Opcode::Load.is_valid());
+        assert!(Opcode::Halt.is_valid());
+    }
+
+    #[test]
+    fn test_opcode_size() {
+        assert_eq!(Opcode::Add.size(), 1);
+        assert_eq!(Opcode::Load.size(), 1);
+        assert_eq!(Opcode::Halt.size(), 1);
+    }
+
+    #[test]
+    fn test_opcode_is_branch() {
+        // Instructions de branchement
+        assert!(Opcode::Jmp.is_branch());
+        assert!(Opcode::JmpIf.is_branch());
+        assert!(Opcode::Call.is_branch());
+        assert!(Opcode::Ret.is_branch());
+
+        // Instructions non-branchement
+        assert!(!Opcode::Add.is_branch());
+        assert!(!Opcode::Load.is_branch());
+        assert!(!Opcode::Halt.is_branch());
+    }
+
+    #[test]
+    fn test_opcode_category() {
+        // Test des différentes catégories
+        assert_eq!(Opcode::Add.category(), OpcodeCategory::Alu);
+        assert_eq!(Opcode::And.category(), OpcodeCategory::Logical);
+        assert_eq!(Opcode::Jmp.category(), OpcodeCategory::ControlFlow);
+        assert_eq!(Opcode::Load.category(), OpcodeCategory::Memory);
+        assert_eq!(Opcode::Syscall.category(), OpcodeCategory::Special);
+        assert_eq!(Opcode::Extended.category(), OpcodeCategory::Extended);
+    }
+
+    #[test]
+    fn test_opcode_values() {
+        // Test des valeurs spécifiques
+        assert_eq!(Opcode::Add as u8, 0x01);
+        assert_eq!(Opcode::Load as u8, 0x60);
+        assert_eq!(Opcode::Halt as u8, 0x82);
+    }
+
+    #[test]
+    fn test_memory_instructions() {
+        let memory_ops = [
+            Opcode::Load,
+            Opcode::Store,
+            Opcode::LoadB,
+            Opcode::StoreB,
+            Opcode::LoadW,
+            Opcode::StoreW,
+            Opcode::LoadD,
+            Opcode::StoreD,
+        ];
+
+        for op in memory_ops.iter() {
+            assert_eq!(op.category(), OpcodeCategory::Memory);
+        }
+    }
+}
+
+
+// Test unitaire pour les Opcodes
+// #[cfg(test)]
+// test  ici
