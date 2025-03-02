@@ -332,3 +332,242 @@ pub enum BranchCondition {
     Negative,     // SF = 1
     Positive,     // SF = 0
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_alu_flags_default() {
+        let flags = ALUFlags::default();
+        assert!(!flags.zero);
+        assert!(!flags.negative);
+        assert!(!flags.overflow);
+        assert!(!flags.carry);
+    }
+
+    #[test]
+    fn test_basic_arithmetic() {
+        let mut alu = ALU::new();
+
+        // Test addition
+        let result = alu.execute(ALUOperation::Add, 5, 3).unwrap();
+        assert_eq!(result, 8);
+        assert!(!alu.flags.zero);
+        assert!(!alu.flags.negative);
+        assert!(!alu.flags.overflow);
+        assert!(!alu.flags.carry);
+
+        // Test soustraction
+        let result = alu.execute(ALUOperation::Sub, 5, 3).unwrap();
+        assert_eq!(result, 2);
+        assert!(!alu.flags.zero);
+        assert!(!alu.flags.negative);
+        assert!(!alu.flags.overflow);
+        assert!(!alu.flags.carry);
+
+        // Test multiplication
+        let result = alu.execute(ALUOperation::Mul, 5, 3).unwrap();
+        assert_eq!(result, 15);
+        assert!(!alu.flags.zero);
+        assert!(!alu.flags.negative);
+        assert!(!alu.flags.overflow);
+        assert!(!alu.flags.carry);
+
+        // Test division
+        let result = alu.execute(ALUOperation::Div, 15, 3).unwrap();
+        assert_eq!(result, 5);
+        assert!(!alu.flags.zero);
+        assert!(!alu.flags.negative);
+        assert!(!alu.flags.overflow);
+        assert!(!alu.flags.carry);
+    }
+
+    #[test]
+    fn test_zero_flag() {
+        let mut alu = ALU::new();
+
+        // Zero flag with subtraction
+        let result = alu.execute(ALUOperation::Sub, 5, 5).unwrap();
+        assert_eq!(result, 0);
+        assert!(alu.flags.zero);
+
+        // Zero flag with AND
+        let result = alu.execute(ALUOperation::And, 0x5, 0xA).unwrap();
+        assert_eq!(result, 0);
+        assert!(alu.flags.zero);
+    }
+
+    #[test]
+    fn test_negative_flag() {
+        let mut alu = ALU::new();
+
+        // Negative flag with subtraction (underflow in unsigned)
+        let result = alu.execute(ALUOperation::Sub, 3, 5).unwrap();
+        assert_eq!(result, u64::MAX - 1); // Équivalent à -2 en complément à 2
+        assert!(!alu.flags.zero);
+        assert!(alu.flags.negative);
+        assert!(!alu.flags.overflow);
+        assert!(alu.flags.carry); // Carry indique un emprunt en soustraction
+
+        // Negative flag avec Neg
+        let result = alu.execute(ALUOperation::Neg, 1, 0).unwrap();
+        assert_eq!(result, u64::MAX); // Équivalent à -1 en complément à 2
+        assert!(!alu.flags.zero);
+        assert!(alu.flags.negative);
+    }
+
+    #[test]
+    fn test_overflow_flag() {
+        let mut alu = ALU::new();
+
+        // Overflow en additionnant deux grands nombres positifs
+        let result = alu.execute(ALUOperation::Add, 0x7FFFFFFFFFFFFFFF, 1).unwrap();
+        assert_eq!(result, 0x8000000000000000);
+        assert!(!alu.flags.zero);
+        assert!(alu.flags.negative);
+        assert!(alu.flags.overflow); // Overflow car signe changé de façon inattendue
+        assert!(!alu.flags.carry);
+    }
+
+    #[test]
+    fn test_carry_flag() {
+        let mut alu = ALU::new();
+
+        // Carry en additionnant deux grands nombres
+        let result = alu.execute(ALUOperation::Add, u64::MAX, 1).unwrap();
+        assert_eq!(result, 0);
+        assert!(alu.flags.zero);
+        assert!(!alu.flags.negative);
+        assert!(!alu.flags.overflow);
+        assert!(alu.flags.carry); // Carry car bit 64 affecté
+    }
+
+    #[test]
+    fn test_logical_operations() {
+        let mut alu = ALU::new();
+
+        // Test AND
+        let result = alu.execute(ALUOperation::And, 0xF0, 0x0F).unwrap();
+        assert_eq!(result, 0);
+        assert!(alu.flags.zero);
+
+        // Test OR
+        let result = alu.execute(ALUOperation::Or, 0xF0, 0x0F).unwrap();
+        assert_eq!(result, 0xFF);
+        assert!(!alu.flags.zero);
+
+        // Test XOR
+        let result = alu.execute(ALUOperation::Xor, 0xFF, 0x0F).unwrap();
+        assert_eq!(result, 0xF0);
+        assert!(!alu.flags.zero);
+
+        // Test NOT
+        let result = alu.execute(ALUOperation::Not, 0xF0, 0).unwrap();
+        assert_eq!(result, !0xF0);
+        assert!(!alu.flags.zero);
+    }
+
+    #[test]
+    fn test_shift_operations() {
+        let mut alu = ALU::new();
+
+        // Test SHL
+        let result = alu.execute(ALUOperation::Shl, 0x1, 4).unwrap();
+        assert_eq!(result, 0x10);
+
+        // Test SHR
+        let result = alu.execute(ALUOperation::Shr, 0x10, 4).unwrap();
+        assert_eq!(result, 0x1);
+
+        // Test SAR (avec nombre négatif)
+        let val = 0x8000000000000010; // Nombre négatif en complément à 2
+        let result = alu.execute(ALUOperation::Sar, val, 4).unwrap();
+        assert_eq!(result, 0xF800000000000001); // Signe étendu
+
+        // Test ROL
+        let result = alu.execute(ALUOperation::Rol, 0x80000000, 1).unwrap();
+        assert_eq!(result, 0x1);
+
+        // Test ROR
+        let result = alu.execute(ALUOperation::Ror, 0x1, 1).unwrap();
+        assert_eq!(result, 0x8000000000000000);
+    }
+
+    #[test]
+    fn test_division_by_zero() {
+        let mut alu = ALU::new();
+
+        // Division par zéro doit retourner une erreur
+        let result = alu.execute(ALUOperation::Div, 5, 0);
+        assert!(result.is_err());
+
+        // Modulo par zéro doit retourner une erreur
+        let result = alu.execute(ALUOperation::Mod, 5, 0);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_compare_operations() {
+        let mut alu = ALU::new();
+
+        // Égal
+        alu.execute(ALUOperation::Cmp, 5, 5).unwrap();
+        assert!(alu.flags.zero);
+        assert!(!alu.flags.negative);
+        assert!(!alu.flags.carry);
+
+        // Plus petit
+        alu.execute(ALUOperation::Cmp, 3, 5).unwrap();
+        assert!(!alu.flags.zero);
+        assert!(alu.flags.negative);
+        assert!(alu.flags.carry);
+
+        // Plus grand
+        alu.execute(ALUOperation::Cmp, 7, 5).unwrap();
+        assert!(!alu.flags.zero);
+        assert!(!alu.flags.negative);
+        assert!(!alu.flags.carry);
+    }
+
+    #[test]
+    fn test_branch_conditions() {
+        let mut alu = ALU::new();
+
+        // Equal
+        alu.execute(ALUOperation::Cmp, 5, 5).unwrap();
+        assert!(alu.check_condition(BranchCondition::Equal));
+        assert!(!alu.check_condition(BranchCondition::NotEqual));
+
+        // Greater/Less
+        alu.execute(ALUOperation::Cmp, 7, 5).unwrap();
+        assert!(alu.check_condition(BranchCondition::Greater));
+        assert!(alu.check_condition(BranchCondition::GreaterEqual));
+        assert!(!alu.check_condition(BranchCondition::Less));
+        assert!(!alu.check_condition(BranchCondition::LessEqual));
+
+        // Less than
+        alu.execute(ALUOperation::Cmp, 3, 5).unwrap();
+        assert!(!alu.check_condition(BranchCondition::Greater));
+        assert!(!alu.check_condition(BranchCondition::GreaterEqual));
+        assert!(alu.check_condition(BranchCondition::Less));
+        assert!(alu.check_condition(BranchCondition::LessEqual));
+    }
+
+    #[test]
+    fn test_reset_flags() {
+        let mut alu = ALU::new();
+
+        // Set some flags
+        alu.execute(ALUOperation::Cmp, 5, 5).unwrap();
+        assert!(alu.flags.zero);
+
+        // Reset flags
+        alu.reset_flags();
+        assert!(!alu.flags.zero);
+        assert!(!alu.flags.negative);
+        assert!(!alu.flags.overflow);
+        assert!(!alu.flags.carry);
+    }
+}
