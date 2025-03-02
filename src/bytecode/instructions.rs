@@ -38,8 +38,13 @@ impl Instruction{
     /// Cree une nouvelle instruction
     pub fn new(opcode: Opcode, format: InstructionFormat, args: Vec<u8>) -> Self {
         // Calcule automatiquement le type de taille en fonction de la longueur totale
-        let total_size = 1 + 1 + args.len(); // opcode + format + args
-        let size_type = if total_size <= 255 {
+        // commence avec la taille compact et vérifie si elle dépasse 255
+
+        // let total_size = 1 + 1 + args.len(); // opcode + format + args
+
+        let base_size =  2 + 1 + args.len(); // opcode + format + size_byte + args
+
+        let size_type = if base_size <= 255 {
             SizeType::Compact
         } else {
             SizeType::Extended
@@ -58,7 +63,7 @@ impl Instruction{
         let header_size = 2 ; // Opcode 1B + format 1B
         let size_field_size = match self.size_type{
             SizeType::Compact => 1,
-            SizeType::Extended => 2,
+            SizeType::Extended => 3,     // 3 octets: 0xFF (marqueur) + 2 octets de taille
         };
         header_size + size_field_size + self.args.len()
     }
@@ -78,6 +83,8 @@ impl Instruction{
                 bytes.push(total_size as u8);
             }
             SizeType::Extended => {
+                // Pour le format extended, on utilise FF comme marqueur suivi de 2 octets de taille(2 bytes)
+                bytes.push(0xFF);
                 bytes.push((total_size & 0xFF) as u8);
                 bytes.push((total_size >> 8) as u8);
             }
@@ -103,23 +110,29 @@ impl Instruction{
 
         // Détermination du champ de taille
         let (size, size_type, size_field_size) = if bytes[2] == 0xFF {
-            if bytes.len() < 4 {
+            // Format étendu, la taille est stockée sur 2 octets après le marqueur
+            if bytes.len() < 5 { // Minimum 5 octets: opcode, format, marker, size_lo, size_hi
                 return Err(DecodeError::InsufficientData);
             }
-            let size = u16::from_le_bytes([bytes[2], bytes[3]]);
-            (size, SizeType::Extended, 2)
+            let size = u16::from_le_bytes([bytes[3], bytes[4]]);
+            (size, SizeType::Extended, 3) // 3 octets: 0xFF + 2 octets de taille
         } else {
+            // Format compact, la taille est stockée sur 1 octet
             (bytes[2] as u16, SizeType::Compact, 1)
         };
 
-        let total_header_size = 2 + size_field_size; // opcode + format + size
+        let total_header_size = 2 + size_field_size; // opcode + format + size field
 
         if bytes.len() < size as usize {
             return Err(DecodeError::InsufficientData);
         }
 
         let args_size = size as usize - total_header_size;
-        let args = bytes[total_header_size..total_header_size + args_size].to_vec();
+        let args = if total_header_size + args_size <= bytes.len() {
+            bytes[total_header_size..total_header_size + args_size].to_vec()
+        } else {
+            return Err(DecodeError::InsufficientData);
+        };
 
         Ok((
             Self {
@@ -149,7 +162,11 @@ impl Instruction{
             return Ok(ArgValue::None);
         }
 
-        if offset >= self.args.len() {
+        // if offset >= self.args.len() {
+        //     return Err(DecodeError::InvalidArgumentOffset);
+        // }
+
+        if offset >= self.args.len() && arg_type != ArgType::Register{
             return Err(DecodeError::InvalidArgumentOffset);
         }
 
@@ -157,11 +174,32 @@ impl Instruction{
             ArgType::None => Ok(ArgValue::None),
 
             ArgType::Register => {
-                if offset < self.args.len() {
-                    Ok(ArgValue::Register(self.args[offset] & 0x0F))
-                } else {
-                    Err(DecodeError::InvalidArgumentOffset)
+                // Pour le format reg_reg, les deux registres sont dans le premier octet
+                if self.format == InstructionFormat::reg_reg(){
+                    if self.args.is_empty(){
+                        return Err(DecodeError::InvalidArgumentOffset);
+                    }
+                    if offset == 0 {
+                        //  1er registre (4 bits de poids faible)
+                        Ok(ArgValue::Register(self.args[0] & 0x0F))
+                    } else {
+                        // 2eme registre (4 bits de poids fort)
+                        Ok(ArgValue::Register((self.args[0] >> 4) & 0x0F))
+                    }
+                }else {
+                    // pour les autres formats, le registre est dans un seul registre
+                    if offset < self.args.len(){
+                        Ok(ArgValue::Register(self.args[offset] & 0x0F))
+                    }else {
+                        Err(DecodeError::InvalidArgumentOffset)
+                    }
                 }
+
+                // if offset < self.args.len() {
+                //     Ok(ArgValue::Register(self.args[offset] & 0x0F))
+                // } else {
+                //     Err(DecodeError::InvalidArgumentOffset)
+                // }
             },
 
             ArgType::RegisterExt => {
@@ -276,10 +314,13 @@ impl Instruction{
 
     /// Crée une instruction avec deux registres en arguments
     pub fn create_reg_reg(opcode: Opcode, reg1: u8, reg2: u8) -> Self {
+        // Empaqueter les deux registres dans un seul octet
+        // reg1 dans les 4 bits de poids faible, reg2 dans les 4 bits de poids fort
+        let packed_regs = (reg1 & 0x0F) | ((reg2 & 0x0F) << 4);
         Self::new(
             opcode,
             InstructionFormat::reg_reg(),
-            vec![(reg1 & 0x0F) | ((reg2 & 0x0F) << 4)]
+            vec![packed_regs]
         )
     }
 
@@ -488,9 +529,8 @@ mod tests {
 
     #[test]
     fn test_extended_size_encoding() {
-        // Au lieu de créer une instruction avec 254 octets qui force un débordement,
-        // créons une instruction avec une taille raisonnable mais toujours en mode Extended
-        let mut large_args = vec![0; 200]; // Moins d'octets mais assez pour forcer Extended
+        // On créer une instruction avec 254 octets qui force un débordement donc Extended,
+        let mut large_args = vec![0; 254]; // Moins d'octets mais assez pour forcer Extended
 
         // Assurons-nous que l'instruction est correctement encodée avec le bon type de taille
         let instr = Instruction::new(Opcode::Add, InstructionFormat::reg_reg(), large_args);
