@@ -91,9 +91,11 @@ impl L1Cache {
 
     /// Nettoyer le cache
     pub fn clear(&mut self) {
-        self.data.clear();
-        self.lru.clear();
-        self.lru_counter = 0;
+        println!("L1Cache::clear() - début");
+        // self.data.clear();
+        // self.lru.clear();
+        // self.lru_counter = 0;
+        println!("L1Cache::clear() - fin");
     }
 
     /// Calcule l'adresse de la ligne de cache pour une adresse donnée
