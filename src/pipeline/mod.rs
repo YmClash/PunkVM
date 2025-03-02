@@ -352,25 +352,25 @@ mod tests {
         assert_eq!(pipeline.stats.cycles, 0);
     }
 
-    // #[test]
-    // fn test_pipeline_reset() {
-    //     let mut pipeline = Pipeline::new(16, true, true);
-    //
-    //     // Modifier l'état
-    //     pipeline.state.next_pc = 100;
-    //     pipeline.state.stalled = true;
-    //     pipeline.state.halted = true;
-    //     pipeline.stats.cycles = 10;
-    //
-    //     // Réinitialiser
-    //     pipeline.reset();
-    //
-    //     // Vérifier que l'état est réinitialisé
-    //     assert_eq!(pipeline.state.next_pc, 0);
-    //     assert_eq!(pipeline.state.stalled, false);
-    //     assert_eq!(pipeline.state.halted, false);
-    //     assert_eq!(pipeline.stats.cycles, 0);
-    // }
+    #[test]
+    fn test_pipeline_reset() {
+        let mut pipeline = Pipeline::new(16, true, true);
+
+        // Modifier l'état
+        pipeline.state.next_pc = 100;
+        pipeline.state.stalled = true;
+        pipeline.state.halted = true;
+        pipeline.stats.cycles = 10;
+
+        // Réinitialiser
+        pipeline.reset();
+
+        // Vérifier que l'état est réinitialisé
+        assert_eq!(pipeline.state.next_pc, 0);
+        assert_eq!(pipeline.state.stalled, false);
+        assert_eq!(pipeline.state.halted, false);
+        assert_eq!(pipeline.stats.cycles, 0);
+    }
 
     #[test]
     fn test_pipeline_stats() {

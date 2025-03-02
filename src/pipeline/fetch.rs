@@ -79,29 +79,6 @@ impl FetchStage {
         }
     }
 
-    // Traite l'étage Fetch
-    // pub fn process(&mut self, pc: u32, instructions: &[Instruction]) -> Result<FetchDecodeRegister, String> {
-    //     // Si le buffer est vide ou ne contient pas l'instruction à PC, le remplir
-    //     if self.fetch_buffer.is_empty() || !self.fetch_buffer.iter().any(|(addr, _)| *addr == pc) {
-    //         self.fetch_buffer.clear();
-    //         self.prefetch(pc, instructions);
-    //     }
-    //
-    //     // Récupérer l'instruction à l'adresse PC
-    //     if let Some(idx) = self.fetch_buffer.iter().position(|(addr, _)| *addr == pc) {
-    //         let (_, instruction) = self.fetch_buffer.remove(idx).unwrap();
-    //
-    //         // Précharger davantage d'instructions si nécessaire
-    //         self.prefetch(pc + instruction.total_size() as u32, instructions);
-    //
-    //         Ok(FetchDecodeRegister {
-    //             instruction,
-    //             pc,
-    //         })
-    //     } else {
-    //         Err(format!("Instruction non trouvée à l'adresse 0x{:08X}", pc))
-    //     }
-    // }
 
     /// Réinitialise l'étage Fetch
     pub fn reset(&mut self) {
