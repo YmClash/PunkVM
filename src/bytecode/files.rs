@@ -660,6 +660,197 @@ impl BytecodeFile {
         Ok(symbols)
     }
 
-
 }
 
+
+// Test unitaire pour les fichiers de bytecode
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::bytecode::opcodes::Opcode;
+    use crate::bytecode::format::InstructionFormat;
+    use std::io::ErrorKind;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_bytecode_version() {
+        let version = BytecodeVersion::new(1, 2, 3, 4);
+
+        assert_eq!(version.major, 1);
+        assert_eq!(version.minor, 2);
+        assert_eq!(version.patch, 3);
+        assert_eq!(version.build, 4);
+
+        // Test encode/decode
+        let encoded = version.encode();
+        let decoded = BytecodeVersion::decode(encoded);
+
+        assert_eq!(decoded.major, 1);
+        assert_eq!(decoded.minor, 2);
+        assert_eq!(decoded.patch, 3);
+        assert_eq!(decoded.build, 4);
+
+        // Test to_string
+        assert_eq!(version.to_string(), "1.2.3.4");
+    }
+
+    #[test]
+    fn test_segment_type() {
+        // Test des conversions valides
+        assert_eq!(SegmentType::from_u8(0), Some(SegmentType::Code));
+        assert_eq!(SegmentType::from_u8(1), Some(SegmentType::Data));
+        assert_eq!(SegmentType::from_u8(2), Some(SegmentType::ReadOnlyData));
+        assert_eq!(SegmentType::from_u8(3), Some(SegmentType::Symbols));
+        assert_eq!(SegmentType::from_u8(4), Some(SegmentType::Debug));
+
+        // Test avec valeur invalide
+        assert_eq!(SegmentType::from_u8(5), None);
+    }
+
+    #[test]
+    fn test_segment_metadata() {
+        let segment = SegmentMetadata::new(SegmentType::Code, 100, 200, 300);
+
+        assert_eq!(segment.segment_type, SegmentType::Code);
+        assert_eq!(segment.offset, 100);
+        assert_eq!(segment.size, 200);
+        assert_eq!(segment.load_addr, 300);
+
+        // Test encode/decode
+        let encoded = segment.encode();
+        let decoded = SegmentMetadata::decode(&encoded).unwrap();
+
+        assert_eq!(decoded.segment_type, SegmentType::Code);
+        assert_eq!(decoded.offset, 100);
+        assert_eq!(decoded.size, 200);
+        assert_eq!(decoded.load_addr, 300);
+    }
+
+    #[test]
+    fn test_bytecode_file_simple() {
+        // Création d'un fichier bytecode simple
+        let mut bytecode = BytecodeFile::new();
+
+        // Ajout de métadonnées
+        bytecode.add_metadata("name", "Test");
+        bytecode.add_metadata("author", "PunkVM");
+
+        // Vérification
+        assert_eq!(bytecode.metadata.get("name"), Some(&"Test".to_string()));
+        assert_eq!(bytecode.metadata.get("author"), Some(&"PunkVM".to_string()));
+
+        // Ajout d'instructions
+        let instr1 = Instruction::create_no_args(Opcode::Nop);
+        let instr2 = Instruction::create_reg_imm8(Opcode::Load, 0, 42);
+
+        bytecode.add_instruction(instr1);
+        bytecode.add_instruction(instr2);
+
+        assert_eq!(bytecode.code.len(), 2);
+        assert_eq!(bytecode.code[0].opcode, Opcode::Nop);
+        assert_eq!(bytecode.code[1].opcode, Opcode::Load);
+
+        // Ajout de données
+        let offset = bytecode.add_data(&[1, 2, 3, 4]);
+        assert_eq!(offset, 0);
+        assert_eq!(bytecode.data, vec![1, 2, 3, 4]);
+
+        // Ajout de données en lecture seule
+        let offset = bytecode.add_readonly_data(&[5, 6, 7, 8]);
+        assert_eq!(offset, 0);
+        assert_eq!(bytecode.readonly_data, vec![5, 6, 7, 8]);
+
+        // Ajout de symboles
+        bytecode.add_symbol("main", 0x1000);
+        assert_eq!(bytecode.symbols.get("main"), Some(&0x1000));
+    }
+
+    #[test]
+    fn test_bytecode_file_io() {
+        // Création d'un répertoire temporaire pour les tests
+        let dir = tempdir().expect("Impossible de créer un répertoire temporaire");
+        let file_path = dir.path().join("test.punk");
+
+        // Création d'un fichier bytecode à écrire
+        let mut bytecode = BytecodeFile::new();
+        bytecode.version = BytecodeVersion::new(1, 0, 0, 0);
+        bytecode.add_metadata("name", "TestIO");
+        bytecode.add_instruction(Instruction::create_no_args(Opcode::Halt));
+        bytecode.add_data(&[1, 2, 3]);
+        bytecode.add_readonly_data(&[4, 5, 6]);
+        bytecode.add_symbol("main", 0);
+
+        // Écrire le fichier
+        bytecode.write_to_file(&file_path).expect("Impossible d'écrire le fichier bytecode");
+
+        // Lire le fichier
+        let loaded = BytecodeFile::read_from_file(&file_path).expect("Impossible de lire le fichier bytecode");
+
+        // Vérifier que le contenu est identique
+        assert_eq!(loaded.version.major, 1);
+        assert_eq!(loaded.version.minor, 0);
+        assert_eq!(loaded.metadata.get("name"), Some(&"TestIO".to_string()));
+        assert_eq!(loaded.code.len(), 1);
+        assert_eq!(loaded.code[0].opcode, Opcode::Halt);
+        assert_eq!(loaded.data, vec![1, 2, 3]);
+        assert_eq!(loaded.readonly_data, vec![4, 5, 6]);
+        assert_eq!(loaded.symbols.get("main"), Some(&0));
+    }
+
+    #[test]
+    fn test_bytecode_file_io_errors() {
+        // Test avec un fichier inexistant
+        let result = BytecodeFile::read_from_file("nonexistent_file.punk");
+        assert!(result.is_err());
+
+        // Test avec un fichier trop petit
+        let dir = tempdir().expect("Impossible de créer un répertoire temporaire");
+        let invalid_file_path = dir.path().join("invalid.punk");
+
+        // Créer un fichier invalide avec juste quelques octets
+        std::fs::write(&invalid_file_path, &[0, 1, 2]).expect("Impossible d'écrire le fichier de test");
+
+        let result = BytecodeFile::read_from_file(&invalid_file_path);
+        assert!(result.is_err());
+
+        // Vérifier le type d'erreur
+        match result {
+            Err(e) => assert_eq!(e.kind(), ErrorKind::InvalidData),
+            _ => panic!("Expected an error but got success"),
+        }
+    }
+
+    #[test]
+    fn test_encode_decode_metadata() {
+        let mut metadata = HashMap::new();
+        metadata.insert("key1".to_string(), "value1".to_string());
+        metadata.insert("key2".to_string(), "value2".to_string());
+
+        let mut bytecode = BytecodeFile::new();
+        bytecode.metadata = metadata.clone();
+
+        let encoded = bytecode.encode_metadata();
+        let decoded = BytecodeFile::decode_metadata(&encoded).expect("Failed to decode metadata");
+
+        assert_eq!(decoded.len(), 2);
+        assert_eq!(decoded.get("key1"), Some(&"value1".to_string()));
+        assert_eq!(decoded.get("key2"), Some(&"value2".to_string()));
+    }
+
+    #[test]
+    fn test_encode_decode_symbols() {
+        let mut symbols = HashMap::new();
+        symbols.insert("sym1".to_string(), 0x1000);
+        symbols.insert("sym2".to_string(), 0x2000);
+
+        let mut bytecode = BytecodeFile::new();
+        bytecode.symbols = symbols.clone();
+
+        let encoded = bytecode.encode_symbols();
+        let decoded = BytecodeFile::decode_symbols(&encoded).expect("Failed to decode symbols");
+
+        assert_eq!(decoded.len(), 2);
+        assert_eq!(decoded.get("sym1"), Some(&0x1000));
+        assert_eq!(decoded.get("sym2"), Some(&0x2000));
+    }
+}
