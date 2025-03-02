@@ -62,7 +62,15 @@ impl ALU {
             ALUOperation::Add => {
                 let (result, carry) = a.overflowing_add(b);
                 // Vérifier l'overflow pour les nombres signés
-                let overflow = ((a as i64) + (b as i64)) != (result as i64);
+                let a_sign = (a >>63) & 1;
+                let b_sign = (b >>63) & 1;
+                let result_sign = (result >> 63) & 1;
+
+                // Overflow se produit si a et b ont le même signe mais le résultat a un signe différent
+                let overflow = (a_sign == b_sign) && (result_sign != a_sign);
+
+                // let overflow = ((a as i64) + (b as i64)) != (result as i64);
+
                 self.flags.carry = carry;
                 self.flags.overflow = overflow;
                 result
@@ -70,8 +78,17 @@ impl ALU {
 
             ALUOperation::Sub => {
                 let (result, carry) = a.overflowing_sub(b);
-                // Vérifier l'overflow pour les nombres signés
-                let overflow = ((a as i64) - (b as i64)) != (result as i64);
+                // Vérifier l'overflow pour les nombres signés sans conversion
+                let a_sign = (a >>63) & 1;
+                let b_sign = (b >>63) & 1;
+                let result_sign = (result >> 63) & 1;
+                // Pour la soustraction, l'overflow se produit quand les signes sont différents
+                // et que le signe du résultat ne correspond pas au signe du premier opérande
+
+                let overflow = (a_sign != b_sign) && (a_sign != result_sign);
+
+                // let overflow = ((a as i64) - (b as i64)) != (result as i64);
+
                 self.flags.carry = carry;
                 self.flags.overflow = overflow;
                 result
@@ -230,7 +247,12 @@ impl ALU {
             ALUOperation::Inc => {
                 let (result, carry) = a.overflowing_add(1);
                 // Vérifier l'overflow pour les nombres signés
-                let overflow = ((a as i64) + 1) != (result as i64);
+                let a_sign = (a >> 63) & 1;
+                let result_sign = (result >> 63) & 1;
+                let overflow = (a_sign == 1) && (result_sign == 1);
+
+                // let overflow = ((a as i64) + 1) != (result as i64);
+
                 self.flags.carry = carry;
                 self.flags.overflow = overflow;
                 result
@@ -239,7 +261,14 @@ impl ALU {
             ALUOperation::Dec => {
                 let (result, carry) = a.overflowing_sub(1);
                 // Vérifier l'overflow pour les nombres signés
-                let overflow = ((a as i64) - 1) != (result as i64);
+
+                ///////////
+                let a_sign = (a >> 63) & 1;
+                let result_sign = (result >> 63) & 1;
+                let overflow =  (a_sign == 1) && (result_sign == 0);;
+                //////////
+
+                // let overflow = ((a as i64) - 1) != (result as i64);
                 self.flags.carry = carry;
                 self.flags.overflow = overflow;
                 result
@@ -248,7 +277,9 @@ impl ALU {
             ALUOperation::Neg => {
                 let (result, carry) = (!a).overflowing_add(1); // Two's complement negation
                 // Overflow happens if the input is the minimum negative number
+
                 let overflow = a == (1u64 << 63);
+
                 self.flags.carry = carry;
                 self.flags.overflow = overflow;
                 result
@@ -418,17 +449,54 @@ mod tests {
         assert!(alu.flags.negative);
     }
 
+    // #[test]
+    // fn test_overflow_flag_and_negative() {
+    //     let mut alu = ALU::new();
+    //
+    //     // Pour un test plus fiable de l'overflow avec des valeurs u64
+    //     // Utilisons des valeurs qui peuvent être représentées avec précision
+    //     // et qui provoqueront un débordement arithmétique
+    //
+    //     // Cas 1: Addition qui cause un overflow (positif à négatif)
+    //     // 0x7FFFFFFF (max i32) + 1 = 0x80000000 (qui est négatif en complément à 2)
+    //     let result = alu.execute(ALUOperation::Add, 0x7FFFFFFF, 1).unwrap();
+    //
+    //     // Le résultat est 0x80000000 (ce qui est considéré comme négatif en i32)
+    //     assert_eq!(result, 0x80000000);
+    //     assert!(!alu.flags.zero);
+    //     // Le bit de signe n'est pas activé car nous travaillons avec u64 et non i32
+    //     // Ce qui est important pour le test est que le flag overflow soit activé
+    //     assert!(alu.flags.overflow);
+    //     assert!(!alu.flags.carry);
+    //
+    //     // Réinitialiser les flags
+    //     alu.reset_flags();
+    //
+    //     // Cas 2: Test avec des valeurs qui activent le bit de signe dans u64
+    //     // La valeur 0x8000000000000000 a son bit de signe activé
+    //     let large_value = 0x8000000000000000u64;
+    //     let result = alu.execute(ALUOperation::Mov, 0, large_value).unwrap();
+    //
+    //     assert_eq!(result, large_value);
+    //     assert!(!alu.flags.zero);
+    //     assert!(alu.flags.negative); // Ici le bit de signe (bit 63) est activé
+    //     assert!(!alu.flags.overflow);
+    //     assert!(!alu.flags.carry);
+    // }
+
     #[test]
     fn test_overflow_flag() {
         let mut alu = ALU::new();
 
-        // Overflow en additionnant deux grands nombres positifs
+        // Provoquer un overflow avec des valeurs u64 qui activeront le bit de signe
+        // 0x7FFFFFFFFFFFFFFF (max i64) + 1 = 0x8000000000000000 (qui est négatif en complément à 2)
         let result = alu.execute(ALUOperation::Add, 0x7FFFFFFFFFFFFFFF, 1).unwrap();
+
         assert_eq!(result, 0x8000000000000000);
         assert!(!alu.flags.zero);
-        assert!(alu.flags.negative);
-        assert!(alu.flags.overflow); // Overflow car signe changé de façon inattendue
-        assert!(!alu.flags.carry);
+        assert!(alu.flags.negative); // Le bit 63 est maintenant activé
+        assert!(alu.flags.overflow); // Il y a un overflow car le signe change de manière inattendue
+        assert!(!alu.flags.carry);   // Pas de carry car nous sommes bien en-dessous de u64::MAX
     }
 
     #[test]
@@ -469,6 +537,7 @@ mod tests {
         assert!(!alu.flags.zero);
     }
 
+
     #[test]
     fn test_shift_operations() {
         let mut alu = ALU::new();
@@ -482,17 +551,20 @@ mod tests {
         assert_eq!(result, 0x1);
 
         // Test SAR (avec nombre négatif)
-        let val = 0x8000000000000010; // Nombre négatif en complément à 2
+        // Utilisons une valeur qui convient mieux à un test en u64
+        let val = 0x8000000000000010u64; // Nombre négatif en complément à 2
         let result = alu.execute(ALUOperation::Sar, val, 4).unwrap();
-        assert_eq!(result, 0xF800000000000001); // Signe étendu
+        // Pour un décalage arithmétique, les bits de signe sont préservés
+        assert_eq!(result, 0xF800000000000001u64);
 
         // Test ROL
-        let result = alu.execute(ALUOperation::Rol, 0x80000000, 1).unwrap();
+        // Utilisons une valeur plus petite pour éviter les problèmes
+        let result = alu.execute(ALUOperation::Rol, 0x8000000000000000u64, 1).unwrap();
         assert_eq!(result, 0x1);
 
         // Test ROR
         let result = alu.execute(ALUOperation::Ror, 0x1, 1).unwrap();
-        assert_eq!(result, 0x8000000000000000);
+        assert_eq!(result, 0x8000000000000000u64);
     }
 
     #[test]
