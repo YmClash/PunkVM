@@ -236,6 +236,7 @@ impl PunkVM {
         self.state = VMState::Ready;
         println!("PunkVM::reset() - avant pipeline.reset()");
         self.pipeline.reset();
+        println!("PunkVM::reset() - apres pipeline.reset()");
         println!("PunkVM::reset() - avant memory.reset()");
         self.memory.reset();
         println!("PunkVM::reset() - fin");
