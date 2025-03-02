@@ -35,7 +35,7 @@ impl WritebackStage{
 
     /// Réinitialise l'étage Writeback
     pub fn reset(&mut self) {
-        //self.reset();
+        // self.reset();
     }
 
 }

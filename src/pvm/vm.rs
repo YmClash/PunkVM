@@ -391,58 +391,36 @@ mod tests {
         assert!(result.is_err());
     }
 
-    // #[test]
-    // fn test_vm_load_program_from_bytecode() {
-    //     // Créer un programme bytecode minimal
-    //     let mut program = BytecodeFile::new();
-    //
-    //     // Ajouter instruction HALT
-    //     program.add_instruction(Instruction::create_no_args(Opcode::Halt));
-    //
-    //     // Segments et métadonnées minimales
-    //     program.segments = vec![
-    //         crate::bytecode::files::SegmentMetadata::new(
-    //             Code, 0, 4, 0
-    //         )
-    //     ];
-    //
-    //     // Charger le programme
-    //     let mut vm = PunkVM::new();
-    //     let result = vm.load_program_from_bytecode(program);
-    //
-    //     // La fonction échoue car le segment de code ne correspond pas à la taille réelle,
-    //     // mais c'est normal pour ce test simplifié
-    //     assert!(result.is_err());
-    // }
+
     // Modification du test pour créer correctement un programme bytecode
-    // #[test]
-    // fn test_vm_load_program_from_bytecode() {
-    //     // Créer un programme bytecode minimal
-    //     let mut program = BytecodeFile::new();
-    //
-    //     // Ajouter instruction HALT
-    //     let halt_instr = Instruction::create_no_args(Opcode::Halt);
-    //     let encoded_size = halt_instr.total_size() as u32;
-    //     program.add_instruction(halt_instr);
-    //
-    //     // Créer les segments correctement
-    //     program.segments = vec![
-    //         crate::bytecode::files::SegmentMetadata::new(
-    //             Code, 0, encoded_size, 0
-    //         )
-    //     ];
-    //
-    //     // Initialiser les vecteurs de données pour éviter les erreurs
-    //     program.data = Vec::new();
-    //     program.readonly_data = Vec::new();
-    //
-    //     // Charger le programme
-    //     let mut vm = PunkVM::new();
-    //     let result = vm.load_program_from_bytecode(program);
-    //
-    //     // Maintenant, le chargement devrait réussir
-    //     assert!(result.is_ok());
-    // }
+    #[test]
+    fn test_vm_load_program_from_bytecode() {
+        // Créer un programme bytecode minimal
+        let mut program = BytecodeFile::new();
+
+        // Ajouter instruction HALT
+        let halt_instr = Instruction::create_no_args(Opcode::Halt);
+        let encoded_size = halt_instr.total_size() as u32;
+        program.add_instruction(halt_instr);
+
+        // Créer les segments correctement
+        program.segments = vec![
+            crate::bytecode::files::SegmentMetadata::new(
+                Code, 0, encoded_size, 0
+            )
+        ];
+
+        // Initialiser les vecteurs de données pour éviter les erreurs
+        program.data = Vec::new();
+        program.readonly_data = Vec::new();
+
+        // Charger le programme
+        let mut vm = PunkVM::new();
+        let result = vm.load_program_from_bytecode(program);
+
+        // Maintenant, le chargement devrait réussir
+        assert!(result.is_ok());
+    }
 
     #[test]
     fn test_vm_run_no_program() {
@@ -480,31 +458,52 @@ mod tests {
         (file_path, dir)
     }
 
-    // #[test]
-    // fn test_vm_reset_minimal() {
-    //     // Créer une VM avec configuration minimale
-    //     let mut vm = PunkVM::new();
-    //     // Juste appeler reset sans rien d'autre
-    //     vm.reset();
-    //     // Si on arrive ici, le test passe
-    //     assert!(true);
-    // }
-    //
-    // #[test]
-    // fn test_vm_load_program_minimal() {
-    //     // Créer une VM avec configuration minimale
-    //     let mut vm = PunkVM::new();
-    //
-    //     // Créer un programme minimal sans aucune instruction
-    //     let program = BytecodeFile::new();
-    //
-    //     // Tenter de charger le programme vide - cela échouera normalement
-    //     // mais ne devrait pas provoquer de stack overflow
-    //     let _ = vm.load_program_from_bytecode(program);
-    //
-    //     // Si on arrive ici, le test passe
-    //     assert!(true);
-    // }
+    #[test]
+    fn test_vm_reset_minimal() {
+        // Créer une VM avec configuration minimale
+        let mut vm = PunkVM::new();
+        // Juste appeler reset sans rien d'autre
+        vm.reset();
+        // Si on arrive ici, le test passe
+        assert!(true);
+    }
+
+    #[test]
+    fn test_vm_load_program_minimal() {
+        // Créer une VM avec configuration minimale
+        let mut vm = PunkVM::new();
+
+        // Créer un programme minimal sans aucune instruction
+        let program = BytecodeFile::new();
+
+        // Tenter de charger le programme vide - cela échouera normalement
+        // mais ne devrait pas provoquer de stack overflow
+        let _ = vm.load_program_from_bytecode(program);
+
+        // Si on arrive ici, le test passe
+        assert!(true);
+    }
+
+    #[test]
+    fn test_vm_reset_robuste() {
+        let mut vm = PunkVM::new();
+
+        // Modifier l'état
+        vm.pc = 100;
+        vm.registers[0] = 42;
+        vm.cycles = 10;
+        vm.instructions_executed = 5;
+
+        // Réinitialiser
+        vm.reset();
+
+        // Vérifier que l'état est réinitialisé
+        assert_eq!(vm.pc, 0);
+        assert_eq!(vm.registers[0], 0);
+        assert_eq!(vm.cycles, 0);
+        assert_eq!(vm.instructions_executed, 0);
+        assert_eq!(*vm.state(), VMState::Ready);
+    }
 
 
 }
