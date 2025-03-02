@@ -265,7 +265,7 @@ impl ALU {
                 ///////////
                 let a_sign = (a >> 63) & 1;
                 let result_sign = (result >> 63) & 1;
-                let overflow =  (a_sign == 1) && (result_sign == 0);;
+                let overflow =  (a_sign == 1) && (result_sign == 0);
                 //////////
 
                 // let overflow = ((a as i64) - 1) != (result as i64);
