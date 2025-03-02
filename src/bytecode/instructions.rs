@@ -530,7 +530,7 @@ mod tests {
     #[test]
     fn test_extended_size_encoding() {
         // On créer une instruction avec 254 octets qui force un débordement donc Extended,
-        let mut large_args = vec![0; 254]; // Moins d'octets mais assez pour forcer Extended
+        let large_args = vec![0; 254]; // Moins d'octets mais assez pour forcer Extended
 
         // Assurons-nous que l'instruction est correctement encodée avec le bon type de taille
         let instr = Instruction::new(Opcode::Add, InstructionFormat::reg_reg(), large_args);
