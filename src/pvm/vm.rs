@@ -1,4 +1,4 @@
-// //src/pvm/vm.rs
+ //src/pvm/vm.rs
 use std::path::Path;
 use std::io;
 
@@ -11,7 +11,7 @@ use crate::BytecodeFile;
 use crate::pvm::memorys::{Memory, MemoryConfig};
 
 /// Configuration de la machine virtuelle
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct VMConfig {
     pub memory_size: usize,     // Taille de la mémoire
     pub num_registers: usize,   // Nombre de registres
@@ -72,7 +72,7 @@ pub struct PunkVM{
     memory: Memory,
     pub pc: usize, // Compteur de programme
     pub registers: Vec<u64>, // Registres
-    program: Option<BytecodeFile>, // Programme
+    pub program: Option<BytecodeFile>, // Programme
     cycles: u64, // Nombre de cycles
     instructions_executed: u64, // Nombre d'instructions exécutées
 
@@ -85,7 +85,32 @@ impl PunkVM {
         Self::with_config(VMConfig::default())
     }
 
-    /// Crée une nouvelle instance de PunkVM avec une configuration personnalisée
+    // Crée une nouvelle instance de PunkVM avec une configuration personnalisée
+    // pub fn with_config(config: VMConfig) -> Self {
+    //     let memory_config = MemoryConfig {
+    //         size: config.memory_size,
+    //         l1_cache_size: config.l1_cache_size,
+    //         store_buffer_size: config.store_buffer_size,
+    //     };
+    //
+    //     Self {
+    //         config: config.clone(),
+    //         state: VMState::Ready,
+    //         pipeline: Pipeline::new(
+    //             config.fetch_buffer_size,
+    //             config.enable_forwarding,
+    //             config.enable_hazard_detection,
+    //         ),
+    //         alu: ALU::new(),
+    //         memory: Memory::new(memory_config),
+    //         pc: 0,
+    //         registers: vec![0; config.num_registers],
+    //         program: None,
+    //         cycles: 0,
+    //         instructions_executed: 0,
+    //     }
+    // }
+
     pub fn with_config(config: VMConfig) -> Self {
         let memory_config = MemoryConfig {
             size: config.memory_size,
@@ -94,7 +119,7 @@ impl PunkVM {
         };
 
         Self {
-            config: config.clone(),
+            config, // Pas besoin de cloner, car VMConfig implémente Copy
             state: VMState::Ready,
             pipeline: Pipeline::new(
                 config.fetch_buffer_size,
@@ -192,15 +217,28 @@ impl PunkVM {
         Ok(())
     }
 
-    /// Réinitialise la machine virtuelle
+    // /// Réinitialise la machine virtuelle
+    // pub fn reset(&mut self) {
+    //     self.pc = 0;
+    //     self.registers = vec![0; self.config.num_registers];
+    //     self.cycles = 0;
+    //     self.instructions_executed = 0;
+    //     self.state = VMState::Ready;
+    //     self.pipeline.reset();
+    //     self.memory.reset();
+    // }
     pub fn reset(&mut self) {
+        println!("PunkVM::reset() - début");
         self.pc = 0;
         self.registers = vec![0; self.config.num_registers];
         self.cycles = 0;
         self.instructions_executed = 0;
         self.state = VMState::Ready;
+        println!("PunkVM::reset() - avant pipeline.reset()");
         self.pipeline.reset();
+        println!("PunkVM::reset() - avant memory.reset()");
         self.memory.reset();
+        println!("PunkVM::reset() - fin");
     }
 
     /// Retourne les statistiques d'exécution
@@ -227,7 +265,7 @@ impl PunkVM {
     }
 
     /// Charge le segment de code en mémoire
-    fn load_code_segment(&mut self, program: &BytecodeFile) -> io::Result<()> {
+    pub fn load_code_segment(&mut self, program: &BytecodeFile) -> io::Result<()> {
         // Recherche du segment de code
         let code_segment = program
             .segments
@@ -263,7 +301,7 @@ impl PunkVM {
     }
 
     /// Charge les segments de données en mémoire
-    fn load_data_segments(&mut self, program: &BytecodeFile) -> io::Result<()> {
+    pub fn load_data_segments(&mut self, program: &BytecodeFile) -> io::Result<()> {
         // Segment de données
         if let Some(data_segment) = program
             .segments
@@ -290,6 +328,186 @@ impl PunkVM {
     }
 }
 
+
+
+
+
+// Test unitaire pour la VM
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::bytecode::opcodes::Opcode;
+    use crate::bytecode::instructions::Instruction;
+    use crate::bytecode::format::InstructionFormat;
+    use std::path::PathBuf;
+    use std::fs::File;
+    use std::io::Write;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_vm_config_default() {
+        let config = VMConfig::default();
+        assert_eq!(config.memory_size, 1024 * 1024);
+        assert_eq!(config.num_registers, 16);
+        assert_eq!(config.l1_cache_size, 4 * 1024);
+        assert_eq!(config.enable_forwarding, true);
+        assert_eq!(config.enable_hazard_detection, true);
+    }
+
+    #[test]
+    fn test_vm_creation() {
+        let vm = PunkVM::new();
+        assert_eq!(*vm.state(), VMState::Ready);
+        assert_eq!(vm.pc, 0);
+        assert_eq!(vm.registers.len(), 16);
+
+        // Test avec une configuration personnalisée
+        let config = VMConfig {
+            num_registers: 32,
+            ..VMConfig::default()
+        };
+        let vm = PunkVM::with_config(config);
+        assert_eq!(vm.registers.len(), 32);
+    }
+
+
+    #[test]
+    fn test_vm_stats() {
+        let vm = PunkVM::new();
+        let stats = vm.stats();
+
+        // Vérifier les statistiques initiales
+        assert_eq!(stats.cycles, 0);
+        assert_eq!(stats.instructions_executed, 0);
+        assert_eq!(stats.ipc, 0.0);
+    }
+
+    #[test]
+    fn test_vm_load_program_no_file() {
+        let mut vm = PunkVM::new();
+
+        // Tenter de charger un fichier inexistant
+        let result = vm.load_program("nonexistent_file.punk");
+        assert!(result.is_err());
+    }
+
+    // #[test]
+    // fn test_vm_load_program_from_bytecode() {
+    //     // Créer un programme bytecode minimal
+    //     let mut program = BytecodeFile::new();
+    //
+    //     // Ajouter instruction HALT
+    //     program.add_instruction(Instruction::create_no_args(Opcode::Halt));
+    //
+    //     // Segments et métadonnées minimales
+    //     program.segments = vec![
+    //         crate::bytecode::files::SegmentMetadata::new(
+    //             Code, 0, 4, 0
+    //         )
+    //     ];
+    //
+    //     // Charger le programme
+    //     let mut vm = PunkVM::new();
+    //     let result = vm.load_program_from_bytecode(program);
+    //
+    //     // La fonction échoue car le segment de code ne correspond pas à la taille réelle,
+    //     // mais c'est normal pour ce test simplifié
+    //     assert!(result.is_err());
+    // }
+    // Modification du test pour créer correctement un programme bytecode
+    // #[test]
+    // fn test_vm_load_program_from_bytecode() {
+    //     // Créer un programme bytecode minimal
+    //     let mut program = BytecodeFile::new();
+    //
+    //     // Ajouter instruction HALT
+    //     let halt_instr = Instruction::create_no_args(Opcode::Halt);
+    //     let encoded_size = halt_instr.total_size() as u32;
+    //     program.add_instruction(halt_instr);
+    //
+    //     // Créer les segments correctement
+    //     program.segments = vec![
+    //         crate::bytecode::files::SegmentMetadata::new(
+    //             Code, 0, encoded_size, 0
+    //         )
+    //     ];
+    //
+    //     // Initialiser les vecteurs de données pour éviter les erreurs
+    //     program.data = Vec::new();
+    //     program.readonly_data = Vec::new();
+    //
+    //     // Charger le programme
+    //     let mut vm = PunkVM::new();
+    //     let result = vm.load_program_from_bytecode(program);
+    //
+    //     // Maintenant, le chargement devrait réussir
+    //     assert!(result.is_ok());
+    // }
+
+    #[test]
+    fn test_vm_run_no_program() {
+        let mut vm = PunkVM::new();
+        let result = vm.run();
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Aucun programme chargé");
+    }
+
+    #[test]
+    fn test_vm_step_not_running() {
+        let mut vm = PunkVM::new();
+        let result = vm.step();
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "La machine virtuelle n'est pas en cours d'exécution");
+    }
+
+    // Fonction utilitaire pour créer un fichier bytecode simple pour les tests
+    fn create_test_program_file() -> (PathBuf, tempfile::TempDir) {
+        // Créer un répertoire temporaire
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("test_program.punk");
+
+        // Créer un fichier avec une signature valide
+        let mut file = File::create(&file_path).unwrap();
+
+        // Écrire la signature PUNK
+        file.write_all(&[0x50, 0x55, 0x4E, 0x4B]).unwrap();
+
+        // Version 0.1.0.0
+        file.write_all(&[0x00, 0x01, 0x00, 0x00]).unwrap();
+
+        // Le reste est simulé...
+
+        (file_path, dir)
+    }
+
+    // #[test]
+    // fn test_vm_reset_minimal() {
+    //     // Créer une VM avec configuration minimale
+    //     let mut vm = PunkVM::new();
+    //     // Juste appeler reset sans rien d'autre
+    //     vm.reset();
+    //     // Si on arrive ici, le test passe
+    //     assert!(true);
+    // }
+    //
+    // #[test]
+    // fn test_vm_load_program_minimal() {
+    //     // Créer une VM avec configuration minimale
+    //     let mut vm = PunkVM::new();
+    //
+    //     // Créer un programme minimal sans aucune instruction
+    //     let program = BytecodeFile::new();
+    //
+    //     // Tenter de charger le programme vide - cela échouera normalement
+    //     // mais ne devrait pas provoquer de stack overflow
+    //     let _ = vm.load_program_from_bytecode(program);
+    //
+    //     // Si on arrive ici, le test passe
+    //     assert!(true);
+    // }
+
+
+}
 
 
 
