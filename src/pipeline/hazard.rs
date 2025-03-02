@@ -163,3 +163,218 @@ impl HazardDetectionUnit {
         self.hazards_count
     }
 }
+
+
+// Test unitaire pour les hazards
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::pipeline::{DecodeExecuteRegister, ExecuteMemoryRegister, MemoryWritebackRegister, PipelineState};
+    use crate::bytecode::instructions::Instruction;
+    use crate::bytecode::opcodes::Opcode;
+    use crate::bytecode::format::InstructionFormat;
+
+    #[test]
+    fn test_hazard_unit_creation() {
+        let unit = HazardDetectionUnit::new();
+        assert_eq!(unit.get_hazards_count(), 0);
+    }
+
+    #[test]
+    fn test_hazard_unit_reset() {
+        let mut unit = HazardDetectionUnit::new();
+
+        // Simuler la détection d'un hazard
+        let mut state = create_empty_pipeline_state();
+        add_data_hazard(&mut state);
+        assert!(unit.detect_hazards(&state));
+
+        // Vérifier que le compteur a été incrémenté
+        assert_eq!(unit.get_hazards_count(), 1);
+
+        // Réinitialiser
+        unit.reset();
+
+        // Vérifier que le compteur a été réinitialisé
+        assert_eq!(unit.get_hazards_count(), 0);
+    }
+
+    #[test]
+    fn test_data_hazard_detection() {
+        let mut unit = HazardDetectionUnit::new();
+
+        // Créer un état de pipeline avec un data hazard
+        let mut state = create_empty_pipeline_state();
+        add_data_hazard(&mut state);
+
+        // Vérifier que le hazard est détecté
+        assert!(unit.detect_hazards(&state));
+        assert_eq!(unit.get_hazards_count(), 1);
+    }
+
+    #[test]
+    fn test_no_hazard_detection() {
+        let mut unit = HazardDetectionUnit::new();
+
+        // Créer un état de pipeline sans hazard
+        let state = create_empty_pipeline_state();
+
+        // Vérifier qu'aucun hazard n'est détecté
+        assert!(!unit.detect_hazards(&state));
+        assert_eq!(unit.get_hazards_count(), 0);
+    }
+
+    #[test]
+    fn test_control_hazard_detection() {
+        let mut unit = HazardDetectionUnit::new();
+
+        // Créer un état de pipeline avec un hazard de contrôle
+        let mut state = create_empty_pipeline_state();
+        add_control_hazard(&mut state);
+
+        // Vérifier que le hazard est détecté
+        assert!(unit.detect_hazards(&state));
+        assert_eq!(unit.get_hazards_count(), 1);
+    }
+
+    #[test]
+    fn test_structural_hazard_detection() {
+        let mut unit = HazardDetectionUnit::new();
+
+        // Créer un état de pipeline avec un hazard structurel
+        let mut state = create_empty_pipeline_state();
+        add_structural_hazard(&mut state);
+
+        // Vérifier que le hazard est détecté
+        assert!(unit.detect_hazards(&state));
+        assert_eq!(unit.get_hazards_count(), 1);
+    }
+
+    #[test]
+    fn test_load_use_hazard_detection() {
+        let mut unit = HazardDetectionUnit::new();
+
+        // Créer un état de pipeline avec un load-use hazard
+        let mut state = create_empty_pipeline_state();
+        add_load_use_hazard(&mut state);
+
+        // Vérifier que le hazard est détecté
+        assert!(unit.detect_hazards(&state));
+        assert_eq!(unit.get_hazards_count(), 1);
+    }
+
+    #[test]
+    fn test_multiple_hazards() {
+        let mut unit = HazardDetectionUnit::new();
+
+        // Créer un état de pipeline avec plusieurs hazards
+        let mut state = create_empty_pipeline_state();
+        add_data_hazard(&mut state);
+
+        // Vérifier que le premier hazard est détecté
+        assert!(unit.detect_hazards(&state));
+        assert_eq!(unit.get_hazards_count(), 1);
+
+        // Ajouter un hazard de contrôle
+        add_control_hazard(&mut state);
+
+        // Vérifier que le hazard est encore détecté (premier trouvé)
+        assert!(unit.detect_hazards(&state));
+        assert_eq!(unit.get_hazards_count(), 2);
+    }
+
+    // Fonctions utilitaires pour les tests
+
+    fn create_empty_pipeline_state() -> PipelineState {
+        PipelineState {
+            fetch_decode: None,
+            decode_execute: None,
+            execute_memory: None,
+            memory_writeback: None,
+            next_pc: 0,
+            stalled: false,
+            halted: false,
+            instructions_completed: 0,
+        }
+    }
+
+    fn add_data_hazard(state: &mut PipelineState) {
+        // Créer un hazard de données: instruction dans Decode utilise R1, instruction dans Execute écrit dans R1
+        state.decode_execute = Some(DecodeExecuteRegister {
+            instruction: Instruction::create_reg_reg(Opcode::Add, 1, 2),
+            pc: 0,
+            rs1: Some(1),
+            rs2: Some(2),
+            rd: Some(3),
+            immediate: None,
+            branch_addr: None,
+            mem_addr: None,
+        });
+
+        state.execute_memory = Some(ExecuteMemoryRegister {
+            instruction: Instruction::create_reg_imm8(Opcode::Load, 1, 0),
+            alu_result: 0,
+            rd: Some(1),
+            store_value: None,
+            mem_addr: Some(0x100),
+            branch_target: None,
+            branch_taken: false,
+        });
+    }
+
+    fn add_control_hazard(state: &mut PipelineState) {
+        // Créer un hazard de contrôle: instruction de branchement dans Execute
+        state.execute_memory = Some(ExecuteMemoryRegister {
+            instruction: Instruction::create_no_args(Opcode::Jmp),
+            alu_result: 0,
+            rd: None,
+            store_value: None,
+            mem_addr: None,
+            branch_target: Some(0x100),
+            branch_taken: false,
+        });
+    }
+
+    fn add_structural_hazard(state: &mut PipelineState) {
+        // Créer un hazard structurel: deux instructions mémoire dans Execute et Memory
+        state.execute_memory = Some(ExecuteMemoryRegister {
+            instruction: Instruction::create_reg_imm8(Opcode::Load, 1, 0),
+            alu_result: 0,
+            rd: Some(1),
+            store_value: None,
+            mem_addr: Some(0x100),
+            branch_target: None,
+            branch_taken: false,
+        });
+
+        state.memory_writeback = Some(MemoryWritebackRegister {
+            instruction: Instruction::create_reg_imm8(Opcode::Store, 2, 0),
+            result: 0,
+            rd: None,
+        });
+    }
+
+    fn add_load_use_hazard(state: &mut PipelineState) {
+        // Créer un load-use hazard: Load dans Execute, utilisation dans Decode
+        state.decode_execute = Some(DecodeExecuteRegister {
+            instruction: Instruction::create_reg_reg(Opcode::Add, 1, 2),
+            pc: 0,
+            rs1: Some(1),
+            rs2: Some(2),
+            rd: Some(3),
+            immediate: None,
+            branch_addr: None,
+            mem_addr: None,
+        });
+
+        state.execute_memory = Some(ExecuteMemoryRegister {
+            instruction: Instruction::create_reg_imm8(Opcode::Load, 1, 0),
+            alu_result: 0,
+            rd: Some(1),
+            store_value: None,
+            mem_addr: Some(0x100),
+            branch_target: None,
+            branch_taken: false,
+        });
+    }
+}
