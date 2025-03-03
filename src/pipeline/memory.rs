@@ -13,8 +13,8 @@ pub struct MemoryStage{
     pub fn new() -> Self {
         Self {
             // La pile commence typiquement en haut de la mémoire et croît vers le bas
-            // stack_pointer: 0xFFFF0000, // Exemple: pile commence à 16 MB - 64 KB
-            stack_pointer: 0x1000, // Seulement 4KB, devrait être valide dans tous les tests
+            stack_pointer: 0xFFFF0000, // Exemple: pile commence à 16 MB - 64 KB
+            // stack_pointer: 0x1000, // Seulement 4KB, devrait être valide dans tous les tests
         }
     }
 
@@ -176,6 +176,14 @@ pub struct MemoryStage{
         // Réinitialiser le pointeur de pile
         self.stack_pointer = 0xFFFF0000;
     }
+
+    #[cfg(test)]
+    /// Crée un nouvel étage Memory avec un SP adapté aux tests
+    pub fn new_for_test() -> Self {
+        Self {
+            stack_pointer: 0x1000,
+        }
+    }
 }
 
 
@@ -193,13 +201,13 @@ mod tests {
 
     #[test]
     fn test_memory_stage_creation() {
-        let memory_stage = MemoryStage::new();
+        let memory_stage = MemoryStage::new_for_test();
         assert_eq!(memory_stage.stack_pointer, 0x1000); // Valeur modifiée
     }
 
     #[test]
     fn test_memory_stage_reset() {
-        let mut memory_stage = MemoryStage::new();
+        let mut memory_stage = MemoryStage::new_for_test();
 
         // Modifier l'état
         memory_stage.stack_pointer = 0xFFFF1000;
@@ -213,7 +221,7 @@ mod tests {
 
     #[test]
     fn test_memory_load_instruction() {
-        let mut memory_stage = MemoryStage::new();
+        let mut memory_stage = MemoryStage::new_for_test();
         let mut memory = Memory::new(MemoryConfig::default());
 
         // Écrire une valeur en mémoire
@@ -282,8 +290,10 @@ mod tests {
 
     #[test]
     fn test_memory_push_instruction() {
-        let mut memory_stage = MemoryStage::new();
+        let mut memory_stage = MemoryStage::new_for_test();
         let mut memory = Memory::new(MemoryConfig::default());
+
+
 
 
         // Créer une instruction PUSH R0
