@@ -100,6 +100,7 @@ impl ForwardingUnit {
                 if rs1.map_or(false, |r| r == rd_mem) || rs2.map_or(false, |r| r == rd_mem) {
                     // Ce load-use hazard doit être traité par l'unité de détection de hazards
                     // car le forwarding ne peut pas résoudre ce cas
+
                 }
             }
         }

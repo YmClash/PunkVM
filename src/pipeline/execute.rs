@@ -106,6 +106,12 @@ impl ExecuteStage{
                 alu_result = alu.execute(ALUOperation::Not, rs1_value, 0)?;
             },
 
+            Opcode::Nop => {
+                // Pas d'opération
+                alu_result = 0; // Pas utilisé
+            },
+
+
             Opcode::Shl => {
                 alu_result = alu.execute(ALUOperation::Shl, rs1_value, rs2_value)?;
             },
