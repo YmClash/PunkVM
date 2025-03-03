@@ -23,7 +23,9 @@ impl WritebackStage{
         // Si un registre destination est spécifié, y écrire le résultat
         if let Some(rd) = wb_reg.rd {
             if rd < registers.len() {
-                registers[rd] = wb_reg.result;
+                registers[rd] = wb_reg.result ;
+
+                println!("Writeback: rd={:?}, result={}", wb_reg.rd, wb_reg.result);
             } else {
                 return Err(format!("Registre destination invalide: R{}", rd));
             }
