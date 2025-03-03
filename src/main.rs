@@ -110,6 +110,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialiser quelques registres
     vm.registers[0] = 5;  // R0 = 5
     vm.registers[1] = 7;  // R1 = 7
+    vm.registers[2] = 10;  // R2 = 0
 
     // Exécuter la VM
     println!("Exécution du programme...");
@@ -122,6 +123,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("État final:");
     println!("  R0 = {}", vm.registers[0]);
     println!("  R1 = {}", vm.registers[1]);
+    // println!("  R2 = {}", vm.registers[2]);
 
     // Affichage des statistiques
     let stats = vm.stats();
@@ -132,8 +134,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  Stalls: {}", stats.stalls);
     println!("  Hazards: {}", stats.hazards);
     println!("  Forwards: {}", stats.forwards);
-    println!("  Memory hits: {}", stats.memory_hits);
-    println!("  Memory misses: {}", stats.memory_misses);
+    // println!("  Memory hits: {}", stats.memory_hits);
+    // println!("  Memory misses: {}", stats.memory_misses);
 
     Ok(())
 }
