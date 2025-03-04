@@ -30,13 +30,20 @@ impl FetchStage {
         // Trouver l'index de l'instruction à l'adresse PC
         let mut current_index = 0;
         let mut current_addr = 0;
+        let mut found = false;
 
         for (idx, instr) in instructions.iter().enumerate() {
             if current_addr == pc {
                 current_index = idx;
+                found = true;
                 break;
             }
             current_addr += instr.total_size() as u32;
+        }
+
+        // Si l'instruction n'est pas trouvée, ne rien  precharger
+        if !found {
+            return;
         }
 
         // Précharger les instructions suivantes

@@ -66,10 +66,10 @@ pub struct VMStats {
 /// Machine virtuelle PunkVM
 pub struct PunkVM{
     config: VMConfig,
-    state: VMState,
+    pub state: VMState,
     pipeline: Pipeline,
     alu: ALU,
-    memory: Memory,
+    pub memory: Memory,
     pub pc: usize, // Compteur de programme
     pub registers: Vec<u64>, // Registres
     pub program: Option<BytecodeFile>, // Programme

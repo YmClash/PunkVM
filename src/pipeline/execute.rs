@@ -60,6 +60,8 @@ impl ExecuteStage{
             // Instructions arithmétiques et logiques
             Opcode::Add => {
                 alu_result = alu.execute(ALUOperation::Add, rs1_value, rs2_value)?;
+                println!("Execute ADD: rs1_value={}, rs2_value={}, alu_result={}", rs1_value, rs2_value, alu_result);
+
             },
 
             Opcode::Sub => {
