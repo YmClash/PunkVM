@@ -1,5 +1,14 @@
 
 pub mod pvm;
+pub mod bytecode;
+pub mod examples;
+pub mod pipeline;
+pub mod alu;
+pub mod tests;
+
+//
+// Re-export des modules principaux
+pub use bytecode::files::BytecodeFile;
 
 
 
@@ -25,21 +34,5 @@ pub mod pvm;
 
 
 
-//////////////////////////////////////////////////////////////////////////////////////
-pub fn add(left: usize, right: usize) -> usize {
-    left + right
-}
 
 
-
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}

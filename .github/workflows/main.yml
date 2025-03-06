@@ -1,0 +1,64 @@
+name: Rust Build
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v2
+
+      - name: Set up Rust
+        uses: actions/setup-rust@v1.78.0  # Updated to a specific valid version
+        with:
+          rust-version: stable
+
+      - name: Build
+        run: cargo build --verbose
+
+      - name: Run tests
+        run: cargo test --verbose
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#name: Rust Build
+#
+#on:
+#  pull_request:
+#    branches: [main]
+#
+#jobs:
+#  build:
+#    runs-on: ubuntu-latest
+#
+#    steps:
+#      - uses: actions/checkout@v2
+#      - name: Set up Rust
+#        uses: actions/setup-rust@v1
+#        with:
+#          rust-version: stable
+#      - name: Build
+#        run: cargo build --verbose

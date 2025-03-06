@@ -229,4 +229,3 @@ Ce roadmap est organisé de manière séquentielle, mais certaines phases peuven
 - Phase 8 est la dernière étape
 
 Temps total estimé: 12-18 mois pour une implémentation complète, mais une version fonctionnelle basique peut être disponible après 4-6 mois (Phases 1-3).
-

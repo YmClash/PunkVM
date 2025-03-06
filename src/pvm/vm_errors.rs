@@ -1,3 +1,4 @@
+//src/pvm/vm_errors.rs
 use std::fmt;
 use std::error::Error;
 #[derive(Debug, Clone, PartialEq)]
@@ -8,6 +9,8 @@ pub enum VMError {
     ConfigError(String),
     ArithmeticError(String),
     ExecutionError(String),
+    ALUError(String),
+    DecodeError(String),
 }
 
 
@@ -36,6 +39,8 @@ impl fmt::Display for VMError{
             VMError::ConfigError(msg) => write!(f, "ConfigError: {}", msg),
             VMError::ArithmeticError(msg) => write!(f, "ArithmeticError: {}", msg),
             VMError::ExecutionError(msg) => write!(f, "ExecutionError: {}", msg),
+            VMError::ALUError(msg) => write!(f, "ALUError: {}", msg),
+            VMError::DecodeError(msg) => write!(f, "DecodeError: {}", msg),
 
         }
     }
