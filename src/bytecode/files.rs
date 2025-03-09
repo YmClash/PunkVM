@@ -418,7 +418,7 @@ impl BytecodeFile {
     }
 
     /// Encode les métadonnées en bytes
-    fn encode_metadata(&self) -> Vec<u8> {
+    pub fn encode_metadata(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
 
         // Nombre d'entrées de métadonnées
