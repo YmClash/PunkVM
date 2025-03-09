@@ -60,6 +60,7 @@ pub enum Opcode{
     // Instruction etendues (0xF0 - 0xFF)
     Extended = 0xF0,
     //0xF1 - 0xFF : Réservé pour les futures instructions etendues
+    // Invalid = 0xFF, // Instruction invalide
 
 }
 
@@ -125,6 +126,7 @@ impl Opcode {
             0x82 => Some(Self::Halt),
 
             0xF0 => Some(Self::Extended),
+            // 0xFF => Some(Self::Invalid),
             _ => None,
         }
     }
@@ -156,6 +158,7 @@ impl Opcode {
             0x60..=0x7F => OpcodeCategory::Memory,
             0x80..=0x9F => OpcodeCategory::Special,
             0xF0..=0xFF => OpcodeCategory::Extended,
+
             _ => OpcodeCategory::Unknown,
         }
     }
@@ -176,6 +179,7 @@ mod tests {
 
         // Test des valeurs invalides
         assert_eq!(Opcode::from_u8(0xFF), None);
+        // assert_eq!(Opcode::from_u8(0xFF),Some(Opcode::Invalid));
         assert_eq!(Opcode::from_u8(0x09), None);
     }
 
