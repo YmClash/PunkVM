@@ -112,11 +112,13 @@ impl DecodeStage {
             Opcode::Load | Opcode::LoadB | Opcode::LoadW | Opcode::LoadD => {
                 if let Ok(ArgValue::Register(r)) = instruction.get_arg1_value() {
                     rd = Some(r as usize);
+                    println!("Registre destination: {:?}", rd);
                 }
 
                 // Extraction du registre base pour les adresses indexées
                 if let Ok(ArgValue::RegisterOffset(r, _)) = instruction.get_arg2_value() {
                     rs1 = Some(r as usize);
+                    println!("Registre base 1: {:?}", rs1);
                 }
             },
 
@@ -124,11 +126,13 @@ impl DecodeStage {
             Opcode::Store | Opcode::StoreB | Opcode::StoreW | Opcode::StoreD => {
                 if let Ok(ArgValue::Register(r)) = instruction.get_arg1_value() {
                     rs1 = Some(r as usize); // Registre contenant la valeur à stocker
+                    println!("Registre source: {:?}", rs1);
                 }
 
                 // Extraction du registre base pour les adresses indexées
                 if let Ok(ArgValue::RegisterOffset(r, _)) = instruction.get_arg2_value() {
                     rs2 = Some(r as usize);
+                    println!("Registre base 2: {:?}", rs2);
                 }
             },
 
@@ -136,12 +140,14 @@ impl DecodeStage {
             Opcode::Push => {
                 if let Ok(ArgValue::Register(r)) = instruction.get_arg1_value() {
                     rs1 = Some(r as usize);
+                    println!("Registre source pour PUSH: {:?}", rs1);
                 }
             },
 
             Opcode::Pop => {
                 if let Ok(ArgValue::Register(r)) = instruction.get_arg1_value() {
                     rd = Some(r as usize);
+                    println!("Registre destination pour POP: {:?}", rd);
                 }
             },
 
