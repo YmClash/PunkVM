@@ -6,6 +6,7 @@ use std::io;
 
 use crate::pvm::caches::L1Cache;
 use crate::pvm::buffers::StoreBuffer;
+use crate::pvm::vm_errors::VMError;
 
 /// Configuration du systeme memoire
 #[derive(Debug, Clone, Copy)]
@@ -286,12 +287,6 @@ impl Memory{
     }
 
     /// Réinitialise le système mémoire
-    // pub fn reset(&mut self) {
-    //     self.memory.iter_mut().for_each(|byte| *byte = 0);
-    //     self.l1_cache.clear();
-    //     self.store_buffer.clear();
-    //     self.stats = MemoryStats::default();
-    // }
     pub fn reset(&mut self) {
         self.memory.iter_mut().for_each(|byte| *byte = 0);
         self.l1_cache.clear();

@@ -25,64 +25,14 @@ impl ExecuteStage{
         let mut branch_taken = false;
         let mut branch_target = None;
         let mut store_value = None;
-        let mut mem_addr = ex_reg.mem_addr;
+        // let mut mem_addr = ex_reg.mem_addr;
 
-        // Récupérer les valeurs des registres sources (si présents)
-        // let rs1_value = match ex_reg.rs1 {
-        //     Some(reg) => {
-        //         if reg < ex_reg.instruction.args.len() {
-        //             ex_reg.instruction.args[reg] as u64
-        //         } else {
-        //             0
-        //         }
-        //     },
-        //     None => 0,
-        // };
-        let is_three_reg_format = ex_reg.instruction.args.len() >= 3 &&
-            ex_reg.rs1.is_some() &&
-            ex_reg.rs2.is_some() &&
-            ex_reg.rd.is_some();
 
-        // Récupérer les valeurs des registres sources (si présents)
-        let rs1_value = match ex_reg.rs1 {
-            Some(reg) => {
-                // Format à trois registres
-                if is_three_reg_format {
-                    if ex_reg.instruction.args.len() > 1 {
-                        ex_reg.instruction.args[1] as u64
-                    } else {
-                        0
-                    }
-                }
-                // Format à un seul registre (INC, DEC, NEG, NOT, etc.)
-                else if ex_reg.instruction.args.len() == 1 && ex_reg.rs2.is_none() {
-                    // La valeur est directement dans args[0]
-                    ex_reg.instruction.args[0] as u64
-                }
-                // Autres formats
-                else {
-                    if reg < ex_reg.instruction.args.len() {
-                        ex_reg.instruction.args[reg] as u64
-                    } else {
-                        0
-                    }
-                }
-            },
-            None => 0,
-        };
-
-        let rs2_value = if is_three_reg_format {
-            ex_reg.instruction.args[2] as u64
-        } else {
-            match ex_reg.rs2 {
-                Some(reg) if reg < ex_reg.instruction.args.len() =>
-                    ex_reg.instruction.args[reg] as u64,
-                _ => match ex_reg.immediate {
-                    Some(imm) => imm,
-                    None => 0,
-                }
-            }
-        };
+        // on recupere les valeur calcule en decode
+        let rs1_value = ex_reg.rs1_value;
+        let rs2_value = ex_reg.rs2_value;
+        // let rd_value = ex_reg.rd;
+        let mem_addr = ex_reg.mem_addr;
 
         // Exécuter l'opération en fonction de l'opcode
         match ex_reg.instruction.opcode {
@@ -307,86 +257,73 @@ mod tests {
         assert!(true);
     }
 
+    /// Test d'une instruction ADD (2 registres) où on veut R0 = R0 + R1
     #[test]
     fn test_execute_add_instruction_two_reg() {
         let mut execute = ExecuteStage::new();
         let mut alu = ALU::new();
 
-        // Créer une instruction ADD R0, R1 (format à deux registres)
+        // Suppose qu'on a fait "Decode" et trouvé que c'est "Add R0, R1"
         let add_instruction = Instruction::create_reg_reg(Opcode::Add, 0, 1);
 
-        // Créer un registre Decode → Execute
+        // On crée un decode->execute register
+        // On positionne rs1_value=5, rs2_value=7
         let de_reg = DecodeExecuteRegister {
             instruction: add_instruction,
             pc: 100,
-            rs1: Some(0),
+            rs1: Some(0),    // index
             rs2: Some(1),
             rd: Some(0),
+            rs1_value: 5,    // R0=5
+            rs2_value: 7,    // R1=7
             immediate: None,
             branch_addr: None,
             mem_addr: None,
         };
 
-        // Ajuster les valeurs des registres dans les arguments
-        // Normalement ces valeurs seraient lues des registres réels
-        let mut instr = de_reg.instruction.clone();
-        instr.args = vec![5, 7]; // R0 = 5, R1 = 7
-
-        let de_reg_with_values = DecodeExecuteRegister {
-            instruction: instr,
-            ..de_reg
-        };
-
         // Exécuter l'instruction
-        let result = execute.process_direct(&de_reg_with_values, &mut alu);
+        let result = execute.process_direct(&de_reg, &mut alu);
         assert!(result.is_ok());
 
-        // Vérifier le résultat
         let em_reg = result.unwrap();
-        assert_eq!(em_reg.alu_result, 12); // 5 + 7 = 12
+        // 5 + 7 = 12
+        assert_eq!(em_reg.alu_result, 12);
         assert_eq!(em_reg.rd, Some(0));
-        assert_eq!(em_reg.branch_taken, false);
+        assert!(!em_reg.branch_taken);
         assert_eq!(em_reg.branch_target, None);
     }
 
+    /// Test d'une instruction ADD (3 registres) style R2 = R0 + R1
     #[test]
     fn test_execute_add_instruction_three_reg() {
         let mut execute = ExecuteStage::new();
         let mut alu = ALU::new();
 
-        // Créer une instruction ADD R2, R0, R1 (format à trois registres)
+        // Instruction "Add R2, R0, R1"
         let add_instruction = Instruction::create_reg_reg_reg(Opcode::Add, 2, 0, 1);
 
-        // Créer un registre Decode → Execute
+        // On simule "Decode" qui a trouvé rs1=0, rs2=1, rd=2,
+        // et lit la banque de registres => R0=5, R1=7
         let de_reg = DecodeExecuteRegister {
             instruction: add_instruction,
             pc: 100,
-            rs1: Some(0),  // Premier registre source
-            rs2: Some(1),  // Deuxième registre source
-            rd: Some(2),   // Registre destination
+            rs1: Some(0),
+            rs2: Some(1),
+            rd: Some(2),
+            rs1_value: 5,  // R0=5
+            rs2_value: 7,  // R1=7
             immediate: None,
             branch_addr: None,
             mem_addr: None,
         };
 
-        // Ajuster les valeurs des registres dans les arguments
-        let mut instr = de_reg.instruction.clone();
-        instr.args = vec![0, 5, 7]; // R0 = 5, R1 = 7, R2 n'est pas encore défini
-
-        let de_reg_with_values = DecodeExecuteRegister {
-            instruction: instr,
-            ..de_reg
-        };
-
-        // Exécuter l'instruction
-        let result = execute.process_direct(&de_reg_with_values, &mut alu);
+        let result = execute.process_direct(&de_reg, &mut alu);
         assert!(result.is_ok());
 
-        // Vérifier le résultat
         let em_reg = result.unwrap();
-        assert_eq!(em_reg.alu_result, 12); // 5 + 7 = 12
-        assert_eq!(em_reg.rd, Some(2));    // Le résultat va dans R2
-        assert_eq!(em_reg.branch_taken, false);
+        assert_eq!(em_reg.alu_result, 12);
+        assert_eq!(em_reg.rd, Some(2));
+        assert!(!em_reg.branch_taken);
         assert_eq!(em_reg.branch_target, None);
     }
 
@@ -395,37 +332,28 @@ mod tests {
         let mut execute = ExecuteStage::new();
         let mut alu = ALU::new();
 
-        // Créer une instruction SUB R0, R1 (format à deux registres)
+        // SUB R0, R1 => R0 = R0 - R1
         let sub_instruction = Instruction::create_reg_reg(Opcode::Sub, 0, 1);
 
-        // Créer un registre Decode → Execute
         let de_reg = DecodeExecuteRegister {
             instruction: sub_instruction,
             pc: 100,
             rs1: Some(0),
             rs2: Some(1),
             rd: Some(0),
+            rs1_value: 10,  // R0=10
+            rs2_value: 7,   // R1=7
             immediate: None,
             branch_addr: None,
             mem_addr: None,
         };
 
-        // Ajuster les valeurs des registres dans les arguments
-        let mut instr = de_reg.instruction.clone();
-        instr.args = vec![10, 7]; // R0 = 10, R1 = 7
-
-        let de_reg_with_values = DecodeExecuteRegister {
-            instruction: instr,
-            ..de_reg
-        };
-
-        // Exécuter l'instruction
-        let result = execute.process_direct(&de_reg_with_values, &mut alu);
+        let result = execute.process_direct(&de_reg, &mut alu);
         assert!(result.is_ok());
 
-        // Vérifier le résultat
         let em_reg = result.unwrap();
-        assert_eq!(em_reg.alu_result, 3); // 10 - 7 = 3
+        // 10 - 7 = 3
+        assert_eq!(em_reg.alu_result, 3);
     }
 
     #[test]
@@ -433,38 +361,29 @@ mod tests {
         let mut execute = ExecuteStage::new();
         let mut alu = ALU::new();
 
-        // Créer une instruction SUB R2, R0, R1 (format à trois registres)
+        // SUB R2, R0, R1 => R2 = R0 - R1
         let sub_instruction = Instruction::create_reg_reg_reg(Opcode::Sub, 2, 0, 1);
 
-        // Créer un registre Decode → Execute
         let de_reg = DecodeExecuteRegister {
             instruction: sub_instruction,
             pc: 100,
-            rs1: Some(0),  // Premier registre source
-            rs2: Some(1),  // Deuxième registre source
-            rd: Some(2),   // Registre destination
+            rs1: Some(0),
+            rs2: Some(1),
+            rd: Some(2),
+            rs1_value: 10,  // R0=10
+            rs2_value: 7,   // R1=7
             immediate: None,
             branch_addr: None,
             mem_addr: None,
         };
 
-        // Ajuster les valeurs des registres dans les arguments
-        let mut instr = de_reg.instruction.clone();
-        instr.args = vec![0, 10, 7]; // R0 = 10, R1 = 7, R2 n'est pas encore défini
-
-        let de_reg_with_values = DecodeExecuteRegister {
-            instruction: instr,
-            ..de_reg
-        };
-
-        // Exécuter l'instruction
-        let result = execute.process_direct(&de_reg_with_values, &mut alu);
+        let result = execute.process_direct(&de_reg, &mut alu);
         assert!(result.is_ok());
 
-        // Vérifier le résultat
         let em_reg = result.unwrap();
-        assert_eq!(em_reg.alu_result, 3); // 10 - 7 = 3
-        assert_eq!(em_reg.rd, Some(2));   // Le résultat va dans R2
+        // 10 - 7 = 3
+        assert_eq!(em_reg.alu_result, 3);
+        assert_eq!(em_reg.rd, Some(2));
     }
 
     #[test]
@@ -472,46 +391,41 @@ mod tests {
         let mut execute = ExecuteStage::new();
         let mut alu = ALU::new();
 
-        // Tester plusieurs opérations arithmétiques avec format à trois registres
+        // Tester plusieurs opérations arithmétiques
         let operations = [
-            (Opcode::Add, 5, 7, 12),     // 5 + 7 = 12
-            (Opcode::Sub, 10, 3, 7),     // 10 - 3 = 7
-            (Opcode::Mul, 4, 5, 20),     // 4 * 5 = 20
-            (Opcode::Div, 20, 4, 5),     // 20 / 4 = 5
-            (Opcode::Mod, 10, 3, 1),     // 10 % 3 = 1
+            (Opcode::Add,  5,  7,  12),
+            (Opcode::Sub, 10,  3,   7),
+            (Opcode::Mul,  4,  5,  20),
+            (Opcode::Div, 20,  4,   5),
+            (Opcode::Mod, 10,  3,   1),
         ];
 
-        for (op, val1, val2, expected) in &operations {
-            // Créer une instruction à trois registres: OP R2, R0, R1
-            let instruction = Instruction::create_reg_reg_reg(*op, 2, 0, 1);
+        for (op, val1, val2, expected) in operations {
+            // ex: OP R2, R0, R1
+            let instruction = Instruction::create_reg_reg_reg(op, 2, 0, 1);
 
-            // Créer un registre Decode → Execute
             let de_reg = DecodeExecuteRegister {
                 instruction,
                 pc: 100,
                 rs1: Some(0),
                 rs2: Some(1),
                 rd: Some(2),
+                rs1_value: val1,
+                rs2_value: val2,
                 immediate: None,
                 branch_addr: None,
                 mem_addr: None,
             };
 
-            // Ajuster les valeurs des registres
-            let mut instr = de_reg.instruction.clone();
-            instr.args = vec![0, *val1, *val2]; // R0 = val1, R1 = val2
-
-            let de_reg_with_values = DecodeExecuteRegister {
-                instruction: instr,
-                ..de_reg
-            };
-
-            // Exécuter et vérifier
-            let result = execute.process_direct(&de_reg_with_values, &mut alu);
+            let result = execute.process_direct(&de_reg, &mut alu);
             assert!(result.is_ok());
 
             let em_reg = result.unwrap();
-            assert_eq!(em_reg.alu_result, *expected, "Opération {:?} avec {} et {} devrait donner {}", op, val1, val2, expected);
+            assert_eq!(
+                em_reg.alu_result, expected,
+                "Opération {:?} avec {} et {} devrait donner {}",
+                op, val1, val2, expected
+            );
             assert_eq!(em_reg.rd, Some(2));
         }
     }
@@ -521,123 +435,181 @@ mod tests {
         let mut execute = ExecuteStage::new();
         let mut alu = ALU::new();
 
-        // Tester les opérations logiques avec format à trois registres
+        // Tester les opérations logiques
         let operations = [
-            (Opcode::And, 0xF0, 0x0F, 0x00),   // F0 & 0F = 00
-            (Opcode::Or, 0xF0, 0x0F, 0xFF),    // F0 | 0F = FF
-            (Opcode::Xor, 0xF0, 0x0F, 0xFF),   // F0 ^ 0F = FF
+            (Opcode::And, 0xF0, 0x0F, 0x00),
+            (Opcode::Or,  0xF0, 0x0F, 0xFF),
+            (Opcode::Xor, 0xF0, 0x0F, 0xFF),
         ];
 
-        for (op, val1, val2, expected) in &operations {
-            // Créer une instruction à trois registres: OP R2, R0, R1
-            let instruction = Instruction::create_reg_reg_reg(*op, 2, 0, 1);
+        for (op, val1, val2, expected) in operations {
+            let instruction = Instruction::create_reg_reg_reg(op, 2, 0, 1);
 
-            // Créer un registre Decode → Execute
             let de_reg = DecodeExecuteRegister {
                 instruction,
                 pc: 100,
                 rs1: Some(0),
                 rs2: Some(1),
                 rd: Some(2),
+                rs1_value: val1,
+                rs2_value: val2,
                 immediate: None,
                 branch_addr: None,
                 mem_addr: None,
             };
 
-            // Ajuster les valeurs des registres
-            let mut instr = de_reg.instruction.clone();
-            instr.args = vec![0, *val1, *val2]; // R0 = val1, R1 = val2
-
-            let de_reg_with_values = DecodeExecuteRegister {
-                instruction: instr,
-                ..de_reg
-            };
-
-            // Exécuter et vérifier
-            let result = execute.process_direct(&de_reg_with_values, &mut alu);
+            let result = execute.process_direct(&de_reg, &mut alu);
             assert!(result.is_ok());
 
             let em_reg = result.unwrap();
-            assert_eq!(em_reg.alu_result, *expected, "Opération {:?} avec {:X} et {:X} devrait donner {:X}", op, val1, val2, expected);
+            assert_eq!(
+                em_reg.alu_result, expected,
+                "Opération {:?} avec {:X} et {:X} devrait donner {:X}",
+                op, val1, val2, expected
+            );
             assert_eq!(em_reg.rd, Some(2));
         }
+    }
+
+    #[test]
+    fn test_execute_store_instruction() {
+        let mut execute = ExecuteStage::new();
+        let mut alu = ALU::new();
+
+        // STORE R0, [0x2000]
+        let store_instruction = Instruction::new(
+            Opcode::Store,
+            InstructionFormat::new(ArgType::Register, ArgType::AbsoluteAddr, ArgType::None),
+            vec![]
+        );
+
+        let de_reg = DecodeExecuteRegister {
+            instruction: store_instruction,
+            pc: 100,
+            rs1: Some(0), // R0 => source
+            rs2: None,
+            rd: None,
+            rs1_value: 42, // On veut stocker 42
+            rs2_value: 0,
+            immediate: None,
+            branch_addr: None,
+            mem_addr: Some(0x2000),
+        };
+
+        let result = execute.process_direct(&de_reg, &mut alu);
+        assert!(result.is_ok());
+
+        let em_reg = result.unwrap();
+        assert_eq!(em_reg.mem_addr, Some(0x2000));
+        // store_value = rs1_value => 42
+        assert_eq!(em_reg.store_value, Some(42));
     }
 
     #[test]
     fn test_execute_complex_instruction_sequence() {
         let mut execute = ExecuteStage::new();
         let mut alu = ALU::new();
-        let mut result_registers = vec![0u64; 8]; // R0-R7
 
-        // Simuler une séquence d'instructions qui calcule (A + B) * C
-        // R0 = 5 (A)
-        // R1 = 7 (B)
-        // R2 = 3 (C)
-        // On veut calculer (5 + 7) * 3 = 36
-
-        // 1. ADD R3, R0, R1 (R3 = R0 + R1)
-        let add_instruction = Instruction::create_reg_reg_reg(Opcode::Add, 3, 0, 1);
+        // On veut calculer (5 + 7) * 3
+        // 1) ADD R3, R0, R1 => R3 = R0 + R1
+        let add_instr = Instruction::create_reg_reg_reg(Opcode::Add, 3, 0, 1);
         let de_reg_add = DecodeExecuteRegister {
-            instruction: add_instruction,
+            instruction: add_instr,
             pc: 100,
             rs1: Some(0),
             rs2: Some(1),
             rd: Some(3),
+            rs1_value: 5,   // R0=5
+            rs2_value: 7,   // R1=7
             immediate: None,
             branch_addr: None,
             mem_addr: None,
         };
+        let res_add = execute.process_direct(&de_reg_add, &mut alu).unwrap();
+        assert_eq!(res_add.alu_result, 12);
 
-        // Initialiser R0=5, R1=7
-        let mut instr_add = de_reg_add.instruction.clone();
-        instr_add.args = vec![0, 5, 7];
-
-        let de_reg_add_with_values = DecodeExecuteRegister {
-            instruction: instr_add,
-            ..de_reg_add
-        };
-
-        // Exécuter ADD R3, R0, R1
-        let result_add = execute.process_direct(&de_reg_add_with_values, &mut alu);
-        assert!(result_add.is_ok());
-        let em_reg_add = result_add.unwrap();
-        assert_eq!(em_reg_add.alu_result, 12); // 5 + 7 = 12
-
-        // Stocker le résultat dans R3
-        result_registers[3] = em_reg_add.alu_result;
-
-        // 2. MUL R4, R3, R2 (R4 = R3 * R2)
-        let mul_instruction = Instruction::create_reg_reg_reg(Opcode::Mul, 4, 3, 2);
+        // 2) MUL R4, R3, R2 => R4 = R3 * R2
+        // Suppose R2=3
+        let mul_instr = Instruction::create_reg_reg_reg(Opcode::Mul, 4, 3, 2);
         let de_reg_mul = DecodeExecuteRegister {
-            instruction: mul_instruction,
+            instruction: mul_instr,
             pc: 104,
             rs1: Some(3),
             rs2: Some(2),
             rd: Some(4),
+            rs1_value: res_add.alu_result,  // R3=12
+            rs2_value: 3,                   // R2=3
             immediate: None,
             branch_addr: None,
             mem_addr: None,
         };
+        let res_mul = execute.process_direct(&de_reg_mul, &mut alu).unwrap();
+        assert_eq!(res_mul.alu_result, 36);
 
-        // R3=12 (résultat précédent), R2=3
-        let mut instr_mul = de_reg_mul.instruction.clone();
-        instr_mul.args = vec![0, result_registers[3] as u8, 3];
-
-        let de_reg_mul_with_values = DecodeExecuteRegister {
-            instruction: instr_mul,
-            ..de_reg_mul
-        };
-
-        // Exécuter MUL R4, R3, R2
-        let result_mul = execute.process_direct(&de_reg_mul_with_values, &mut alu);
-        assert!(result_mul.is_ok());
-        let em_reg_mul = result_mul.unwrap();
-        assert_eq!(em_reg_mul.alu_result, 36); // 12 * 3 = 36
-
-        // Le résultat final devrait être 36 dans R4
-        result_registers[4] = em_reg_mul.alu_result;
-        assert_eq!(result_registers[4], 36);
+        // On a 36 dans R4 => c'est le résultat final
     }
+    #[test]
+    fn test_execute_mixed_format_program() {
+        let mut execute = ExecuteStage::new();
+        let mut alu = ALU::new();
+
+        // 1) ADD R3, R0, R1 => 3-op => R3=R0+R1
+        let add_instr = Instruction::create_reg_reg_reg(Opcode::Add, 3, 0, 1);
+        let de_reg_add = DecodeExecuteRegister {
+            instruction: add_instr,
+            pc: 100,
+            rs1: Some(0),
+            rs2: Some(1),
+            rd: Some(3),
+            rs1_value: 5,  // R0=5
+            rs2_value: 7,  // R1=7
+            immediate: None,
+            branch_addr: None,
+            mem_addr: None,
+        };
+        let em_reg_add = execute.process_direct(&de_reg_add, &mut alu).unwrap();
+        assert_eq!(em_reg_add.alu_result, 12);
+
+        // 2) INC R3 => format 1 reg => "rd=3, rs1=3"
+        // => R3 = R3 + 1 => 12 + 1 => 13
+        let inc_instr = Instruction::create_single_reg(Opcode::Inc, 3);
+        let de_reg_inc = DecodeExecuteRegister {
+            instruction: inc_instr,
+            pc: 104,
+            rs1: Some(3),
+            rs2: None,
+            rd: Some(3),
+            rs1_value: em_reg_add.alu_result,  // R3=12
+            rs2_value: 0,
+            immediate: None,
+            branch_addr: None,
+            mem_addr: None,
+        };
+        let em_reg_inc = execute.process_direct(&de_reg_inc, &mut alu).unwrap();
+        assert_eq!(em_reg_inc.alu_result, 13);
+
+        // 3) CMP R3, R2 => 2-reg => "rs1=3, rs2=2"
+        // Suppose R3=13, R2=13
+        let cmp_instr = Instruction::create_reg_reg(Opcode::Cmp, 3, 2);
+        let de_reg_cmp = DecodeExecuteRegister {
+            instruction: cmp_instr,
+            pc: 106,
+            rs1: Some(3),
+            rs2: Some(2),
+            rd: None,
+            rs1_value: 13,  // R3=13
+            rs2_value: 13,  // R2=13
+            immediate: None,
+            branch_addr: None,
+            mem_addr: None,
+        };
+        let em_reg_cmp = execute.process_direct(&de_reg_cmp, &mut alu).unwrap();
+        // On attend ZF=1 => alu.flags.zero = true
+        assert!(alu.flags.zero);
+        assert!(!alu.flags.negative);
+        assert!(!alu.flags.carry);
+    }
+
 
     #[test]
     fn test_execute_jump_instruction() {
@@ -658,6 +630,8 @@ mod tests {
             rs1: None,
             rs2: None,
             rd: None,
+            rs1_value: 0,
+            rs2_value: 0,
             immediate: None,
             branch_addr: Some(0x1000),
             mem_addr: None,
@@ -695,6 +669,8 @@ mod tests {
             rs1: None,
             rs2: None,
             rd: None,
+            rs1_value: 0,
+            rs2_value: 0,
             immediate: None,
             branch_addr: Some(0x1000),
             mem_addr: None,
@@ -729,6 +705,8 @@ mod tests {
             rs1: None,
             rs2: None,
             rd: Some(0),
+            rs1_value: 0,
+            rs2_value: 0,
             immediate: None,
             branch_addr: None,
             mem_addr: Some(0x2000),
@@ -745,153 +723,5 @@ mod tests {
         assert_eq!(em_reg.alu_result, 0); // Pas de calcul ALU pour LOAD
     }
 
-    #[test]
-    fn test_execute_store_instruction() {
-        let mut execute = ExecuteStage::new();
-        let mut alu = ALU::new();
 
-        // Créer une instruction STORE R0, [0x2000]
-        let store_instruction = Instruction::new(
-            Opcode::Store,
-            InstructionFormat::new(ArgType::Register, ArgType::AbsoluteAddr, ArgType::None),
-            vec![0, 0, 32, 0, 0] // Mem[0x2000] = R0
-        );
-
-        // Créer un registre Decode → Execute
-        let de_reg = DecodeExecuteRegister {
-            instruction: store_instruction.clone(),
-            pc: 100,
-            rs1: Some(0), // Registre source
-            rs2: None,
-            rd: None, // Pas de registre destination pour STORE
-            immediate: None,
-            branch_addr: None,
-            mem_addr: Some(0x2000),
-        };
-
-        // Mettre une valeur dans R0
-        let mut instr = de_reg.instruction.clone();
-        instr.args = vec![42]; // R0 = 42
-
-        let de_reg_with_values = DecodeExecuteRegister {
-            instruction: instr,
-            ..de_reg
-        };
-
-        // Exécuter l'instruction
-        let result = execute.process_direct(&de_reg_with_values, &mut alu);
-        assert!(result.is_ok());
-
-        // Vérifier le résultat
-        let em_reg = result.unwrap();
-        assert_eq!(em_reg.mem_addr, Some(0x2000));
-        assert_eq!(em_reg.store_value, Some(42)); // La valeur à stocker
-    }
-
-    #[test]
-    fn test_execute_mixed_format_program() {
-        let mut execute = ExecuteStage::new();
-        let mut alu = ALU::new();
-        let mut result_registers = vec![0u64; 8]; // R0-R7
-
-        // Simuler une séquence d'instructions qui calcule:
-        // 1. Calculer R3 = R0 + R1 (format à trois registres)
-        // 2. Incrémenter R3 (format à un registre)
-        // 3. Comparer R3 avec R2 (format à deux registres)
-
-        // Valeurs initiales: R0=5, R1=7, R2=13
-
-        // 1. ADD R3, R0, R1 (R3 = R0 + R1)
-        let add_instruction = Instruction::create_reg_reg_reg(Opcode::Add, 3, 0, 1);
-        let de_reg_add = DecodeExecuteRegister {
-            instruction: add_instruction,
-            pc: 100,
-            rs1: Some(0),
-            rs2: Some(1),
-            rd: Some(3),
-            immediate: None,
-            branch_addr: None,
-            mem_addr: None,
-        };
-
-        // Initialiser R0=5, R1=7
-        let mut instr_add = de_reg_add.instruction.clone();
-        instr_add.args = vec![0, 5, 7];
-
-        let de_reg_add_with_values = DecodeExecuteRegister {
-            instruction: instr_add,
-            ..de_reg_add
-        };
-
-        // Exécuter ADD R3, R0, R1
-        let result_add = execute.process_direct(&de_reg_add_with_values, &mut alu);
-        assert!(result_add.is_ok());
-        let em_reg_add = result_add.unwrap();
-        assert_eq!(em_reg_add.alu_result, 12); // 5 + 7 = 12
-
-        // Stocker le résultat dans R3
-        result_registers[3] = em_reg_add.alu_result;
-
-        // 2. INC R3 (R3 = R3 + 1) - format à un registre
-        let inc_instruction = Instruction::create_single_reg(Opcode::Inc, 3);
-        let de_reg_inc = DecodeExecuteRegister {
-            instruction: inc_instruction,
-            pc: 104,
-            rs1: Some(3),
-            rs2: None,
-            rd: Some(3),
-            immediate: None,
-            branch_addr: None,
-            mem_addr: None,
-        };
-
-        // R3=12 (résultat précédent)
-        let mut instr_inc = de_reg_inc.instruction.clone();
-        instr_inc.args = vec![result_registers[3] as u8];
-
-        let de_reg_inc_with_values = DecodeExecuteRegister {
-            instruction: instr_inc,
-            ..de_reg_inc
-        };
-
-        // Exécuter INC R3
-        let result_inc = execute.process_direct(&de_reg_inc_with_values, &mut alu);
-        assert!(result_inc.is_ok());
-        let em_reg_inc = result_inc.unwrap();
-        assert_eq!(em_reg_inc.alu_result, 13); // 12 + 1 = 13
-
-        // Stocker le résultat dans R3
-        result_registers[3] = em_reg_inc.alu_result;
-
-        // 3. CMP R3, R2 (format à deux registres)
-        let cmp_instruction = Instruction::create_reg_reg(Opcode::Cmp, 3, 2);
-        let de_reg_cmp = DecodeExecuteRegister {
-            instruction: cmp_instruction,
-            pc: 106,
-            rs1: Some(3),
-            rs2: Some(2),
-            rd: None,
-            immediate: None,
-            branch_addr: None,
-            mem_addr: None,
-        };
-
-        // R3=13, R2=13
-        let mut instr_cmp = de_reg_cmp.instruction.clone();
-        instr_cmp.args = vec![result_registers[3] as u8, 13];
-
-        let de_reg_cmp_with_values = DecodeExecuteRegister {
-            instruction: instr_cmp,
-            ..de_reg_cmp
-        };
-
-        // Exécuter CMP R3, R2
-        let result_cmp = execute.process_direct(&de_reg_cmp_with_values, &mut alu);
-        assert!(result_cmp.is_ok());
-
-        // Vérifier que les flags sont correctement positionnés (égalité)
-        assert!(alu.flags.zero);  // Les valeurs sont égales, donc ZF=1
-        assert!(!alu.flags.negative);
-        assert!(!alu.flags.carry);
-    }
 }

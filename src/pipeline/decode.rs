@@ -18,12 +18,38 @@ impl DecodeStage {
         Self {}
     }
 
+    /// Effectue le décodage :
+    /// - détermine rs1_index, rs2_index, rd_index
+    /// - lit rs1_value, rs2_value dans la banque de registres (si applicable)
+    /// - calcule un éventuel immediate
+    /// - calcule branch_addr et mem_addr
+    /// - retourne un DecodeExecuteRegister
+
     /// Traite l'étage Decode directement
     pub fn process_direct(&mut self, fd_reg: &FetchDecodeRegister, registers: &[u64]) -> Result<DecodeExecuteRegister, String> {
         let instruction = &fd_reg.instruction;
 
         // Extraction des registres source et destination
-        let (rs1, rs2, rd) = self.extract_registers(instruction)?;
+        let (rs1_index, rs2_index, rd_index) = self.extract_registers(instruction)?;
+
+        // lire rs1_value et rs2_value dans la banque de registres
+        let rs1_value = rs1_index.map_or(0, |ix| {
+            if ix < registers.len() {
+                registers[ix]
+            } else {
+                // On pourrait renvoyer une erreur, ou 0. Au choix.
+                0
+            }
+        });
+
+        let rs2_value = rs2_index.map_or(0,|ix|{
+            if ix < registers.len(){
+                registers[ix]
+            }else {
+                // On pourrait renvoyer une erreur, ou 0. Au choix.
+                0
+            }
+        });
 
         // Extraction de la valeur immédiate
         let immediate = self.extract_immediate(instruction)?;
@@ -37,9 +63,11 @@ impl DecodeStage {
         Ok(DecodeExecuteRegister {
             instruction: instruction.clone(),
             pc: fd_reg.pc,
-            rs1,
-            rs2,
-            rd,
+            rs1: rs1_index,
+            rs2: rs2_index,
+            rd: rd_index,
+            rs1_value,
+            rs2_value,
             immediate,
             branch_addr,
             mem_addr,
@@ -56,17 +84,20 @@ impl DecodeStage {
 
         // Vérifier d'abord si nous avons une instruction à trois registres
         // en essayant d'extraire un troisième argument
-        if let Ok(ArgValue::Register(r)) = instruction.get_arg3_value() {
+        if let Ok(ArgValue::Register(r3)) = instruction.get_arg3_value() {
             // Format à trois registres (rd, rs1, rs2)
             if let Ok(ArgValue::Register(r1)) = instruction.get_arg1_value() {
                 rd = Some(r1 as usize);
+                println!("Registre destination: {:?}", rd);
             }
 
             if let Ok(ArgValue::Register(r2)) = instruction.get_arg2_value() {
                 rs1 = Some(r2 as usize);
+                println!("Registre source 1: {:?}", rs1);
             }
 
-            rs2 = Some(r as usize);
+            rs2 = Some(r3 as usize);
+            println!("Registre source 2: {:?}", rs2);
 
             // Retourner immédiatement car c'est une instruction à trois registres
             return Ok((rs1, rs2, rd));
@@ -171,13 +202,30 @@ impl DecodeStage {
             Ok(ArgValue::Immediate(imm)) => return Ok(Some(imm)),
             _ => {},
         }
-
+        match instruction.get_arg1_value() {
+            Ok(ArgValue::Immediate(imm)) => return Ok(Some(imm)),
+            _ => {},
+        }
         match instruction.get_arg2_value() {
             Ok(ArgValue::Immediate(imm)) => return Ok(Some(imm)),
             _ => {},
         }
-
         Ok(None)
+
+        // On peut checker arg3_value s'il existe => ex. reg_reg_imm
+
+        // if let Ok(ArgValue::Immediate(imm)) = instruction.get_arg3_value() {
+        //     return Ok(Some(imm));
+        // }
+        // // On check arg1 + arg2
+        // if let Ok(ArgValue::Immediate(imm)) = instruction.get_arg1_value() {
+        //     return Ok(Some(imm));
+        // }
+        // if let Ok(ArgValue::Immediate(imm)) = instruction.get_arg2_value() {
+        //     return Ok(Some(imm));
+        // }
+        // Ok(None)
+
     }
 
     /// Calcule l'adresse de branchement (si instruction de branchement)
@@ -229,38 +277,32 @@ impl DecodeStage {
         match instruction.opcode {
             Opcode::Load | Opcode::LoadB | Opcode::LoadW | Opcode::LoadD |
             Opcode::Store | Opcode::StoreB | Opcode::StoreW | Opcode::StoreD => {
-                // Différents types d'adressage
+                // On suppose que l'adresse est dans arg2
                 match instruction.get_arg2_value() {
-                    Ok(ArgValue::AbsoluteAddr(addr)) => {
-                        // Adresse absolue
-                        Ok(Some(addr as u32))
-                    },
-
-                    Ok(ArgValue::RegisterOffset(reg, offset)) => {
-                        // Adressage indirect avec offset (registre + offset)
-                        if reg as usize >= registers.len() {
-                            return Err(format!("Registre R{} hors limites", reg));
+                    Ok(ArgValue::AbsoluteAddr(addr)) => Ok(Some(addr as u32)),
+                    Ok(ArgValue::RelativeAddr(off)) => {
+                        // Pas forcément implémenté
+                        Ok(Some(off as u32))
+                    }
+                    Ok(ArgValue::RegisterOffset(reg, off)) => {
+                        if (reg as usize) < registers.len() {
+                            let base = registers[reg as usize];
+                            let addr = base.wrapping_add(off as u64);
+                            Ok(Some(addr as u32))
+                        } else {
+                            Err(format!("Register R{} out of range", reg))
                         }
-
-                        let base_addr = registers[reg as usize];
-                        let final_addr = (base_addr as i64 + offset as i64) as u32;
-                        Ok(Some(final_addr))
-                    },
-
+                    }
                     Ok(ArgValue::Register(reg)) => {
-                        // Adressage indirect (contenu du registre est l'adresse)
-                        if reg as usize >= registers.len() {
-                            return Err(format!("Registre R{} hors limites", reg));
+                        if (reg as usize) < registers.len() {
+                            Ok(Some(registers[reg as usize] as u32))
+                        } else {
+                            Err(format!("Register R{} out of range", reg))
                         }
-
-                        Ok(Some(registers[reg as usize] as u32))
-                    },
-
-                    _ => Err("Format d'adresse mémoire invalide".to_string()),
+                    }
+                    _ => Err("Adresse mémoire invalide".to_owned()),
                 }
             },
-
-            // Pas une instruction mémoire
             _ => Ok(None),
         }
     }
