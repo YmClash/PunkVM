@@ -100,7 +100,7 @@ mod tests {
     }
 
     #[test]
-    fn test_store_buffer_update() {
+    fn test_store_buffer_update_same_address() {
         let mut buffer = StoreBuffer::new(4);
 
         // Ajouter une entrée
@@ -129,10 +129,10 @@ mod tests {
         // Ajouter une entrée supplémentaire
         buffer.add(0x103, 45);
 
-        // Le buffer est toujours plein, mais la plus ancienne entrée a été évincée
+        // On a évincé la plus ancienne (0x100)
         assert_eq!(buffer.entries.len(), 3);
-        assert_eq!(buffer.lookup_byte(0x100), None); // La plus ancienne entrée
-        assert_eq!(buffer.lookup_byte(0x103), Some(45)); // La nouvelle entrée
+        assert_eq!(buffer.lookup_byte(0x100), None);
+        assert_eq!(buffer.lookup_byte(0x103), Some(45));
     }
 
     #[test]
@@ -197,10 +197,144 @@ mod tests {
         buffer.add(0x101, 43);
         buffer.add(0x100, 44);
 
-        // Vérifier que la dernière valeur pour l'adresse est retournée
+        // Vérifier que la dernière valeur pour 0x100 est 44
         assert_eq!(buffer.lookup_byte(0x100), Some(44));
     }
 }
+
+
+//  /// Tests unitaires pour le store buffer
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
+//
+//     #[test]
+//     fn test_store_buffer_creation() {
+//         let buffer = StoreBuffer::new(8);
+//         assert_eq!(buffer.capacity, 8);
+//         assert_eq!(buffer.entries.len(), 0);
+//     }
+//
+//     #[test]
+//     fn test_store_buffer_add() {
+//         let mut buffer = StoreBuffer::new(4);
+//
+//         // Ajouter quelques entrées
+//         buffer.add(0x100, 42);
+//         buffer.add(0x101, 43);
+//
+//         assert_eq!(buffer.entries.len(), 2);
+//
+//         // Vérifier que les entrées sont correctes
+//         assert_eq!(buffer.lookup_byte(0x100), Some(42));
+//         assert_eq!(buffer.lookup_byte(0x101), Some(43));
+//
+//         // Adresse non présente
+//         assert_eq!(buffer.lookup_byte(0x102), None);
+//     }
+//
+//     #[test]
+//     fn test_store_buffer_update() {
+//         let mut buffer = StoreBuffer::new(4);
+//
+//         // Ajouter une entrée
+//         buffer.add(0x100, 42);
+//
+//         // Mettre à jour la même adresse
+//         buffer.add(0x100, 43);
+//
+//         // Vérifier que l'entrée a été mise à jour
+//         assert_eq!(buffer.lookup_byte(0x100), Some(43));
+//         assert_eq!(buffer.entries.len(), 1);
+//     }
+//
+//     #[test]
+//     fn test_store_buffer_capacity() {
+//         let mut buffer = StoreBuffer::new(3);
+//
+//         // Remplir le buffer
+//         buffer.add(0x100, 42);
+//         buffer.add(0x101, 43);
+//         buffer.add(0x102, 44);
+//
+//         // Le buffer est plein
+//         assert_eq!(buffer.entries.len(), 3);
+//
+//         // Ajouter une entrée supplémentaire
+//         buffer.add(0x103, 45);
+//
+//         // Le buffer est toujours plein, mais la plus ancienne entrée a été évincée
+//         assert_eq!(buffer.entries.len(), 3);
+//         assert_eq!(buffer.lookup_byte(0x100), None); // La plus ancienne entrée
+//         assert_eq!(buffer.lookup_byte(0x103), Some(45)); // La nouvelle entrée
+//     }
+//
+//     #[test]
+//     fn test_store_buffer_has_address() {
+//         let mut buffer = StoreBuffer::new(4);
+//
+//         // Ajouter quelques entrées
+//         buffer.add(0x100, 42);
+//         buffer.add(0x101, 43);
+//
+//         // Vérifier si les adresses sont présentes
+//         assert!(buffer.has_address(0x100));
+//         assert!(buffer.has_address(0x101));
+//         assert!(!buffer.has_address(0x102));
+//     }
+//
+//     #[test]
+//     fn test_store_buffer_flush() {
+//         let mut buffer = StoreBuffer::new(4);
+//
+//         // Ajouter quelques entrées
+//         buffer.add(0x100, 42);
+//         buffer.add(0x101, 43);
+//
+//         // Créer une mémoire simulée
+//         let mut memory = vec![0; 0x200];
+//
+//         // Flush le buffer vers la mémoire
+//         buffer.flush(&mut memory);
+//
+//         // Vérifier que le buffer est vide
+//         assert_eq!(buffer.entries.len(), 0);
+//
+//         // Vérifier que la mémoire a été mise à jour
+//         assert_eq!(memory[0x100], 42);
+//         assert_eq!(memory[0x101], 43);
+//     }
+//
+//     #[test]
+//     fn test_store_buffer_clear() {
+//         let mut buffer = StoreBuffer::new(4);
+//
+//         // Ajouter quelques entrées
+//         buffer.add(0x100, 42);
+//         buffer.add(0x101, 43);
+//
+//         // Vider le buffer
+//         buffer.clear();
+//
+//         // Vérifier que le buffer est vide
+//         assert_eq!(buffer.entries.len(), 0);
+//         assert_eq!(buffer.lookup_byte(0x100), None);
+//         assert_eq!(buffer.lookup_byte(0x101), None);
+//     }
+//
+//     #[test]
+//     fn test_store_buffer_latest_value() {
+//         let mut buffer = StoreBuffer::new(4);
+//
+//         // Ajouter plusieurs entrées pour la même adresse
+//         buffer.add(0x100, 42);
+//         buffer.add(0x101, 43);
+//         buffer.add(0x100, 44);
+//
+//         // Vérifier que la dernière valeur pour l'adresse est retournée
+//         assert_eq!(buffer.lookup_byte(0x100), Some(44));
+//     }
+// }
 
 
 

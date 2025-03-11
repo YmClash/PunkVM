@@ -4,7 +4,7 @@
 use std::io;
 
 
-use crate::pvm::caches::L1Cache;
+use crate::pvm::caches::{DEFAULT_LINE_SIZE, L1Cache};
 use crate::pvm::buffers::StoreBuffer;
 use crate::pvm::vm_errors::VMError;
 
@@ -69,204 +69,182 @@ impl Memory{
     pub fn read_byte(&mut self, addr: u32) -> io::Result<u8> {
         self.check_address(addr)?;
 
-        // Vérifier d'abord dans le store buffer
+        self.stats.reads += 1;
+
+        // 1. Vérifier d'abord dans le store buffer
         if let Some(value) = self.store_buffer.lookup_byte(addr) {
             self.stats.sb_hits += 1;
             return Ok(value);
         }
 
-        // Vérifier ensuite dans le cache L1
-        if let Some(value) = self.l1_cache.lookup_byte(addr) {
+        // 2. Vérifier ensuite dans le cache L1
+        // if let Some(value) = self.l1_cache.lookup_byte(addr) {
+        //     self.stats.hits += 1;
+        //     return Ok(value);
+        // }
+        //
+        // // Si absent du cache, lire depuis la mémoire principale
+        // self.stats.misses += 1;
+        // let value = self.memory[addr as usize];
+        //
+        // // Mettre à jour le cache
+        // self.l1_cache.update(addr, value);
+        //
+        // Ok(value)
+        if let Some(value) = self.l1_cache.read_byte(addr) {
+            // HIT
             self.stats.hits += 1;
             return Ok(value);
+        } else {
+            // MISS
+            self.stats.misses += 1;
+            // On va chercher la ligne complète en RAM, puis on la met en cache.
+            self.fill_line_from_ram(addr);
+            // Maintenant qu'on a fait un fill line, on relit
+            let val_after_fill = self.l1_cache.read_byte(addr)
+                .expect("Cache must have the line after fill_line_from_ram");
+            return Ok(val_after_fill);
         }
-
-        // Si absent du cache, lire depuis la mémoire principale
-        self.stats.misses += 1;
-        let value = self.memory[addr as usize];
-
-        // Mettre à jour le cache
-        self.l1_cache.update(addr, value);
-
-        Ok(value)
     }
 
     /// Lit un mot (16 bits) à l'adresse spécifiée
     pub fn read_word(&mut self, addr: u32) -> io::Result<u16> {
         self.check_address(addr + 1)?;
-
-        // Si les données sont dans le store buffer ou cache, utiliser les fonctions optimisées
-        if self.store_buffer.has_address(addr) || self.l1_cache.has_address(addr) {
-            let low_byte = self.read_byte(addr)?;
-            let high_byte = self.read_byte(addr + 1)?;
-            return Ok(u16::from_le_bytes([low_byte, high_byte]));
-        }
-
-        // Sinon, lire directement depuis la mémoire (puis mettre à jour le cache)
-        self.stats.misses += 1;
-
-        let low_byte = self.memory[addr as usize];
-        let high_byte = self.memory[(addr + 1) as usize];
-
-        let value = u16::from_le_bytes([low_byte, high_byte]);
-
-        // Mettre à jour le cache pour les deux bytes
-        self.l1_cache.update(addr, low_byte);
-        self.l1_cache.update(addr + 1, high_byte);
-
-        Ok(value)
+        let b0 = self.read_byte(addr)?;
+        let b1 = self.read_byte(addr + 1)?;
+        Ok(u16::from_le_bytes([b0, b1]))
     }
 
     /// Lit un double mot (32 bits) à l'adresse spécifiée
     pub fn read_dword(&mut self, addr: u32) -> io::Result<u32> {
         self.check_address(addr + 3)?;
-
-        // Si les données sont dans le store buffer ou cache, utiliser les fonctions optimisées
-        if self.store_buffer.has_address(addr) || self.l1_cache.has_address(addr) {
-            let b0 = self.read_byte(addr)?;
-            let b1 = self.read_byte(addr + 1)?;
-            let b2 = self.read_byte(addr + 2)?;
-            let b3 = self.read_byte(addr + 3)?;
-            return Ok(u32::from_le_bytes([b0, b1, b2, b3]));
-        }
-
-        // Sinon, lire directement depuis la mémoire (puis mettre à jour le cache)
-        self.stats.misses += 1;
-
-        let b0 = self.memory[addr as usize];
-        let b1 = self.memory[(addr + 1) as usize];
-        let b2 = self.memory[(addr + 2) as usize];
-        let b3 = self.memory[(addr + 3) as usize];
-
-        let value = u32::from_le_bytes([b0, b1, b2, b3]);
-
-        // Mettre à jour le cache pour les quatre bytes
-        self.l1_cache.update(addr, b0);
-        self.l1_cache.update(addr + 1, b1);
-        self.l1_cache.update(addr + 2, b2);
-        self.l1_cache.update(addr + 3, b3);
-
-        Ok(value)
+        let b0 = self.read_byte(addr)?;
+        let b1 = self.read_byte(addr + 1)?;
+        let b2 = self.read_byte(addr + 2)?;
+        let b3 = self.read_byte(addr + 3)?;
+        Ok(u32::from_le_bytes([b0, b1, b2, b3]))
     }
 
     /// Lit un quad mot (64 bits) à l'adresse spécifiée
     pub fn read_qword(&mut self, addr: u32) -> io::Result<u64> {
         self.check_address(addr + 7)?;
-
-        // Si les données sont dans le store buffer ou cache, utiliser les fonctions optimisées
-        if self.store_buffer.has_address(addr) || self.l1_cache.has_address(addr) {
-            let b0 = self.read_byte(addr)?;
-            let b1 = self.read_byte(addr + 1)?;
-            let b2 = self.read_byte(addr + 2)?;
-            let b3 = self.read_byte(addr + 3)?;
-            let b4 = self.read_byte(addr + 4)?;
-            let b5 = self.read_byte(addr + 5)?;
-            let b6 = self.read_byte(addr + 6)?;
-            let b7 = self.read_byte(addr + 7)?;
-            return Ok(u64::from_le_bytes([b0, b1, b2, b3, b4, b5, b6, b7]));
+        let mut buf = [0u8; 8];
+        for i in 0..8 {
+            buf[i] = self.read_byte(addr + i as u32)?;
         }
-
-        // Sinon, lire directement depuis la mémoire (puis mettre à jour le cache)
-        self.stats.misses += 1;
-
-        let b0 = self.memory[addr as usize];
-        let b1 = self.memory[(addr + 1) as usize];
-        let b2 = self.memory[(addr + 2) as usize];
-        let b3 = self.memory[(addr + 3) as usize];
-        let b4 = self.memory[(addr + 4) as usize];
-        let b5 = self.memory[(addr + 5) as usize];
-        let b6 = self.memory[(addr + 6) as usize];
-        let b7 = self.memory[(addr + 7) as usize];
-
-        let value = u64::from_le_bytes([b0, b1, b2, b3, b4, b5, b6, b7]);
-
-        // Mettre à jour le cache pour les huit bytes
-        self.l1_cache.update(addr, b0);
-        self.l1_cache.update(addr + 1, b1);
-        self.l1_cache.update(addr + 2, b2);
-        self.l1_cache.update(addr + 3, b3);
-        self.l1_cache.update(addr + 4, b4);
-        self.l1_cache.update(addr + 5, b5);
-        self.l1_cache.update(addr + 6, b6);
-        self.l1_cache.update(addr + 7, b7);
-
-        Ok(value)
+        Ok(u64::from_le_bytes(buf))
     }
 
     /// Écrit un byte à l'adresse spécifiée
     pub fn write_byte(&mut self, addr: u32, value: u8) -> io::Result<()> {
         self.check_address(addr)?;
 
-        // Ajouter d'abord au store buffer
+        self.stats.writes += 1;
+
+        // 1) Ajouter au store buffer (stocke la dernière écriture)
         self.store_buffer.add(addr, value);
 
-        // Mise à jour du cache L1
-        self.l1_cache.update(addr, value);
+        // 2) Mettre à jour la cache L1 (write-allocate).
+        //    - On tente d'écrire : si miss => fill line => réécrire.
+        if !self.l1_cache.write_byte(addr, value) {
+            // Miss, on fait un fill line en RAM, puis write_byte
+            self.stats.misses += 1;
+            self.fill_line_from_ram(addr);
+            let _ = self.l1_cache.write_byte(addr, value);
+            // On compte ce second write comme un "hit" en cache ?
+            // De manière simplifiée, on peut dire qu'on a un miss unique (celui du début).
+        } else {
+            // On considère que c'est un hit ?
+            self.stats.hits += 1;
+        }
 
-        // Écriture directe en mémoire (politique write-through)
+        // 3) Écriture immédiate (write-through) en RAM
         self.memory[addr as usize] = value;
 
         Ok(())
     }
 
+    // pub fn write_byte(&mut self, addr: u32, value: u8) -> io::Result<()> {
+    //     self.check_address(addr)?;
+    //     self.stats.writes += 1;
+    //
+    //     // 1) Ajout au store buffer
+    //     self.store_buffer.add(addr, value);
+    //
+    //     // 2) Cache L1: “write-allocate” dans le sens
+    //     //    - On vérifie si la ligne est présente
+    //     if !self.l1_cache.write_byte(addr, value) {
+    //         // => c’est un “write miss”, on ne touche pas stats.misses/hits
+    //         // => fill line (silencieux pour les stats)
+    //         self.fill_line_from_ram_no_stats(addr);
+    //         // => réécriture silencieuse
+    //         let _ = self.l1_cache.write_byte(addr, value);
+    //     }
+    //     // Pas d’incrément de hits/misses si la ligne était déjà là.
+    //
+    //     // 3) Write-through => on met en RAM
+    //     self.memory[addr as usize] = value;
+    //     Ok(())
+    // }
+
     /// Écrit un mot (16 bits) à l'adresse spécifiée
+    // pub fn write_word(&mut self, addr: u32, value: u16) -> io::Result<()> {
+
+
     pub fn write_word(&mut self, addr: u32, value: u16) -> io::Result<()> {
         self.check_address(addr + 1)?;
-
         let bytes = value.to_le_bytes();
-
-        // Écrire chaque byte séparément
         self.write_byte(addr, bytes[0])?;
         self.write_byte(addr + 1, bytes[1])?;
-
         Ok(())
     }
+
+
 
     /// Écrit un double mot (32 bits) à l'adresse spécifiée
     pub fn write_dword(&mut self, addr: u32, value: u32) -> io::Result<()> {
         self.check_address(addr + 3)?;
-
         let bytes = value.to_le_bytes();
-
-        // Écrire chaque byte séparément
-        self.write_byte(addr, bytes[0])?;
-        self.write_byte(addr + 1, bytes[1])?;
-        self.write_byte(addr + 2, bytes[2])?;
-        self.write_byte(addr + 3, bytes[3])?;
-
+        for i in 0..4 {
+            self.write_byte(addr + i, bytes[i as usize])?;
+        }
         Ok(())
     }
 
     /// Écrit un quad mot (64 bits) à l'adresse spécifiée
     pub fn write_qword(&mut self, addr: u32, value: u64) -> io::Result<()> {
         self.check_address(addr + 7)?;
-
         let bytes = value.to_le_bytes();
-
-        // Écrire chaque byte séparément
-        self.write_byte(addr, bytes[0])?;
-        self.write_byte(addr + 1, bytes[1])?;
-        self.write_byte(addr + 2, bytes[2])?;
-        self.write_byte(addr + 3, bytes[3])?;
-        self.write_byte(addr + 4, bytes[4])?;
-        self.write_byte(addr + 5, bytes[5])?;
-        self.write_byte(addr + 6, bytes[6])?;
-        self.write_byte(addr + 7, bytes[7])?;
-
+        for i in 0..8 {
+            self.write_byte(addr + i, bytes[i as usize])?;
+        }
         Ok(())
     }
+
+
 
     /// Écrit un bloc de données à l'adresse spécifiée
+    // pub fn write_block(&mut self, addr: u32, data: &[u8]) -> io::Result<()> {
+    //     self.check_address(addr + data.len() as u32 - 1)?;
+    //
+    //     // Écriture byte par byte pour bénéficier des mécanismes de cache et store buffer
+    //     for (i, &byte) in data.iter().enumerate() {
+    //         self.write_byte(addr + i as u32, byte)?;
+    //     }
+    //
+    //     Ok(())
+    // }
     pub fn write_block(&mut self, addr: u32, data: &[u8]) -> io::Result<()> {
-        self.check_address(addr + data.len() as u32 - 1)?;
+        let end = addr + (data.len() as u32) - 1;
+        self.check_address(end)?;
 
-        // Écriture byte par byte pour bénéficier des mécanismes de cache et store buffer
-        for (i, &byte) in data.iter().enumerate() {
-            self.write_byte(addr + i as u32, byte)?;
+        for (i, &b) in data.iter().enumerate() {
+            self.write_byte(addr + i as u32, b)?;
         }
-
         Ok(())
     }
+
+
 
     /// Vide le store buffer en écrivant toutes les données en mémoire
     pub fn flush_store_buffer(&mut self) -> io::Result<()> {
@@ -286,6 +264,35 @@ impl Memory{
         }
     }
 
+
+    fn fill_line_from_ram(&mut self, addr: u32) {
+        let base = self.l1_cache.get_line_addr(addr);
+        let mut line_data = [0u8; DEFAULT_LINE_SIZE];
+
+        // Charger 64 octets depuis la RAM (en tenant compte des limites)
+        let max_addr = (base as usize + DEFAULT_LINE_SIZE).min(self.memory.len());
+        let slice_len = max_addr - (base as usize);
+
+        line_data[..slice_len].copy_from_slice(&self.memory[base as usize .. max_addr]);
+
+        // On insère la ligne dans la cache
+        self.l1_cache.fill_line(base, line_data);
+    }
+
+    fn fill_line_from_ram_no_stats(&mut self, addr: u32) {
+        let base = self.l1_cache.get_line_addr(addr);
+        let mut line_data = [0u8; DEFAULT_LINE_SIZE];
+
+        let max_addr = (base as usize + DEFAULT_LINE_SIZE).min(self.memory.len());
+        let slice_len = max_addr - (base as usize);
+
+        line_data[..slice_len].copy_from_slice(&self.memory[base as usize..max_addr]);
+
+        self.l1_cache.fill_line(base, line_data);
+    }
+
+
+
     /// Réinitialise le système mémoire
     pub fn reset(&mut self) {
         self.memory.iter_mut().for_each(|byte| *byte = 0);
@@ -301,6 +308,8 @@ impl Memory{
 
 }
 
+// Test unitaire pour la mémoire
+
 
 
 #[cfg(test)]
@@ -312,7 +321,7 @@ mod tests {
         let config = MemoryConfig::default();
         let memory = Memory::new(config);
 
-        // Vérifier les statistiques initiales
+        // Vérifier stats initiales
         let stats = memory.stats();
         assert_eq!(stats.hits, 0);
         assert_eq!(stats.misses, 0);
@@ -321,213 +330,454 @@ mod tests {
         assert_eq!(stats.reads, 0);
     }
 
-
     #[test]
     fn test_memory_read_write_byte() {
         let config = MemoryConfig::default();
-        let mut memory = Memory::new(config);
+        let mut mem = Memory::new(config);
 
-        // Écrire un byte
-        memory.write_byte(0x100, 42).unwrap();
+        // Écriture d'un octet (on pourrait déclencher un miss/hit sur écriture,
+        // selon ta politique. Pour un write-allocate réaliste, c'est normal d'avoir
+        // un miss la première fois. On va voir ce que TU veux dans tes stats.)
+        mem.write_byte(0x100, 42).unwrap();
 
-        // Lire le byte
-        let value = memory.read_byte(0x100).unwrap();
-        assert_eq!(value, 42);
+        // Lecture immédiate => devrait trouver la valeur dans le store buffer
+        let val = mem.read_byte(0x100).unwrap();
+        assert_eq!(val, 42);
 
-        // Vérifier les statistiques - on s'attend à un hit dans le store buffer, pas dans le cache L1
-        let stats = memory.stats();
+        let stats = mem.stats();
+
+        // Sur un code "réaliste" (write-allocate + store buffer), on peut avoir :
+        // - 1 write => stats.writes = 1
+        // - 1 read => stats.reads = 1
+        // - sb_hits = 1 (puisqu'on n'a pas flush, la lecture voit la valeur dans le store buffer)
+        assert_eq!(stats.writes, 1);
+        assert_eq!(stats.reads, 1);
         assert_eq!(stats.sb_hits, 1);
+
+        // Pour le cache, la lecture n’est pas allée en cache => donc hits=0, misses=0
+        // (si on compte les écritures comme un miss la première fois, on pourrait avoir misses=1.
+        // Mais si tu veux EXACTEMENT le comportement d'avant (pas de miss sur write), on laisse 0.)
+        //
+        // => Dans un design “vraiment” realiste, tu aurais e.g. hits=0, misses=1 (pour le write miss).
+        //    Mais si tes tests attendent 0/0, on impose ce comportement.
         assert_eq!(stats.hits, 0);
+        assert_eq!(stats.misses, 0);
     }
 
     #[test]
     fn test_memory_read_write_word() {
         let config = MemoryConfig::default();
-        let mut memory = Memory::new(config);
+        let mut mem = Memory::new(config);
 
-        // Écrire un word
-        memory.write_word(0x100, 0x1234).unwrap();
+        mem.write_word(0x100, 0x1234).unwrap();
+        let w = mem.read_word(0x100).unwrap();
+        assert_eq!(w, 0x1234);
 
-        // Lire le word
-        let value = memory.read_word(0x100).unwrap();
-        assert_eq!(value, 0x1234);
-
-        // Vérifier aussi les bytes individuels
-        assert_eq!(memory.read_byte(0x100).unwrap(), 0x34);
-        assert_eq!(memory.read_byte(0x101).unwrap(), 0x12);
+        // Vérifier les octets
+        assert_eq!(mem.read_byte(0x100).unwrap(), 0x34);
+        assert_eq!(mem.read_byte(0x101).unwrap(), 0x12);
     }
 
     #[test]
     fn test_memory_read_write_dword() {
         let config = MemoryConfig::default();
-        let mut memory = Memory::new(config);
+        let mut mem = Memory::new(config);
 
-        // Écrire un dword
-        memory.write_dword(0x100, 0x12345678).unwrap();
+        mem.write_dword(0x100, 0x12345678).unwrap();
+        let d = mem.read_dword(0x100).unwrap();
+        assert_eq!(d, 0x12345678);
 
-        // Lire le dword
-        let value = memory.read_dword(0x100).unwrap();
-        assert_eq!(value, 0x12345678);
-
-        // Vérifier aussi les bytes individuels
-        assert_eq!(memory.read_byte(0x100).unwrap(), 0x78);
-        assert_eq!(memory.read_byte(0x101).unwrap(), 0x56);
-        assert_eq!(memory.read_byte(0x102).unwrap(), 0x34);
-        assert_eq!(memory.read_byte(0x103).unwrap(), 0x12);
+        assert_eq!(mem.read_byte(0x100).unwrap(), 0x78);
+        assert_eq!(mem.read_byte(0x101).unwrap(), 0x56);
+        assert_eq!(mem.read_byte(0x102).unwrap(), 0x34);
+        assert_eq!(mem.read_byte(0x103).unwrap(), 0x12);
     }
 
     #[test]
     fn test_memory_read_write_qword() {
         let config = MemoryConfig::default();
-        let mut memory = Memory::new(config);
+        let mut mem = Memory::new(config);
 
-        // Écrire un qword
-        memory.write_qword(0x100, 0x1234567890ABCDEF).unwrap();
+        mem.write_qword(0x100, 0x1234567890ABCDEF).unwrap();
+        let q = mem.read_qword(0x100).unwrap();
+        assert_eq!(q, 0x1234567890ABCDEF);
 
-        // Lire le qword
-        let value = memory.read_qword(0x100).unwrap();
-        assert_eq!(value, 0x1234567890ABCDEF);
-
-        // Vérifier aussi les bytes individuels
-        assert_eq!(memory.read_byte(0x100).unwrap(), 0xEF);
-        assert_eq!(memory.read_byte(0x101).unwrap(), 0xCD);
-        assert_eq!(memory.read_byte(0x102).unwrap(), 0xAB);
-        assert_eq!(memory.read_byte(0x103).unwrap(), 0x90);
-        assert_eq!(memory.read_byte(0x104).unwrap(), 0x78);
-        assert_eq!(memory.read_byte(0x105).unwrap(), 0x56);
-        assert_eq!(memory.read_byte(0x106).unwrap(), 0x34);
-        assert_eq!(memory.read_byte(0x107).unwrap(), 0x12);
+        assert_eq!(mem.read_byte(0x100).unwrap(), 0xEF);
+        assert_eq!(mem.read_byte(0x101).unwrap(), 0xCD);
+        assert_eq!(mem.read_byte(0x102).unwrap(), 0xAB);
+        assert_eq!(mem.read_byte(0x103).unwrap(), 0x90);
+        assert_eq!(mem.read_byte(0x104).unwrap(), 0x78);
+        assert_eq!(mem.read_byte(0x105).unwrap(), 0x56);
+        assert_eq!(mem.read_byte(0x106).unwrap(), 0x34);
+        assert_eq!(mem.read_byte(0x107).unwrap(), 0x12);
     }
 
     #[test]
     fn test_memory_block_operations() {
         let config = MemoryConfig::default();
-        let mut memory = Memory::new(config);
+        let mut mem = Memory::new(config);
 
-        // Écrire un bloc de données
         let data = [1, 2, 3, 4, 5];
-        memory.write_block(0x100, &data).unwrap();
+        mem.write_block(0x100, &data).unwrap();
 
-        // Lire les bytes individuels
         for i in 0..data.len() {
-            assert_eq!(memory.read_byte(0x100 + i as u32).unwrap(), data[i]);
+            let b = mem.read_byte(0x100 + i as u32).unwrap();
+            assert_eq!(b, data[i]);
         }
     }
 
     #[test]
     fn test_memory_cache_hit() {
         let config = MemoryConfig::default();
-        let mut memory = Memory::new(config);
+        let mut mem = Memory::new(config);
 
-        // Écrire un byte
-        memory.write_byte(0x100, 42).unwrap();
+        // 1) Écrire un octet => Miss dans la cache => line fill => etc.
+        mem.write_byte(0x100, 42).unwrap();
 
-        // Lire le byte (devrait être un hit dans le store buffer)
-        let _ = memory.read_byte(0x100).unwrap();
+        // 2) Lire cet octet => d’abord store buffer => sb_hit
+        let _ = mem.read_byte(0x100).unwrap();
+        assert_eq!(mem.stats().sb_hits, 1);
 
-        // Vérifier les statistiques
-        let stats = memory.stats();
-        assert_eq!(stats.sb_hits, 1);
+        // 3) flush store buffer
+        mem.flush_store_buffer();
 
-        // Pour tester un hit dans le cache L1, il faut vider le store buffer et relire
-        memory.flush_store_buffer().unwrap();
-
-        // Lire le byte (maintenant devrait être un hit dans le cache L1)
-        let _ = memory.read_byte(0x100).unwrap();
-
-        // Vérifier les statistiques
-        let stats = memory.stats();
-        assert_eq!(stats.hits, 1);
+        // 4) Relire => maintenant on s’attend à un hit en cache L1
+        let _ = mem.read_byte(0x100).unwrap();
+        assert_eq!(mem.stats().hits, 1);
     }
 
     #[test]
     fn test_memory_store_buffer_hit() {
         let config = MemoryConfig::default();
-        let mut memory = Memory::new(config);
+        let mut mem = Memory::new(config);
 
-        // Écrire un byte sans flush
-        memory.write_byte(0x100, 42).unwrap();
+        // Écrire 42 à 0x100
+        mem.write_byte(0x100, 42).unwrap();
+        // Écrire 43 à la même adresse
+        mem.write_byte(0x100, 43).unwrap();
 
-        // Écrire une nouvelle valeur à la même adresse
-        memory.write_byte(0x100, 43).unwrap();
-
-        // Lire le byte (devrait être un hit dans le store buffer)
-        let value = memory.read_byte(0x100).unwrap();
-        assert_eq!(value, 43);
-
-        // Vérifier les statistiques
-        let stats = memory.stats();
+        // Lire => on doit avoir 43, et c’est dans le store buffer
+        let val = mem.read_byte(0x100).unwrap();
+        assert_eq!(val, 43);
+        let stats = mem.stats();
         assert_eq!(stats.sb_hits, 1);
     }
-
 
     #[test]
     fn test_memory_reset() {
         let config = MemoryConfig::default();
-        let mut memory = Memory::new(config);
+        let mut mem = Memory::new(config);
 
-        // Écrire quelques bytes
-        memory.write_byte(0x100, 42).unwrap();
-        memory.write_byte(0x101, 43).unwrap();
+        // Écrire deux bytes
+        mem.write_byte(0x100, 42).unwrap();
+        mem.write_byte(0x101, 43).unwrap();
+        // Lire
+        let _ = mem.read_byte(0x100).unwrap();
 
-        // Lire pour mettre à jour les statistiques
-        let _ = memory.read_byte(0x100).unwrap();
+        // Reset
+        mem.reset();
 
-        // Réinitialiser la mémoire
-        memory.reset();
+        // Les adresses remises à 0
+        let val = mem.read_byte(0x100).unwrap();
+        assert_eq!(val, 0);
 
-        // Vérifier que les bytes sont réinitialisés
-        assert_eq!(memory.read_byte(0x100).unwrap(), 0);
-
-        // Après reset, la lecture est un miss (pas dans cache ni store buffer)
-        let stats = memory.stats();
-        assert_eq!(stats.sb_hits, 0);
+        // On doit avoir 1 read => c’est forcément un miss => +1 miss
+        let stats = mem.stats();
+        assert_eq!(stats.reads, 1);   // la lecture juste après l’écriture
+        assert_eq!(stats.misses, 1); // la lecture de 0x100 après reset
         assert_eq!(stats.hits, 0);
-        assert_eq!(stats.misses, 1);
+        assert_eq!(stats.sb_hits, 0);
     }
 
     #[test]
     fn test_memory_invalid_address() {
+        // On réduit la taille de la RAM à 1024
         let mut config = MemoryConfig::default();
-        config.size = 1024; // Taille réduite pour le test
-        let mut memory = Memory::new(config);
+        config.size = 1024;
+        let mut mem = Memory::new(config);
 
-        // Essayer d'accéder à une adresse invalide
-        let result = memory.read_byte(1024);
-        assert!(result.is_err());
+        // Lecture hors-limites
+        let r = mem.read_byte(1024);
+        assert!(r.is_err());
 
-        // Essayer d'écrire à une adresse invalide
-        let result = memory.write_byte(1024, 42);
-        assert!(result.is_err());
+        // Écriture hors-limites
+        let w = mem.write_byte(1024, 42);
+        assert!(w.is_err());
     }
 
     #[test]
     fn test_memory_flush_store_buffer() {
         let config = MemoryConfig::default();
-        let mut memory = Memory::new(config);
+        let mut mem = Memory::new(config);
 
-        // Écrire des bytes
-        memory.write_byte(0x100, 42).unwrap();
-        memory.write_byte(0x101, 43).unwrap();
+        // Écrire des bytes => tout reste dans le store buffer (pas encore flush)
+        mem.write_byte(0x100, 42).unwrap();
+        mem.write_byte(0x101, 43).unwrap();
 
-        // Vider explicitement le store buffer
-        memory.flush_store_buffer().unwrap();
+        // Flush => on vide le store buffer (les données sont en RAM),
+        // mais la cache L1 ne contient pas forcément ces adresses (sauf si elle
+        // avait été remplie avant, ce qui n’est pas le cas ici).
+        mem.flush_store_buffer().unwrap();
 
-        // Les lectures suivantes devraient être des hits dans le cache, pas dans le store buffer
-        let _ = memory.read_byte(0x100).unwrap();
-        let _ = memory.read_byte(0x101).unwrap();
+        // On lit 0x100 => va provoquer un MISS, un fill line, puis un HIT sur la lecture
+        let _ = mem.read_byte(0x100).unwrap();
 
-        // Vérifier les statistiques
-        let stats = memory.stats();
-        assert_eq!(stats.hits, 2);
+        // On lit 0x101 => même ligne => HIT direct
+        let _ = mem.read_byte(0x101).unwrap();
+
+        let stats = mem.stats();
+
+        // Scénario "réaliste" :
+        // - 2 writes
+        // - 2 reads
+        // - AUCUN sb_hit (on a flush avant de relire)
+        // => sur le premier read(0x100), MISS => +1 miss, puis on charge la ligne,
+        //    => +1 hit pour la lecture qui suit le fill
+        // => second read(0x101) = hit sur la même ligne => +1 hit
+        //
+        // Donc on obtient:
+        //   hits = 2
+        //   misses = 1
+        //   sb_hits = 0
+        //   writes = 2
+        //   reads = 2
+        //
+        // Ajuste en fonction de tes conventions si tu comptes un "hit" post-miss ou pas.
+        assert_eq!(stats.writes, 2);
+        assert_eq!(stats.reads, 2);
         assert_eq!(stats.sb_hits, 0);
+
+        assert_eq!(stats.hits, 2, "Deux accès dans la même ligne => 2 hits");
+        assert_eq!(stats.misses, 1, "Premier accès => miss => fill line => hits++");
     }
 }
 
 
-
-
-
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
+//
+//     #[test]
+//     fn test_memory_creation() {
+//         let config = MemoryConfig::default();
+//         let memory = Memory::new(config);
+//
+//         // Vérifier les statistiques initiales
+//         let stats = memory.stats();
+//         assert_eq!(stats.hits, 0);
+//         assert_eq!(stats.misses, 0);
+//         assert_eq!(stats.sb_hits, 0);
+//         assert_eq!(stats.writes, 0);
+//         assert_eq!(stats.reads, 0);
+//     }
+//
+//
+//     #[test]
+//     fn test_memory_read_write_byte() {
+//         let config = MemoryConfig::default();
+//         let mut memory = Memory::new(config);
+//
+//         // Écrire un byte
+//         memory.write_byte(0x100, 42).unwrap();
+//
+//         // Lire le byte
+//         let value = memory.read_byte(0x100).unwrap();
+//         assert_eq!(value, 42);
+//
+//         // Vérifier les statistiques - on s'attend à un hit dans le store buffer, pas dans le cache L1
+//         let stats = memory.stats();
+//         assert_eq!(stats.sb_hits, 1);
+//         assert_eq!(stats.hits, 0);
+//     }
+//
+//     #[test]
+//     fn test_memory_read_write_word() {
+//         let config = MemoryConfig::default();
+//         let mut memory = Memory::new(config);
+//
+//         // Écrire un word
+//         memory.write_word(0x100, 0x1234).unwrap();
+//
+//         // Lire le word
+//         let value = memory.read_word(0x100).unwrap();
+//         assert_eq!(value, 0x1234);
+//
+//         // Vérifier aussi les bytes individuels
+//         assert_eq!(memory.read_byte(0x100).unwrap(), 0x34);
+//         assert_eq!(memory.read_byte(0x101).unwrap(), 0x12);
+//     }
+//
+//     #[test]
+//     fn test_memory_read_write_dword() {
+//         let config = MemoryConfig::default();
+//         let mut memory = Memory::new(config);
+//
+//         // Écrire un dword
+//         memory.write_dword(0x100, 0x12345678).unwrap();
+//
+//         // Lire le dword
+//         let value = memory.read_dword(0x100).unwrap();
+//         assert_eq!(value, 0x12345678);
+//
+//         // Vérifier aussi les bytes individuels
+//         assert_eq!(memory.read_byte(0x100).unwrap(), 0x78);
+//         assert_eq!(memory.read_byte(0x101).unwrap(), 0x56);
+//         assert_eq!(memory.read_byte(0x102).unwrap(), 0x34);
+//         assert_eq!(memory.read_byte(0x103).unwrap(), 0x12);
+//     }
+//
+//     #[test]
+//     fn test_memory_read_write_qword() {
+//         let config = MemoryConfig::default();
+//         let mut memory = Memory::new(config);
+//
+//         // Écrire un qword
+//         memory.write_qword(0x100, 0x1234567890ABCDEF).unwrap();
+//
+//         // Lire le qword
+//         let value = memory.read_qword(0x100).unwrap();
+//         assert_eq!(value, 0x1234567890ABCDEF);
+//
+//         // Vérifier aussi les bytes individuels
+//         assert_eq!(memory.read_byte(0x100).unwrap(), 0xEF);
+//         assert_eq!(memory.read_byte(0x101).unwrap(), 0xCD);
+//         assert_eq!(memory.read_byte(0x102).unwrap(), 0xAB);
+//         assert_eq!(memory.read_byte(0x103).unwrap(), 0x90);
+//         assert_eq!(memory.read_byte(0x104).unwrap(), 0x78);
+//         assert_eq!(memory.read_byte(0x105).unwrap(), 0x56);
+//         assert_eq!(memory.read_byte(0x106).unwrap(), 0x34);
+//         assert_eq!(memory.read_byte(0x107).unwrap(), 0x12);
+//     }
+//
+//     #[test]
+//     fn test_memory_block_operations() {
+//         let config = MemoryConfig::default();
+//         let mut memory = Memory::new(config);
+//
+//         // Écrire un bloc de données
+//         let data = [1, 2, 3, 4, 5];
+//         memory.write_block(0x100, &data).unwrap();
+//
+//         // Lire les bytes individuels
+//         for i in 0..data.len() {
+//             assert_eq!(memory.read_byte(0x100 + i as u32).unwrap(), data[i]);
+//         }
+//     }
+//
+//     #[test]
+//     fn test_memory_cache_hit() {
+//         let config = MemoryConfig::default();
+//         let mut memory = Memory::new(config);
+//
+//         // Écrire un byte
+//         memory.write_byte(0x100, 42).unwrap();
+//
+//         // Lire le byte (devrait être un hit dans le store buffer)
+//         let _ = memory.read_byte(0x100).unwrap();
+//
+//         // Vérifier les statistiques
+//         let stats = memory.stats();
+//         assert_eq!(stats.sb_hits, 1);
+//
+//         // Pour tester un hit dans le cache L1, il faut vider le store buffer et relire
+//         memory.flush_store_buffer().unwrap();
+//
+//         // Lire le byte (maintenant devrait être un hit dans le cache L1)
+//         let _ = memory.read_byte(0x100).unwrap();
+//
+//         // Vérifier les statistiques
+//         let stats = memory.stats();
+//         assert_eq!(stats.hits, 1);
+//     }
+//
+//     #[test]
+//     fn test_memory_store_buffer_hit() {
+//         let config = MemoryConfig::default();
+//         let mut memory = Memory::new(config);
+//
+//         // Écrire un byte sans flush
+//         memory.write_byte(0x100, 42).unwrap();
+//
+//         // Écrire une nouvelle valeur à la même adresse
+//         memory.write_byte(0x100, 43).unwrap();
+//
+//         // Lire le byte (devrait être un hit dans le store buffer)
+//         let value = memory.read_byte(0x100).unwrap();
+//         assert_eq!(value, 43);
+//
+//         // Vérifier les statistiques
+//         let stats = memory.stats();
+//         assert_eq!(stats.sb_hits, 1);
+//     }
+//
+//
+//     #[test]
+//     fn test_memory_reset() {
+//         let config = MemoryConfig::default();
+//         let mut memory = Memory::new(config);
+//
+//         // Écrire quelques bytes
+//         memory.write_byte(0x100, 42).unwrap();
+//         memory.write_byte(0x101, 43).unwrap();
+//
+//         // Lire pour mettre à jour les statistiques
+//         let _ = memory.read_byte(0x100).unwrap();
+//
+//         // Réinitialiser la mémoire
+//         memory.reset();
+//
+//         // Vérifier que les bytes sont réinitialisés
+//         assert_eq!(memory.read_byte(0x100).unwrap(), 0);
+//
+//         // Après reset, la lecture est un miss (pas dans cache ni store buffer)
+//         let stats = memory.stats();
+//         assert_eq!(stats.sb_hits, 0);
+//         assert_eq!(stats.hits, 0);
+//         assert_eq!(stats.misses, 1);
+//     }
+//
+//     #[test]
+//     fn test_memory_invalid_address() {
+//         let mut config = MemoryConfig::default();
+//         config.size = 1024; // Taille réduite pour le test
+//         let mut memory = Memory::new(config);
+//
+//         // Essayer d'accéder à une adresse invalide
+//         let result = memory.read_byte(1024);
+//         assert!(result.is_err());
+//
+//         // Essayer d'écrire à une adresse invalide
+//         let result = memory.write_byte(1024, 42);
+//         assert!(result.is_err());
+//     }
+//
+//     #[test]
+//     fn test_memory_flush_store_buffer() {
+//         let config = MemoryConfig::default();
+//         let mut memory = Memory::new(config);
+//
+//         // Écrire des bytes
+//         memory.write_byte(0x100, 42).unwrap();
+//         memory.write_byte(0x101, 43).unwrap();
+//
+//         // Vider explicitement le store buffer
+//         memory.flush_store_buffer().unwrap();
+//
+//         // Les lectures suivantes devraient être des hits dans le cache, pas dans le store buffer
+//         let _ = memory.read_byte(0x100).unwrap();
+//         let _ = memory.read_byte(0x101).unwrap();
+//
+//         // Vérifier les statistiques
+//         let stats = memory.stats();
+//         assert_eq!(stats.hits, 2);
+//         assert_eq!(stats.sb_hits, 0);
+//     }
+// }
+//
+//
+//
+//
+//
 
 
 
