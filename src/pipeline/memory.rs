@@ -106,11 +106,7 @@ pub struct MemoryStage{
                         Err(e) => return Err(format!("Push failed: {}", e)),
                     }
                 }
-                // if let Some(value) = mem_reg.store_value {
-                //     // Décrémenter SP avant de stocker
-                //     self.stack_pointer -= 8;
-                //     self.store_to_memory(memory, self.stack_pointer, value, 8)?;
-                // }
+
             },
 
             Opcode::Pop => {
@@ -123,9 +119,7 @@ pub struct MemoryStage{
                     },
                     Err(e) => return Err(format!("Pop failed: {}", e)),
                 }
-                // Charger depuis la pile puis incrémenter SP
-                // result = self.load_from_memory(memory, self.stack_pointer, 8)?;
-                // self.stack_pointer += 8;
+
             },
 
             // Autres instructions - rien à faire dans l'étage Memory
@@ -247,6 +241,7 @@ mod tests {
             mem_addr: Some(0x2000),  // Adresse calculée (R0+R1)
             branch_target: None,
             branch_taken: false,
+            halted: false,
         };
 
         // Exécuter l'instruction dans l'étage Memory
@@ -281,6 +276,7 @@ mod tests {
             mem_addr: Some(0x3000),  // Adresse calculée (R1+R2)
             branch_target: None,
             branch_taken: false,
+            halted: false,
         };
 
         // Exécuter l'instruction dans l'étage Memory
@@ -313,6 +309,7 @@ mod tests {
             mem_addr: Some(0x4000),  // Adresse calculée (R1+R2)
             branch_target: None,
             branch_taken: false,
+            halted: false,
         };
 
         // Exécuter STORE
@@ -330,6 +327,7 @@ mod tests {
             mem_addr: Some(0x4000),  // Même adresse (R1+R2)
             branch_target: None,
             branch_taken: false,
+            halted: false,
         };
 
         // Exécuter LOAD
@@ -363,6 +361,7 @@ mod tests {
             mem_addr: Some(0x5000),  // Adresse calculée
             branch_target: None,
             branch_taken: false,
+            halted: false,
         };
 
         let result_loadb = memory_stage.process_direct(&em_reg_loadb, &mut memory);
@@ -380,6 +379,7 @@ mod tests {
             mem_addr: Some(0x5100),  // Adresse calculée
             branch_target: None,
             branch_taken: false,
+            halted: false,
         };
 
         let result_loadw = memory_stage.process_direct(&em_reg_loadw, &mut memory);
@@ -397,6 +397,7 @@ mod tests {
             mem_addr: Some(0x5200),  // Adresse calculée
             branch_target: None,
             branch_taken: false,
+            halted: false,
         };
 
         let result_loadd = memory_stage.process_direct(&em_reg_loadd, &mut memory);
@@ -420,6 +421,7 @@ mod tests {
             mem_addr: Some(0x6000),  // Adresse calculée
             branch_target: None,
             branch_taken: false,
+            halted: false,
         };
 
         let result_storeb = memory_stage.process_direct(&em_reg_storeb, &mut memory);
@@ -441,6 +443,7 @@ mod tests {
             mem_addr: Some(0x6100),  // Adresse calculée
             branch_target: None,
             branch_taken: false,
+            halted: false,
         };
 
         let result_storew = memory_stage.process_direct(&em_reg_storew, &mut memory);
@@ -472,6 +475,7 @@ mod tests {
             mem_addr: None,
             branch_target: None,
             branch_taken: false,
+            halted: false,
         };
 
         // Sauvegarder le SP initial
@@ -495,6 +499,7 @@ mod tests {
             mem_addr: None,
             branch_target: None,
             branch_taken: false,
+            halted: false,
         };
 
         // Exécuter POP
@@ -539,6 +544,7 @@ mod tests {
             mem_addr: Some(addr1),
             branch_target: None,
             branch_taken: false,
+            halted: false,
         };
 
         let result_store1 = memory_stage.process_direct(&em_reg_store1, &mut memory);
@@ -555,6 +561,7 @@ mod tests {
             mem_addr: Some(addr1),
             branch_target: None,
             branch_taken: false,
+            halted: false,
         };
 
         let result_load1 = memory_stage.process_direct(&em_reg_load1, &mut memory);
@@ -575,6 +582,7 @@ mod tests {
             mem_addr: Some(addr2),
             branch_target: None,
             branch_taken: false,
+            halted: false,
         };
 
         let result_store2 = memory_stage.process_direct(&em_reg_store2, &mut memory);
@@ -591,6 +599,7 @@ mod tests {
             mem_addr: Some(addr2),
             branch_target: None,
             branch_taken: false,
+            halted: false,
         };
 
         let result_load2 = memory_stage.process_direct(&em_reg_load2, &mut memory);

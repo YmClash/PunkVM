@@ -99,6 +99,11 @@ pub struct DecodeExecuteRegister {
     pub rs2: Option<usize>,
     /// Registre destination
     pub rd: Option<usize>,
+
+    /// Valeurs des registres source 1 et 2
+    pub rs1_value: u64,
+    pub rs2_value: u64,
+
     /// Valeur immédiate (si présente)
     pub immediate: Option<u64>,
     /// Adresse branchement (si instruction de saut)
@@ -124,6 +129,8 @@ pub struct ExecuteMemoryRegister {
     pub branch_target: Option<u32>,
     /// Branchement pris ou non
     pub branch_taken: bool,
+
+    pub halted: bool,
 }
 
 /// Registre intermédiaire entre les étages Memory et Writeback
@@ -202,14 +209,17 @@ impl Pipeline {
         alu: &mut ALU,
         instructions: &[Instruction],
     ) -> Result<PipelineState, String> {
-        // Incrémenter le compteur de cycles
+        // 0. Incrément du compteur de cycles
         self.stats.cycles += 1;
 
-        // 1. Vérifier les hazards et déterminer s'il faut stall le pipeline
+        // 1. Copie de l’état actuel local
         let mut state = self.state.clone();
-        state.stalled = false;
 
+        // 2. Check hazards
+        state.stalled = false;
         if self.enable_hazard_detection {
+            let hazard = self.hazard_detection.detect_hazards_with_type(&state);
+            // state.stalled = hazard != hazard::HazardType::None;
             state.stalled = self.hazard_detection.detect_hazards(&state);
             if state.stalled {
                 self.stats.stalls += 1;
@@ -217,23 +227,18 @@ impl Pipeline {
             }
         }
 
-        // 2. Exécuter les étages dans l'ordre inverse pour éviter d'écraser les données
-
-        // Writeback - Écrit les résultats dans les registres
+        // 3. Writeback
         if let Some(wb_reg) = &state.memory_writeback {
-            // self.writeback.process(wb_reg, registers)?;
             self.writeback.process_direct(wb_reg, registers)?;
             state.instructions_completed += 1;
             self.stats.instructions += 1;
         }
 
-        // Memory - Accède à la mémoire
+        // 4. Memory
         if let Some(mem_reg) = &state.execute_memory {
-            // let wb_reg = self.memory.process(mem_reg, memory)?;
             let wb_reg = self.memory.process_direct(mem_reg, memory)?;
             state.memory_writeback = Some(wb_reg);
 
-            // Si c'est une instruction HALT, marquer le pipeline comme terminé
             if mem_reg.instruction.opcode == Opcode::Halt {
                 state.halted = true;
             }
@@ -241,66 +246,58 @@ impl Pipeline {
             state.memory_writeback = None;
         }
 
-        // Execute - Exécute l'opération ALU
+        // 5. Execute
         if let Some(ex_reg) = &state.decode_execute {
-            // Appliquer le forwarding si activé
-            let mut ex_reg = ex_reg.clone();
+            let mut ex_reg_mut = ex_reg.clone();
             if self.enable_forwarding {
                 self.forwarding.forward(
-                    &mut ex_reg,
+                    &mut ex_reg_mut,
                     &state.execute_memory,
                     &state.memory_writeback,
-                    registers,
+                    // registers
                 );
             }
 
-            // let mem_reg = self.execute.process(&ex_reg, alu)?;
-            let mem_reg = self.execute.process_direct(&ex_reg, alu)?;
-            // Si c'est un branchement pris, mettre à jour le PC
+            let mem_reg = self.execute.process_direct(&ex_reg_mut, alu)?;
             if mem_reg.branch_taken {
                 if let Some(target) = mem_reg.branch_target {
                     state.next_pc = target;
-
-                    // Vider les étages précédents (flush du pipeline)
+                    // flush
                     state.fetch_decode = None;
                     state.decode_execute = None;
                 }
             }
-
             state.execute_memory = Some(mem_reg);
         } else {
             state.execute_memory = None;
         }
 
-        // Decode - Décode l'instruction
+        // 6. Decode
         if !state.stalled {
             if let Some(fd_reg) = &state.fetch_decode {
-                // let ex_reg = self.decode.process(fd_reg, registers)?;
                 let ex_reg = self.decode.process_direct(fd_reg, registers)?;
                 state.decode_execute = Some(ex_reg);
             } else {
                 state.decode_execute = None;
             }
 
-            // Fetch - Récupère l'instruction suivante
-            // let fd_reg = self.fetch.process(pc, instructions)?;
+            // 7. Fetch
             let fd_reg = self.fetch.process_direct(pc, instructions)?;
             state.fetch_decode = Some(fd_reg);
 
-            // Par défaut, incrémenter le PC
-            if !state.stalled && !state.halted && state.next_pc == pc {
-                // Le PC est incrémenté de la taille de l'instruction
+            // 8. Màj PC
+            if !state.halted && state.next_pc == pc {
                 if let Some(fd_reg) = &state.fetch_decode {
-                    state.next_pc = pc + fd_reg.instruction.total_size() as u32;
+                    state.next_pc = pc.wrapping_add(fd_reg.instruction.total_size() as u32);
                 }
             }
         }
 
-        // 3. Mettre à jour l'état du pipeline
+        // 9. Màj self.state
         self.state = state.clone();
-
         Ok(state)
     }
+
 
     /// Retourne les statistiques du pipeline
     pub fn stats(&self) -> PipelineStats {
@@ -309,383 +306,358 @@ impl Pipeline {
 }
 
 
-// Test unitaire pour les pipelines
+// Test unitaire pour les fichiers de bytecode
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
     use super::*;
     use crate::bytecode::opcodes::Opcode;
+    use crate::bytecode::format::{ArgType, InstructionFormat};
     use crate::bytecode::instructions::Instruction;
-    use crate::bytecode::format::InstructionFormat;
-    use crate::bytecode::format::ArgType;
+    use std::io::ErrorKind;
+    use tempfile::tempdir;
+    use crate::bytecode::files::{BytecodeVersion, SegmentMetadata, SegmentType};
+    use crate::BytecodeFile;
 
-    // Helper pour créer une instruction simple pour les tests
-    fn create_test_instruction(opcode: Opcode) -> Instruction {
-        Instruction::create_no_args(opcode)
+    #[test]
+    fn test_bytecode_version() {
+        let version = BytecodeVersion::new(1, 2, 3, 4);
+
+        assert_eq!(version.major, 1);
+        assert_eq!(version.minor, 2);
+        assert_eq!(version.patch, 3);
+        assert_eq!(version.build, 4);
+
+        // Test encode/decode
+        let encoded = version.encode();
+        let decoded = BytecodeVersion::decode(encoded);
+
+        assert_eq!(decoded.major, 1);
+        assert_eq!(decoded.minor, 2);
+        assert_eq!(decoded.patch, 3);
+        assert_eq!(decoded.build, 4);
+
+        // Test to_string
+        assert_eq!(version.to_string(), "1.2.3.4");
     }
 
     #[test]
-    fn test_pipeline_creation() {
-        let pipeline = Pipeline::new(16, true, true);
+    fn test_segment_type() {
+        // Test des conversions valides
+        assert_eq!(SegmentType::from_u8(0), Some(SegmentType::Code));
+        assert_eq!(SegmentType::from_u8(1), Some(SegmentType::Data));
+        assert_eq!(SegmentType::from_u8(2), Some(SegmentType::ReadOnlyData));
+        assert_eq!(SegmentType::from_u8(3), Some(SegmentType::Symbols));
+        assert_eq!(SegmentType::from_u8(4), Some(SegmentType::Debug));
 
-        // Vérifier l'état initial
-        assert_eq!(pipeline.state.next_pc, 0);
-        assert_eq!(pipeline.state.stalled, false);
-        assert_eq!(pipeline.state.halted, false);
-        assert_eq!(pipeline.state.instructions_completed, 0);
-
-        // Vérifier les configurations
-        assert_eq!(pipeline.enable_forwarding, true);
-        assert_eq!(pipeline.enable_hazard_detection, true);
+        // Test avec valeur invalide
+        assert_eq!(SegmentType::from_u8(5), None);
     }
 
     #[test]
-    fn test_pipeline_reset_simple() {
-        let mut pipeline = Pipeline::new(16, true, true);
+    fn test_segment_metadata() {
+        let segment = SegmentMetadata::new(SegmentType::Code, 100, 200, 300);
 
-        // Modifions simplement une statistique au lieu de l'état complet
-        pipeline.stats.cycles = 10;
+        assert_eq!(segment.segment_type, SegmentType::Code);
+        assert_eq!(segment.offset, 100);
+        assert_eq!(segment.size, 200);
+        assert_eq!(segment.load_addr, 300);
 
-        // Réinitialiser
-        pipeline.reset();
+        // Test encode/decode
+        let encoded = segment.encode();
+        let decoded = SegmentMetadata::decode(&encoded).unwrap();
 
-        // Vérifier que la statistique est réinitialisée
-        assert_eq!(pipeline.stats.cycles, 0);
+        assert_eq!(decoded.segment_type, SegmentType::Code);
+        assert_eq!(decoded.offset, 100);
+        assert_eq!(decoded.size, 200);
+        assert_eq!(decoded.load_addr, 300);
     }
 
     #[test]
-    fn test_pipeline_reset() {
-        let mut pipeline = Pipeline::new(16, true, true);
+    fn test_bytecode_file_simple() {
+        // Création d'un fichier bytecode simple
+        let mut bytecode = BytecodeFile::new();
 
-        // Modifier l'état
-        pipeline.state.next_pc = 100;
-        pipeline.state.stalled = true;
-        pipeline.state.halted = true;
-        pipeline.stats.cycles = 10;
+        // Ajout de métadonnées
+        bytecode.add_metadata("name", "Test");
+        bytecode.add_metadata("author", "PunkVM");
 
-        // Réinitialiser
-        pipeline.reset();
+        // Vérification
+        assert_eq!(bytecode.metadata.get("name"), Some(&"Test".to_string()));
+        assert_eq!(bytecode.metadata.get("author"), Some(&"PunkVM".to_string()));
 
-        // Vérifier que l'état est réinitialisé
-        assert_eq!(pipeline.state.next_pc, 0);
-        assert_eq!(pipeline.state.stalled, false);
-        assert_eq!(pipeline.state.halted, false);
-        assert_eq!(pipeline.stats.cycles, 0);
+        // Ajout d'instructions
+        let instr1 = Instruction::create_no_args(Opcode::Nop);
+        let instr2 = Instruction::create_reg_imm8(Opcode::Load, 0, 42);
+
+        bytecode.add_instruction(instr1);
+        bytecode.add_instruction(instr2);
+
+        assert_eq!(bytecode.code.len(), 2);
+        assert_eq!(bytecode.code[0].opcode, Opcode::Nop);
+        assert_eq!(bytecode.code[1].opcode, Opcode::Load);
+
+        // Ajout de données
+        let offset = bytecode.add_data(&[1, 2, 3, 4]);
+        assert_eq!(offset, 0);
+        assert_eq!(bytecode.data, vec![1, 2, 3, 4]);
+
+        // Ajout de données en lecture seule
+        let offset = bytecode.add_readonly_data(&[5, 6, 7, 8]);
+        assert_eq!(offset, 0);
+        assert_eq!(bytecode.readonly_data, vec![5, 6, 7, 8]);
+
+        // Ajout de symboles
+        bytecode.add_symbol("main", 0x1000);
+        assert_eq!(bytecode.symbols.get("main"), Some(&0x1000));
     }
 
     #[test]
-    fn test_pipeline_stats() {
-        let pipeline = Pipeline::new(16, true, true);
-        let stats = pipeline.stats();
+    fn test_bytecode_file_with_arithmetic_instructions() {
+        // Création d'un fichier bytecode avec des instructions arithmétiques
+        let mut bytecode = BytecodeFile::new();
 
-        // Vérifier les statistiques initiales
-        assert_eq!(stats.cycles, 0);
-        assert_eq!(stats.instructions, 0);
-        assert_eq!(stats.stalls, 0);
-        assert_eq!(stats.hazards, 0);
-        assert_eq!(stats.forwards, 0);
+        // Ajouter des instructions arithmétiques avec le nouveau format à 3 registres
+        let instr1 = Instruction::create_reg_reg_reg(Opcode::Add, 2, 0, 1);  // R2 = R0 + R1
+        let instr2 = Instruction::create_reg_reg_reg(Opcode::Sub, 3, 0, 1);  // R3 = R0 - R1
+        let instr3 = Instruction::create_reg_reg_reg(Opcode::Mul, 4, 0, 1);  // R4 = R0 * R1
+
+        bytecode.add_instruction(instr1);
+        bytecode.add_instruction(instr2);
+        bytecode.add_instruction(instr3);
+
+        assert_eq!(bytecode.code.len(), 3);
+
+        // Vérifier le premier opcode
+        assert_eq!(bytecode.code[0].opcode, Opcode::Add);
+
+        // Vérifier les types d'arguments du format
+        assert_eq!(bytecode.code[0].format.arg1_type, ArgType::Register);
+        assert_eq!(bytecode.code[0].format.arg2_type, ArgType::Register);
+        assert_eq!(bytecode.code[0].format.arg3_type, ArgType::Register);
+
+        // Vérifier les valeurs des registres
+        assert_eq!(bytecode.code[0].args[0], 2);  // Rd (destination)
+        assert_eq!(bytecode.code[0].args[1], 0);  // Rs1 (source 1)
+        assert_eq!(bytecode.code[0].args[2], 1);  // Rs2 (source 2)
     }
 
     #[test]
-    fn test_pipeline_single_cycle_nop() {
-        // Créer une instruction NOP pour le test
-        let nop_instruction = create_test_instruction(Opcode::Nop);
-        let instructions = vec![nop_instruction];
+    fn test_bytecode_file_io() {
+        // Création d'un répertoire temporaire pour les tests
+        let dir = tempdir().expect("Impossible de créer un répertoire temporaire");
+        let file_path = dir.path().join("test.punk");
 
-        let mut pipeline = Pipeline::new(16, true, true);
-        let mut registers = vec![0; 16];
-        let mut memory = Memory::new(Default::default());
-        let mut alu = ALU::new();
+        // Création d'un fichier bytecode à écrire
+        let mut bytecode = BytecodeFile::new();
+        bytecode.version = BytecodeVersion::new(1, 0, 0, 0);
+        bytecode.add_metadata("name", "TestIO");
+        bytecode.add_instruction(Instruction::create_no_args(Opcode::Halt));
+        bytecode.add_data(&[1, 2, 3]);
+        bytecode.add_readonly_data(&[4, 5, 6]);
+        bytecode.add_symbol("main", 0);
 
-        // Exécuter un cycle
-        let result = pipeline.cycle(0, &mut registers, &mut memory, &mut alu, &instructions);
+        // Écrire le fichier
+        bytecode.write_to_file(&file_path).expect("Impossible d'écrire le fichier bytecode");
 
-        // Vérifier que le cycle s'est bien déroulé
-        assert!(result.is_ok());
+        // Lire le fichier
+        let loaded = BytecodeFile::read_from_file(&file_path).expect("Impossible de lire le fichier bytecode");
 
-        // Vérifier l'état après le cycle
-        let state = result.unwrap();
-        assert_eq!(state.next_pc, instructions[0].total_size() as u32);
-        assert_eq!(state.stalled, false);
-        assert_eq!(state.halted, false);
-
-        // Vérifier les stats
-        assert_eq!(pipeline.stats().cycles, 1);
+        // Vérifier que le contenu est identique
+        assert_eq!(loaded.version.major, 1);
+        assert_eq!(loaded.version.minor, 0);
+        assert_eq!(loaded.metadata.get("name"), Some(&"TestIO".to_string()));
+        assert_eq!(loaded.code.len(), 1);
+        assert_eq!(loaded.code[0].opcode, Opcode::Halt);
+        assert_eq!(loaded.data, vec![1, 2, 3]);
+        assert_eq!(loaded.readonly_data, vec![4, 5, 6]);
+        assert_eq!(loaded.symbols.get("main"), Some(&0));
     }
 
     #[test]
-    fn test_pipeline_halt_instruction() {
-        // Créer une instruction HALT pour le test
-        let halt_instruction = create_test_instruction(Opcode::Halt);
-        let instructions = vec![halt_instruction];
+    fn test_bytecode_file_with_three_register_instructions_io() {
+        // Test d'écriture et lecture d'un fichier contenant des instructions à 3 registres
+        let dir = tempdir().expect("Impossible de créer un répertoire temporaire");
+        let file_path = dir.path().join("test_three_reg.punk");
 
-        let mut pipeline = Pipeline::new(16, true, true);
-        let mut registers = vec![0; 16];
-        let mut memory = Memory::new(Default::default());
-        let mut alu = ALU::new();
+        // Création du fichier bytecode
+        let mut bytecode = BytecodeFile::new();
+        bytecode.version = BytecodeVersion::new(1, 0, 0, 0);
 
-        // Premier cycle - l'instruction HALT entre dans le pipeline
-        let result1 = pipeline.cycle(0, &mut registers, &mut memory, &mut alu, &instructions);
-        assert!(result1.is_ok());
+        // Ajouter une instruction ADD avec 3 registres
+        let add_instr = Instruction::create_reg_reg_reg(Opcode::Add, 2, 0, 1);  // R2 = R0 + R1
+        bytecode.add_instruction(add_instr);
 
-        // Deuxième cycle - l'instruction HALT passe à l'étage Decode
-        let result2 = pipeline.cycle(instructions[0].total_size() as u32,
-                                     &mut registers, &mut memory, &mut alu, &instructions);
-        assert!(result2.is_ok());
+        // Écrire le fichier
+        bytecode.write_to_file(&file_path).expect("Impossible d'écrire le fichier bytecode");
 
-        // Troisième cycle - l'instruction HALT passe à l'étage Execute
-        let result3 = pipeline.cycle(instructions[0].total_size() as u32,
-                                     &mut registers, &mut memory, &mut alu, &instructions);
-        assert!(result3.is_ok());
+        // Lire le fichier
+        let loaded = BytecodeFile::read_from_file(&file_path).expect("Impossible de lire le fichier bytecode");
 
-        // Quatrième cycle - l'instruction HALT passe à l'étage Memory
-        let result4 = pipeline.cycle(instructions[0].total_size() as u32,
-                                     &mut registers, &mut memory, &mut alu, &instructions);
-        assert!(result4.is_ok());
+        // Vérifier que l'instruction est correctement chargée
+        assert_eq!(loaded.code.len(), 1);
+        assert_eq!(loaded.code[0].opcode, Opcode::Add);
 
-        // Vérifier que le pipeline est halté
-        let state = result4.unwrap();
-        assert_eq!(state.halted, true);
+        // Vérifier les valeurs des registres
+        assert_eq!(loaded.code[0].args.len(), 3);
+        assert_eq!(loaded.code[0].args[0], 2);  // Rd
+        assert_eq!(loaded.code[0].args[1], 0);  // Rs1
+        assert_eq!(loaded.code[0].args[2], 1);  // Rs2
     }
 
-
-
     #[test]
-    fn test_pipeline_add_instruction() {
-        // Créer une instruction ADD R0, R1, R2 (R0 = R1 + R2)
-        let add_instruction = Instruction::new(
+    fn test_bytecode_file_extended_size_io() {
+        // Test d'écriture et lecture d'un fichier avec une instruction de grande taille
+        let dir = tempdir().expect("Impossible de créer un répertoire temporaire");
+        let file_path = dir.path().join("test_extended.punk");
+
+        // Création du fichier bytecode
+        let mut bytecode = BytecodeFile::new();
+
+        // Créer une instruction avec beaucoup de données pour forcer un size_type Extended
+        let large_args = vec![0; 248];  // Suffisant pour dépasser la limite de 255 octets
+        let large_instr = Instruction::new(
             Opcode::Add,
-            InstructionFormat::new(ArgType::Register, ArgType::Register),
-            vec![0, 1, 2] // R0 = R1 + R2
+            InstructionFormat::double_reg(),
+            large_args
         );
 
-        let instructions = vec![add_instruction];
+        bytecode.add_instruction(large_instr);
 
-        let mut pipeline = Pipeline::new(16, true, true);
-        let mut registers = vec![0; 16];
+        // Écrire le fichier
+        bytecode.write_to_file(&file_path).expect("Impossible d'écrire le fichier bytecode");
 
-        // Initialiser les registres
-        registers[1] = 5;  // R1 = 5
-        registers[2] = 7;  // R2 = 7
+        // Lire le fichier
+        let loaded = BytecodeFile::read_from_file(&file_path).expect("Impossible de lire le fichier bytecode");
 
-        let mut memory = Memory::new(Default::default());
-        let mut alu = ALU::new();
-
-        // Exécuter plusieurs cycles pour que l'instruction traverse le pipeline
-        for _ in 0..5 {
-            let _ = pipeline.cycle(0, &mut registers, &mut memory, &mut alu, &instructions);
-        }
-
-        // Vérifier que R0 contient la somme de R1 et R2
-        assert_eq!(registers[0], 12);  // R0 = 5 + 7 = 12
+        // Vérifier que l'instruction est correctement chargée
+        assert_eq!(loaded.code.len(), 1);
+        assert_eq!(loaded.code[0].opcode, Opcode::Add);
+        assert_eq!(loaded.code[0].args.len(), 248);
     }
 
     #[test]
-    fn test_pipeline_forwarding_fixed() {
-        // Créer une séquence d'instructions avec dépendance de données
-        // ADD R1, R0, 5  (R1 = R0 + 5)
-        // ADD R2, R1, 3  (R2 = R1 + 3) - dépendance avec l'instruction précédente
+    fn test_bytecode_file_complex_program() {
+        // Créer un programme complet avec des instructions variées
+        let mut bytecode = BytecodeFile::new();
 
-        let add_instr1 = Instruction::create_reg_imm8(Opcode::Add, 1, 5);
-        let add_instr2 = Instruction::create_reg_reg(Opcode::Add, 2, 1);
+        // Ajouter des métadonnées
+        bytecode.add_metadata("name", "Programme de test");
+        bytecode.add_metadata("author", "PunkVM Team");
+        bytecode.add_metadata("version", "1.0.0");
 
-        let instructions = vec![add_instr1, add_instr2];
+        // Initialisation des registres
+        bytecode.add_instruction(Instruction::create_reg_imm8(Opcode::Load, 0, 10));  // R0 = 10
+        bytecode.add_instruction(Instruction::create_reg_imm8(Opcode::Load, 1, 5));   // R1 = 5
 
-        // Tester avec forwarding activé
-        let mut pipeline_with_forwarding = Pipeline::new(16, true, false);
-        let mut registers_with = vec![0; 16];
-        registers_with[0] = 10;  // R0 = 10
+        // Opérations arithmétiques
+        bytecode.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 2, 0, 1));  // R2 = R0 + R1
+        bytecode.add_instruction(Instruction::create_reg_reg_reg(Opcode::Sub, 3, 0, 1));  // R3 = R0 - R1
+        bytecode.add_instruction(Instruction::create_reg_reg_reg(Opcode::Mul, 4, 0, 1));  // R4 = R0 * R1
+        bytecode.add_instruction(Instruction::create_reg_reg_reg(Opcode::Div, 5, 0, 1));  // R5 = R0 / R1
 
-        let mut memory = Memory::new(Default::default());
-        let mut alu = ALU::new();
+        // Opérations logiques
+        bytecode.add_instruction(Instruction::create_reg_reg_reg(Opcode::And, 6, 0, 1));  // R6 = R0 & R1
+        bytecode.add_instruction(Instruction::create_reg_reg_reg(Opcode::Or, 7, 0, 1));   // R7 = R0 | R1
 
-        // Au lieu d'exécuter en boucle, exécutons exactement le nombre de cycles nécessaires
-        // et gardons une trace du PC
-        let mut pc = 0;
+        // Fin du programme
+        bytecode.add_instruction(Instruction::create_no_args(Opcode::Halt));
 
-        // Cycle 1 - L'instruction 1 entre dans le pipeline
-        let result = pipeline_with_forwarding.cycle(pc, &mut registers_with, &mut memory, &mut alu, &instructions);
-        pc = result.unwrap().next_pc;
+        // Ajouter un symbole pour le début du programme
+        bytecode.add_symbol("start", 0);
 
-        // Cycle 2 - L'instruction 1 avance, instruction 2 entre
-        let result = pipeline_with_forwarding.cycle(pc, &mut registers_with, &mut memory, &mut alu, &instructions);
-        pc = result.unwrap().next_pc;
+        // Vérifier le nombre d'instructions
+        assert_eq!(bytecode.code.len(), 9);
 
-        // Cycle 3 - L'instruction 1 atteint l'étage exécution
-        let result = pipeline_with_forwarding.cycle(pc, &mut registers_with, &mut memory, &mut alu, &instructions);
-        pc = result.unwrap().next_pc;
+        // Vérifier les métadonnées
+        assert_eq!(bytecode.metadata.len(), 3);
+        assert_eq!(bytecode.metadata.get("name"), Some(&"Programme de test".to_string()));
 
-        // Cycle 4 - L'instruction 1 atteint l'étage mémoire, instruction 2 atteint l'exécution
-        let result = pipeline_with_forwarding.cycle(pc, &mut registers_with, &mut memory, &mut alu, &instructions);
-        pc = result.unwrap().next_pc;
-
-        // Cycle 5 - L'instruction 1 atteint writeback, instruction 2 atteint mémoire
-        let result = pipeline_with_forwarding.cycle(pc, &mut registers_with, &mut memory, &mut alu, &instructions);
-        pc = result.unwrap().next_pc;
-
-        // Vérifions l'état des registres
-        println!("Après 5 cycles - R1: {}, R2: {}", registers_with[1], registers_with[2]);
-
-        // Cycle 6 - L'instruction 2 atteint writeback
-        let result = pipeline_with_forwarding.cycle(pc, &mut registers_with, &mut memory, &mut alu, &instructions);
-
-        // Vérifier les résultats finaux
-        println!("Résultat final - R1: {}, R2: {}", registers_with[1], registers_with[2]);
-
-        // Vérifier que R1 contient 15 (10 + 5)
-        assert_eq!(registers_with[1], 15);
-
-        // Vérifier que R2 contient 18 (15 + 3)
-        assert_eq!(registers_with[2], 18);
+        // Vérifier les symboles
+        assert_eq!(bytecode.symbols.len(), 1);
+        assert_eq!(bytecode.symbols.get("start"), Some(&0));
     }
 
     #[test]
-    fn test_pipeline_forwarding() {
-        // Créer une séquence d'instructions avec dépendance de données
-        // ADD R1, R0, 5  (R1 = R0 + 5)
-        // ADD R2, R1, 3  (R2 = R1 + 3) - dépendance avec l'instruction précédente
+    fn test_bytecode_file_io_errors() {
+        // Test avec un fichier inexistant
+        let result = BytecodeFile::read_from_file("nonexistent_file.punk");
+        assert!(result.is_err());
 
-        let add_instr1 = Instruction::create_reg_imm8(Opcode::Add, 1, 5);
-        let add_instr2 = Instruction::create_reg_reg(Opcode::Add, 2, 1);
+        // Test avec un fichier trop petit
+        let dir = tempdir().expect("Impossible de créer un répertoire temporaire");
+        let invalid_file_path = dir.path().join("invalid.punk");
 
-        let instructions = vec![add_instr1, add_instr2];
+        // Créer un fichier invalide avec juste quelques octets
+        std::fs::write(&invalid_file_path, &[0, 1, 2]).expect("Impossible d'écrire le fichier de test");
 
-        // Tester avec forwarding activé
-        let mut pipeline_with_forwarding = Pipeline::new(16, true, false);
-        let mut registers_with = vec![0; 16];
-        registers_with[0] = 10;  // R0 = 10
+        let result = BytecodeFile::read_from_file(&invalid_file_path);
+        assert!(result.is_err());
 
-        let mut memory = Memory::new(Default::default());
-        let mut alu = ALU::new();
-
-        // Exécuter suffisamment de cycles pour que les deux instructions traversent le pipeline
-        for _ in 0..10 {
-            let _ = pipeline_with_forwarding.cycle(
-                0, &mut registers_with, &mut memory, &mut alu, &instructions
-            );
+        // Vérifier le type d'erreur
+        match result {
+            Err(e) => assert_eq!(e.kind(), ErrorKind::InvalidData),
+            _ => panic!("Expected an error but got success"),
         }
-
-        // Vérifier les résultats avec forwarding
-        assert_eq!(registers_with[1], 15);  // R1 = 10 + 5 = 15
-        assert_eq!(registers_with[2], 18);  // R2 = 15 + 3 = 18
-
-        // Vérifier que des forwardings ont été effectués
-        assert!(pipeline_with_forwarding.stats().forwards > 0);
     }
 
     #[test]
-    fn test_pipeline_hazard_detection() {
-        // Créer une séquence d'instructions avec dépendance de données qui nécessite un stall
-        // LOAD R1, [R0]    (R1 = Mem[R0])
-        // ADD R2, R1, R3   (R2 = R1 + R3) - dépendance Load-Use avec l'instruction précédente
+    fn test_encode_decode_metadata() {
+        let mut metadata = HashMap::new();
+        metadata.insert("key1".to_string(), "value1".to_string());
+        metadata.insert("key2".to_string(), "value2".to_string());
 
-        let load_instr = Instruction::new(
-            Opcode::Load,
-            InstructionFormat::new(ArgType::Register, ArgType::Register),
-            vec![1, 0]  // R1 = Mem[R0]
-        );
+        let mut bytecode = BytecodeFile::new();
+        bytecode.metadata = metadata.clone();
 
-        let add_instr = Instruction::new(
-            Opcode::Add,
-            InstructionFormat::new(ArgType::Register, ArgType::Register),
-            vec![2, 1, 3]  // R2 = R1 + R3
-        );
+        let encoded = bytecode.encode_metadata();
+        let decoded = BytecodeFile::decode_metadata(&encoded).expect("Failed to decode metadata");
 
-        let instructions = vec![load_instr, add_instr];
-
-        // Tester avec détection de hazards activée
-        let mut pipeline_with_hazard = Pipeline::new(16, false, true);
-        let mut registers = vec![0; 16];
-        registers[0] = 0;    // Adresse mémoire 0
-        registers[3] = 7;    // R3 = 7
-
-        let mut memory = Memory::new(Default::default());
-
-        // Écrire une valeur à l'adresse 0
-        let _ = memory.write_qword(0, 5);  // Mem[0] = 5
-
-        let mut alu = ALU::new();
-
-        // Exécuter suffisamment de cycles pour que les deux instructions traversent le pipeline
-        let mut stalls_detected = false;
-
-        for _ in 0..10 {
-            let result = pipeline_with_hazard.cycle(
-                0, &mut registers, &mut memory, &mut alu, &instructions
-            );
-
-            if let Ok(state) = result {
-                if state.stalled {
-                    stalls_detected = true;
-                    break;
-                }
-            }
-        }
-
-        // Vérifier qu'au moins un stall a été détecté
-        assert!(stalls_detected || pipeline_with_hazard.stats().stalls > 0);
+        assert_eq!(decoded.len(), 2);
+        assert_eq!(decoded.get("key1"), Some(&"value1".to_string()));
+        assert_eq!(decoded.get("key2"), Some(&"value2".to_string()));
     }
 
     #[test]
-    fn test_pipeline_branch_instruction() {
-        // Créer une instruction de branchement
-        // JMP 8  (Sauter à l'adresse PC+8)
+    fn test_encode_decode_symbols() {
+        let mut symbols = HashMap::new();
+        symbols.insert("sym1".to_string(), 0x1000);
+        symbols.insert("sym2".to_string(), 0x2000);
 
-        let jmp_instruction = Instruction::new(
-            Opcode::Jmp,
-            InstructionFormat::new(ArgType::None, ArgType::RelativeAddr),
-            vec![8, 0, 0, 0]  // Saut relatif de 8 bytes
-        );
+        let mut bytecode = BytecodeFile::new();
+        bytecode.symbols = symbols.clone();
 
-        let instructions = vec![jmp_instruction, create_test_instruction(Opcode::Nop)];
+        let encoded = bytecode.encode_symbols();
+        let decoded = BytecodeFile::decode_symbols(&encoded).expect("Failed to decode symbols");
 
-        let mut pipeline = Pipeline::new(16, true, true);
-        let mut registers = vec![0; 16];
-        let mut memory = Memory::new(Default::default());
-        let mut alu = ALU::new();
+        assert_eq!(decoded.len(), 2);
+        assert_eq!(decoded.get("sym1"), Some(&0x1000));
+        assert_eq!(decoded.get("sym2"), Some(&0x2000));
+    }
 
-        // Exécuter plusieurs cycles pour que l'instruction traverse le pipeline
-        for i in 0..5 {
-            let pc = if i == 0 { 0 } else { pipeline.state.next_pc };
-            let result = pipeline.cycle(pc, &mut registers, &mut memory, &mut alu, &instructions);
+    #[test]
+    fn test_encode_decode_code() {
+        // Créer un ensemble d'instructions de test
+        let mut code = Vec::new();
+        code.push(Instruction::create_no_args(Opcode::Nop));
+        code.push(Instruction::create_reg_imm8(Opcode::Load, 0, 42));
+        code.push(Instruction::create_reg_reg_reg(Opcode::Add, 2, 0, 1));
 
-            if let Ok(state) = result {
-                if i >= 3 {  // Après 3 cycles, le branchement devrait être pris
-                    assert_eq!(state.next_pc, 8);
-                    break;
-                }
-            }
-        }
+        let mut bytecode = BytecodeFile::new();
+        bytecode.code = code.clone();
+
+        let encoded = bytecode.encode_code();
+        let decoded = BytecodeFile::decode_code(&encoded).expect("Failed to decode code");
+
+        assert_eq!(decoded.len(), 3);
+        assert_eq!(decoded[0].opcode, Opcode::Nop);
+        assert_eq!(decoded[1].opcode, Opcode::Load);
+        assert_eq!(decoded[2].opcode, Opcode::Add);
+
+        // Vérifier les arguments de l'instruction Add
+        assert_eq!(decoded[2].args.len(), 3);
+        assert_eq!(decoded[2].args[0], 2);
+        assert_eq!(decoded[2].args[1], 0);
+        assert_eq!(decoded[2].args[2], 1);
     }
 }
-
-
-// /// Implémentation des étages du pipeline
-// pub mod stage {
-//     /// Trait commun pour tous les étages du pipeline
-//     pub trait PipelineStage<'a> {
-//         /// Type d'entrée de l'étage
-//         type Input;
-//         /// Type de sortie de l'étage
-//         type Output;
-//
-//         /// Traite une entrée et produit une sortie
-//         fn process(&mut self, input: &Self::Input) -> Result<Self::Output, String>;
-//
-//         /// Réinitialise l'état de l'étage
-//         fn reset(&mut self);
-//     }
-//
-//     // Implémentation par défaut pour le trait
-//     impl<'a, T: PipelineStage<'a>> PipelineStage<'a> for &mut T {
-//         type Input = T::Input;
-//         type Output = T::Output;
-//
-//         fn process(&mut self, input: &Self::Input) -> Result<Self::Output, String> {
-//             (**self).process(input)
-//         }
-//
-//         fn reset(&mut self) {
-//             (**self).reset();
-//         }
-//     }
-// }

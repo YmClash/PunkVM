@@ -2,9 +2,7 @@
 
 
 use crate::bytecode::decode_errors::DecodeError;
-// use super::format::{ArgType, InstructionFormat};
 use crate::bytecode::format::{ArgType, InstructionFormat};
-// use super::opcodes::Opcode;
 use crate::bytecode::opcodes::Opcode;
 
 /// Represente le type de taille d'instruction
@@ -144,7 +142,6 @@ impl Instruction{
         }
 
 
-
         let first_size_byte = bytes[3];
 
 
@@ -168,12 +165,6 @@ impl Instruction{
             return Err(DecodeError::InsufficientData);
         }
 
-
-
-        // if bytes.len() < size as usize {
-        //     return Err(DecodeError::InsufficientData);
-        // }
-
         let args_size = size as usize - total_header_size;
         let args_start = total_header_size;
         let args_end = args_start + args_size;
@@ -189,22 +180,6 @@ impl Instruction{
             args,
         };
         Ok((inst, size as usize))
-
-        // let args = if total_header_size + args_size <= bytes.len() {
-        //     bytes[total_header_size..total_header_size + args_size].to_vec()
-        // } else {
-        //     return Err(DecodeError::InsufficientData);
-        // };
-        //
-        // Ok((
-        //     Self {
-        //         opcode,
-        //         format,
-        //         size_type,
-        //         args,
-        //     },
-        //     size as usize,
-        // ))
 
     }
 
@@ -366,12 +341,6 @@ impl Instruction{
         // Empaqueter les deux registres dans un seul octet
         // reg1 dans les 4 bits de poids faible, reg2 dans les 4 bits de poids fort
         // ADD R2, R1
-        // let packed_regs = (reg1 & 0x0F) | ((reg2 & 0x0F) << 4);
-        // Self::new(
-        //     opcode,
-        //     InstructionFormat::double_reg(),
-        //     vec![packed_regs]
-        // )
         let fmt = InstructionFormat::double_reg();
         let args = vec![rd & 0x0F, rs1 & 0x0F];
         Self::new(opcode, fmt, args)
@@ -383,11 +352,6 @@ impl Instruction{
         // Stocker les trois registres dans args
         // rd (destination), rs1 (source 1), rs2 (source 2)
         // ADD R2, R0, R1
-        // Self::new(
-        //     opcode,
-        //     InstructionFormat::reg_reg_reg(),
-        //     vec![rd & 0x0F, rs1 & 0x0F, rs2 & 0x0F]
-        // )
         let fmt = InstructionFormat::reg_reg_reg();
         // [rd, rs1, rs2]
         let args = vec![rd & 0x0F, rs1 & 0x0F, rs2 & 0x0F];
@@ -396,11 +360,7 @@ impl Instruction{
 
     /// Crée une instruction avec un registre et une valeur immédiate 8 bits
     pub fn create_reg_imm8(opcode: Opcode, reg: u8, imm: u8) -> Self {
-        // Self::new(
-        //     opcode,
-        //     InstructionFormat::reg_imm8(),
-        //     vec![reg & 0x0F, imm]
-        // )
+
         let fmt = InstructionFormat::reg_imm8(); // (Register, Immediate8, None)
         let args = vec![reg & 0x0F, imm];
         Self::new(opcode, fmt, args)
@@ -417,22 +377,11 @@ impl Instruction{
 
     /// Crée une instruction de chargement mémoire avec registre + offset
     pub fn create_load_reg_offset(reg_dest: u8, reg_base: u8, offset: i8) -> Self {
-        // Self::new(
-        //     Opcode::Load,
-        //     InstructionFormat::reg_regoff(),
-        //     // InstructionFormat::reg_offset(),
-        //     vec![
-        //         reg_dest & 0x0F,
-        //         reg_base & 0x0F,
-        //         offset as u8,
-        //     ]
-        // )
 
         let fmt = InstructionFormat::reg_regoff(); // (Register, RegisterOffset, None)?
         let args = vec![reg_dest & 0x0F, reg_base & 0x0F, offset as u8];
         Self::new(Opcode::Load, fmt, args)
     }
-
 
 }
 
