@@ -122,6 +122,15 @@ pub struct MemoryStage{
 
             },
 
+            Opcode::Halt => {
+                // Si l'instruction est un halt, on ne fait rien
+                println!("Halt instruction encountered");
+            },
+
+
+
+
+
             // Autres instructions - rien à faire dans l'étage Memory
             _ => {}
         }

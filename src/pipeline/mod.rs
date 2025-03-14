@@ -201,6 +201,129 @@ impl Pipeline {
     }
 
     /// Exécute un cycle du pipeline
+    // pub fn cycle(
+    //     &mut self,
+    //     pc: u32,
+    //     registers: &mut [u64],
+    //     memory: &mut Memory,
+    //     alu: &mut ALU,
+    //     instructions: &[Instruction],
+    // ) -> Result<PipelineState, String> {
+    //     // 0. Incrément du compteur de cycles
+    //     self.stats.cycles += 1;
+    //
+    //     // 1. Copie de l’état actuel local
+    //     let mut state = self.state.clone();
+    //     state.stalled = false;
+    //
+    //     // 2. Check hazards
+    //     if self.enable_hazard_detection {
+    //         let hazard = self.hazard_detection.detect_hazards_with_type(&state);
+    //         // state.stalled = hazard != hazard::HazardType::None;
+    //         let any_hazard = self.hazard_detection.detect_hazards(&state);
+    //         if any_hazard {
+    //             self.stats.stalls += 1;
+    //             self.stats.hazards += 1;
+    //             state.stalled = true;
+    //         }
+    //
+    //     }
+    //
+    //     // 3. Writeback     5 etage
+    //     if let Some(wb_reg) = &state.memory_writeback {
+    //         self.writeback.process_direct(wb_reg, registers)?;
+    //         state.instructions_completed += 1;
+    //         self.stats.instructions += 1;
+    //     }
+    //     state.memory_writeback = None;
+    //
+    //
+    //     // 4. **Memory** (4ᵉ étape)
+    //     if let Some(ex_mem) = &state.execute_memory {
+    //         let wb_reg = self.memory.process_direct(ex_mem, memory)?;
+    //
+    //         // Si l'opcode est HALT, on met halted = true et on return immédiatement
+    //         if ex_mem.instruction.opcode == Opcode::Halt {
+    //             state.halted = true;
+    //             // On flush les registres
+    //             state.fetch_decode = None;
+    //             state.decode_execute = None;
+    //             state.execute_memory = None;
+    //             state.memory_writeback = None;
+    //
+    //             // On met quand même un “MemoryWritebackRegister” par cohérence
+    //             // (ou on pourrait s’en passer).
+    //             state.memory_writeback = Some(wb_reg);
+    //
+    //             // early return => pas d'étapes Execute/Decode/Fetch
+    //             self.state = state.clone();
+    //             return Ok(state);
+    //         }
+    //
+    //         // Sinon, on continue la vie normale : stocker le wb_reg
+    //         state.memory_writeback = Some(wb_reg);
+    //     } else {
+    //         state.memory_writeback = None;
+    //     }
+    //
+    //
+    //     // 5. Execute       3ᵉ étape
+    //     if let Some(ex_reg) = &state.decode_execute {
+    //
+    //         let mut ex_reg_mut = ex_reg.clone();
+    //         if self.enable_forwarding {
+    //             self.forwarding.forward(
+    //                 &mut ex_reg_mut,
+    //                 &state.execute_memory,
+    //                 &state.memory_writeback,
+    //                 // registers
+    //             );
+    //         }
+    //
+    //         let mem_reg = self.execute.process_direct(&ex_reg_mut, alu)?;
+    //
+    //         if mem_reg.branch_taken {
+    //             if let Some(target) = mem_reg.branch_target {
+    //                 state.next_pc = target;
+    //                 // flush
+    //                 state.fetch_decode = None;
+    //                 state.decode_execute = None;
+    //             }
+    //         }
+    //         state.execute_memory = Some(mem_reg);
+    //     } else {
+    //         state.execute_memory = None;
+    //     }
+    //
+    //     // 6. Decode        2ᵉ étape
+    //     if !state.stalled {
+    //         if let Some(fd_reg) = &state.fetch_decode {
+    //             let ex_reg = self.decode.process_direct(fd_reg, registers)?;
+    //             state.decode_execute = Some(ex_reg);
+    //         } else {
+    //             state.decode_execute = None;
+    //         }
+    //
+    //         // 7. Fetch     1ʳᵉ étape
+    //         let fd_reg = self.fetch.process_direct(pc, instructions)?;
+    //         state.fetch_decode = Some(fd_reg);
+    //
+    //         // 8. Màj PC
+    //         if !state.halted && state.next_pc == pc {
+    //             if let Some(fd_reg) = &state.fetch_decode {
+    //                 // state.next_pc = pc.wrapping_add(fd_reg.instruction.total_size() as u32);
+    //                 let size = fd_reg.instruction.total_size() as u32;
+    //                 state.next_pc = pc.wrapping_add(size);
+    //             }
+    //         }
+    //     }
+    //
+    //     // 9. Màj self.state
+    //     self.state = state.clone();
+    //     Ok(state)
+    // }
+
+
     pub fn cycle(
         &mut self,
         pc: u32,
@@ -209,60 +332,67 @@ impl Pipeline {
         alu: &mut ALU,
         instructions: &[Instruction],
     ) -> Result<PipelineState, String> {
-        // 0. Incrément du compteur de cycles
+        // 0) Incrément du compteur de cycles pipeline
         self.stats.cycles += 1;
 
-        // 1. Copie de l’état actuel local
+        // 1) Clone de l’état local
         let mut state = self.state.clone();
-
-        // 2. Check hazards
         state.stalled = false;
+
+        // 2) Détection de hazards
         if self.enable_hazard_detection {
-            let hazard = self.hazard_detection.detect_hazards_with_type(&state);
-            // state.stalled = hazard != hazard::HazardType::None;
-            state.stalled = self.hazard_detection.detect_hazards(&state);
-            if state.stalled {
+            let any_hazard = self.hazard_detection.detect_hazards(&state);
+            if any_hazard {
                 self.stats.stalls += 1;
                 self.stats.hazards += 1;
+                state.stalled = true;
             }
         }
 
-        // 3. Writeback
-        if let Some(wb_reg) = &state.memory_writeback {
-            self.writeback.process_direct(wb_reg, registers)?;
-            state.instructions_completed += 1;
-            self.stats.instructions += 1;
-        }
+        // ----- (1ᵉʳᵉ étape) FETCH -----
+        // Si on n’est pas stalled, on fetch l’instruction à l’adresse `pc`.
+        if !state.stalled {
+            // On fetch
+            let fd_reg = self.fetch.process_direct(pc, instructions)?;
+            state.fetch_decode = Some(fd_reg);
 
-        // 4. Memory
-        if let Some(mem_reg) = &state.execute_memory {
-            let wb_reg = self.memory.process_direct(mem_reg, memory)?;
-            state.memory_writeback = Some(wb_reg);
-
-            if mem_reg.instruction.opcode == Opcode::Halt {
-                state.halted = true;
+            // Mise à jour du next_pc s’il n’est pas déjà modifié par un branch
+            if !state.halted && state.next_pc == pc {
+                if let Some(fd_reg) = &state.fetch_decode {
+                    let size = fd_reg.instruction.total_size() as u32;
+                    state.next_pc = pc.wrapping_add(size);
+                }
             }
-        } else {
-            state.memory_writeback = None;
         }
 
-        // 5. Execute
-        if let Some(ex_reg) = &state.decode_execute {
-            let mut ex_reg_mut = ex_reg.clone();
+        // ----- (2ᵉ étape) DECODE -----
+        if !state.stalled {
+            if let Some(fd_reg) = &state.fetch_decode {
+                let ex_reg = self.decode.process_direct(fd_reg, registers)?;
+                state.decode_execute = Some(ex_reg);
+            } else {
+                state.decode_execute = None;
+            }
+        }
+
+        // ----- (3ᵉ étape) EXECUTE -----
+        if let Some(de_reg) = &state.decode_execute {
+            // Forwarding si activé
+            let mut de_reg_mut = de_reg.clone();
             if self.enable_forwarding {
                 self.forwarding.forward(
-                    &mut ex_reg_mut,
+                    &mut de_reg_mut,
                     &state.execute_memory,
                     &state.memory_writeback,
-                    // registers
                 );
             }
 
-            let mem_reg = self.execute.process_direct(&ex_reg_mut, alu)?;
+            let mem_reg = self.execute.process_direct(&de_reg_mut, alu)?;
+
+            // Si un branch est pris => flush fetch/decode
             if mem_reg.branch_taken {
                 if let Some(target) = mem_reg.branch_target {
                     state.next_pc = target;
-                    // flush
                     state.fetch_decode = None;
                     state.decode_execute = None;
                 }
@@ -272,31 +402,46 @@ impl Pipeline {
             state.execute_memory = None;
         }
 
-        // 6. Decode
-        if !state.stalled {
-            if let Some(fd_reg) = &state.fetch_decode {
-                let ex_reg = self.decode.process_direct(fd_reg, registers)?;
-                state.decode_execute = Some(ex_reg);
-            } else {
+        // ----- (4ᵉ étape) MEMORY -----
+        if let Some(ex_mem) = &state.execute_memory {
+            let wb_reg = self.memory.process_direct(ex_mem, memory)?;
+
+            // Si c’est un HALT => on arrête tout de suite
+            if ex_mem.instruction.opcode == Opcode::Halt {
+                state.halted = true;
+                // Flush
+                state.fetch_decode = None;
                 state.decode_execute = None;
+                state.execute_memory = None;
+                state.memory_writeback = None;
+
+                // Optionnellement, on peut stocker wb_reg si besoin
+                state.memory_writeback = Some(wb_reg);
+
+                // On quitte aussitôt ce cycle => pas de Writeback
+                self.state = state.clone();
+                return Ok(state);
             }
 
-            // 7. Fetch
-            let fd_reg = self.fetch.process_direct(pc, instructions)?;
-            state.fetch_decode = Some(fd_reg);
-
-            // 8. Màj PC
-            if !state.halted && state.next_pc == pc {
-                if let Some(fd_reg) = &state.fetch_decode {
-                    state.next_pc = pc.wrapping_add(fd_reg.instruction.total_size() as u32);
-                }
-            }
+            state.memory_writeback = Some(wb_reg);
+        } else {
+            state.memory_writeback = None;
         }
 
-        // 9. Màj self.state
+        // ----- (5ᵉ étape) WRITEBACK -----
+        if let Some(mw_reg) = &state.memory_writeback {
+            self.writeback.process_direct(mw_reg, registers)?;
+            // On considère qu’une instruction est finalisée ici
+            state.instructions_completed += 1;
+            self.stats.instructions += 1;
+        }
+        state.memory_writeback = None;
+
+        // 9) Mise à jour de self.state
         self.state = state.clone();
         Ok(state)
     }
+
 
 
     /// Retourne les statistiques du pipeline
