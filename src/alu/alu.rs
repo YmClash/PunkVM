@@ -302,19 +302,6 @@ impl ALU {
                 let result_sign = (result >> 63) & 1;
                 let overflow = (a_sign != b_sign) && (a_sign != result_sign);
 
-                // Pour la comparaison signée:
-                // 1. Si les signes sont différents:
-                //    - Si a est négatif et b positif, alors a < b (negative flag = true)
-                //    - Si a est positif et b négatif, alors a > b (negative flag = false)
-                // 2. Si les signes sont identiques:
-                //    - Le negative flag est déterminé par le carry flag (en non-signé)
-                // let is_less_than;
-                // if a_sign != b_sign {
-                //     is_less_than = a_sign == 1;  // Si a est négatif et b positif, alors a < b
-                // } else {
-                //     is_less_than = carry;  // Sinon, utiliser la logique non signée
-                // }
-
                 // signe le negative si resultat < 0
                 let negative =result_sign == 1;
 

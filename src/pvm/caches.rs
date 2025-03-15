@@ -174,8 +174,9 @@ impl L1Cache {
         (addr % self.line_size as u32) as usize
     }
 
-
 }
+
+
 
 #[cfg(test)]
 mod tests {

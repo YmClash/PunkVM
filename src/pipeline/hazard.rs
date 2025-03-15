@@ -317,6 +317,7 @@ mod hazard_tests {
             mem_addr,
             branch_target: if is_branch { Some(0x1000) } else { None },
             branch_taken: false,
+            halted: false,
         }
     }
 

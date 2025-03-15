@@ -53,6 +53,12 @@ impl Instruction{
             SizeType::Extended
         };
 
+        println!("DEBUG: new() => overhead={}, args.len()={}, potential_size={}, needed_if_compact={}, size_type={:?}",
+                 overhead, args.len(), potential_size, needed_if_compact, size_type
+        );
+
+
+
         Self {
             opcode,
             format,
@@ -68,7 +74,16 @@ impl Instruction{
             SizeType::Compact => 1,
             SizeType::Extended => 3,     // 3 octets: 0xFF (marqueur) + 2 octets de taille
         };
+
+        println!("DEBUG: total_size => overhead=3, size_field_size={}, args.len()={}, => total={} ",
+                 match self.size_type { SizeType::Compact=>1, SizeType::Extended=>3},
+                 self.args.len(),
+                 overhead + size_field_size + self.args.len()
+        );
+
+
         overhead + size_field_size + self.args.len()
+
         
         // let header_size = 2 ; // Opcode 1B + format 1B
         // let size_field_size = match self.size_type{

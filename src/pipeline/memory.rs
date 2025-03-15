@@ -22,6 +22,11 @@ pub struct MemoryStage{
     pub fn process_direct(&mut self, mem_reg: &ExecuteMemoryRegister, memory: &mut Memory) -> Result<MemoryWritebackRegister, String> {
         let mut result = mem_reg.alu_result;
 
+        // println!("MemoryStage: Instruction opcode={:?}, mem_addr={:?}, store_value={:?}",
+        //          mem_reg.instruction.opcode, mem_reg.mem_addr, mem_reg.store_value
+        // );
+
+
         // Traitement spécifique selon l'opcode
         match mem_reg.instruction.opcode {
             // Instructions de chargement (load)
@@ -29,6 +34,9 @@ pub struct MemoryStage{
                 if let Some(addr) = mem_reg.mem_addr {
                     result = self.load_from_memory(memory, addr, 8)?;
                     println!("Load from address: {:#X}, result: {:#X}", addr, result);
+                    println!("MemoryStage: Instruction opcode={:?}, mem_addr={:?}, store_value={:?}",
+                             mem_reg.instruction.opcode, mem_reg.mem_addr, mem_reg.store_value
+                    );
                 }
             },
 
@@ -36,6 +44,9 @@ pub struct MemoryStage{
                 if let Some(addr) = mem_reg.mem_addr {
                     result = self.load_from_memory(memory, addr, 1)?;
                     println!("LoadB from address: {:#X}, result: {:#X}", addr, result);
+                    println!("MemoryStage: Instruction opcode={:?}, mem_addr={:?}, store_value={:?}",
+                             mem_reg.instruction.opcode, mem_reg.mem_addr, mem_reg.store_value
+                    );
                 }
             },
 
@@ -43,6 +54,9 @@ pub struct MemoryStage{
                 if let Some(addr) = mem_reg.mem_addr {
                     result = self.load_from_memory(memory, addr, 2)?;
                     println!("LoadW from address: {:#X}, result: {:#X}", addr, result);
+                    println!("MemoryStage: Instruction opcode={:?}, mem_addr={:?}, store_value={:?}",
+                             mem_reg.instruction.opcode, mem_reg.mem_addr, mem_reg.store_value
+                    );
                 }
             },
 
@@ -50,6 +64,9 @@ pub struct MemoryStage{
                 if let Some(addr) = mem_reg.mem_addr {
                     result = self.load_from_memory(memory, addr, 4)?;
                     println!("LoadD from address: {:#X}, result: {:#X}", addr, result);
+                    println!("MemoryStage: Instruction opcode={:?}, mem_addr={:?}, store_value={:?}",
+                             mem_reg.instruction.opcode, mem_reg.mem_addr, mem_reg.store_value
+                    );
                 }
             },
 
@@ -59,6 +76,9 @@ pub struct MemoryStage{
                     if let Some(value) = mem_reg.store_value {
                         self.store_to_memory(memory, addr, value, 8)?;
                         println!("Store to address: {:#X}, value: {:#X}", addr, value);
+                        println!("MemoryStage: Instruction opcode={:?}, mem_addr={:?}, store_value={:?}",
+                                 mem_reg.instruction.opcode, mem_reg.mem_addr, mem_reg.store_value
+                        );
                     }
                 }
             },
@@ -68,6 +88,9 @@ pub struct MemoryStage{
                     if let Some(value) = mem_reg.store_value {
                         self.store_to_memory(memory, addr, value, 1)?;
                         println!("StoreB to address: {:#X}, value: {:#X}", addr, value);
+                        println!("MemoryStage: Instruction opcode={:?}, mem_addr={:?}, store_value={:?}",
+                                 mem_reg.instruction.opcode, mem_reg.mem_addr, mem_reg.store_value
+                        );
                     }
                 }
             },
@@ -77,6 +100,9 @@ pub struct MemoryStage{
                     if let Some(value) = mem_reg.store_value {
                         self.store_to_memory(memory, addr, value, 2)?;
                         println!("StoreW to address: {:#X}, value: {:#X}", addr, value);
+                        println!("MemoryStage: Instruction opcode={:?}, mem_addr={:?}, store_value={:?}",
+                                 mem_reg.instruction.opcode, mem_reg.mem_addr, mem_reg.store_value
+                        );
                     }
                 }
             },
@@ -86,6 +112,9 @@ pub struct MemoryStage{
                     if let Some(value) = mem_reg.store_value {
                         self.store_to_memory(memory, addr, value, 4)?;
                         println!("StoreD to address: {:#X}, value: {:#X}", addr, value);
+                        println!("MemoryStage: Instruction opcode={:?}, mem_addr={:?}, store_value={:?}",
+                                 mem_reg.instruction.opcode, mem_reg.mem_addr, mem_reg.store_value
+                        );
                     }
                 }
             },
@@ -99,6 +128,9 @@ pub struct MemoryStage{
                     }
                     self.stack_pointer -= 8;
                     println!("Push to address: {:#X}, value: {:#X}", self.stack_pointer, value);
+                    println!("MemoryStage: Instruction opcode={:?}, mem_addr={:?}, store_value={:?}",
+                             mem_reg.instruction.opcode, mem_reg.mem_addr, mem_reg.store_value
+                    );
 
                     // Essayer d'écrire et capturer l'erreur pour un meilleur message
                     match self.store_to_memory(memory, self.stack_pointer, value, 8) {
@@ -116,6 +148,9 @@ pub struct MemoryStage{
                         result = value;
                         self.stack_pointer += 8;
                         println!("Pop from address: {:#X}, result: {:#X}", self.stack_pointer, result);
+                        println!("MemoryStage: Instruction opcode={:?}, mem_addr={:?}, store_value={:?}",
+                                 mem_reg.instruction.opcode, mem_reg.mem_addr, mem_reg.store_value
+                        );
                     },
                     Err(e) => return Err(format!("Pop failed: {}", e)),
                 }
@@ -125,6 +160,9 @@ pub struct MemoryStage{
             Opcode::Halt => {
                 // Si l'instruction est un halt, on ne fait rien
                 println!("Halt instruction encountered");
+                println!("MemoryStage: Instruction opcode={:?}, mem_addr={:?}, store_value={:?}",
+                         mem_reg.instruction.opcode, mem_reg.mem_addr, mem_reg.store_value
+                );
             },
 
 
