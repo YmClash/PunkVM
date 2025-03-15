@@ -2,7 +2,7 @@
 
 use crate::alu::alu::{ALU, ALUOperation, BranchCondition};
 use crate::bytecode::opcodes::Opcode;
-use crate::pipeline::{DecodeExecuteRegister, ExecuteMemoryRegister,};
+use crate::pipeline::{DecodeExecuteRegister, ExecuteMemoryRegister, PipelineState};
 
 
 
@@ -61,6 +61,11 @@ impl ExecuteStage{
                 alu_result = alu.execute(ALUOperation::Mod, rs1_value, rs2_value)?;
                 println!("Execute MOD: rs1_value={}, rs2_value={}, alu_result={}", rs1_value, rs2_value, alu_result);
             },
+            Opcode::Mov => {
+                let val = ex_reg.immediate.unwrap_or(ex_reg.rs2_value);
+                alu_result = val;
+                println!("Execute MOV => alu_result = {}", alu_result);
+            }
 
             Opcode::Inc => {
                 alu_result = alu.execute(ALUOperation::Inc, rs1_value, 0)?;
@@ -202,9 +207,17 @@ impl ExecuteStage{
             },
 
             Opcode::Halt => {
-                // Instruction spéciale pour terminer l'exécution
-                // Gérée au niveau du pipeline
                 println!("Execute HALT");
+                return Ok(ExecuteMemoryRegister {
+                    instruction: ex_reg.instruction.clone(),
+                    alu_result: 0,
+                    rd: ex_reg.rd,
+                    store_value: None,
+                    mem_addr: None,
+                    branch_target: None,
+                    branch_taken: false,
+                    halted: true, // un champ qu’il faut rajouter (voir ci-dessous)
+                });
             },
 
             // Instructions étendues et autres
@@ -221,6 +234,7 @@ impl ExecuteStage{
             mem_addr,
             branch_target,
             branch_taken,
+            halted: false, // Pas de halt ici
         })
     }
 

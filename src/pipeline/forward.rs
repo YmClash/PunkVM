@@ -249,6 +249,7 @@ mod forwarding_tests {
             mem_addr: None,
             branch_target: None,
             branch_taken: false,
+            halted: false,
         };
 
         // On fait le forwarding
@@ -287,6 +288,7 @@ mod forwarding_tests {
             mem_addr: None,
             branch_target: None,
             branch_taken: false,
+            halted: false,
         };
 
         let infos = unit.forward_with_info(&mut ex_reg, &Some(mem_reg), &None);
@@ -356,6 +358,7 @@ mod forwarding_tests {
             mem_addr: None,
             branch_target: None,
             branch_taken: false,
+            halted: false,
         };
 
         let wb_reg = MemoryWritebackRegister {
@@ -400,6 +403,7 @@ mod forwarding_tests {
             mem_addr: Some(0x100),
             branch_target: None,
             branch_taken: false,
+            halted: false,
         };
 
         // Aucun registre writeback
@@ -440,6 +444,7 @@ mod forwarding_tests {
             mem_addr: None,
             branch_target: None,
             branch_taken: false,
+            halted: false,
         };
 
         let mut ex_reg = DecodeExecuteRegister {
@@ -493,6 +498,7 @@ mod forwarding_tests {
             mem_addr: None,
             branch_target: None,
             branch_taken: false,
+            halted: false,
         };
 
         // Writeback => R2=24
