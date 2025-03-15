@@ -5,8 +5,8 @@ Ce document présente le plan de développement détaillé pour l'implémentatio
 ## Phase 1: Fondations (2-3 mois)
 
 ### 1.1 Définition du Format de Bytecode (2 semaines)
-- [ ] Définir le format à longueur variable des instructions (opcode, longueur, arguments)
-- [ ] Implémenter les structures pour représenter le bytecode en mémoire
+- [x] Définir le format à longueur variable des instructions (opcode, longueur, arguments)
+- [x] Implémenter les structures pour représenter le bytecode en mémoire
 - [ ] Créer un système de sérialisation/désérialisation pour le bytecode
 - [ ] Développer des outils de base pour visualiser et déboguer le bytecode
 
@@ -19,10 +19,10 @@ Ce document présente le plan de développement détaillé pour l'implémentatio
 - [ ] Intégrer les instructions de contrôle simples (jump, jumpif)
 
 ### 1.3 Unité ALU (2 semaines)
-- [ ] Développer l'architecture de base de l'ALU
-- [ ] Implémenter les opérations arithmétiques (add, sub, mul, div)
-- [ ] Ajouter les opérations logiques (and, or, xor, not)
-- [ ] Intégrer les opérations de comparaison et mise à jour de flags
+- [x] Développer l'architecture de base de l'ALU
+- [x] Implémenter les opérations arithmétiques (add, sub, mul, div)
+- [x] Ajouter les opérations logiques (and, or, xor, not)
+- [x] Intégrer les opérations de comparaison et mise à jour de flags
 - [ ] Développer les tests unitaires pour l'ALU
 
 ### 1.4 Tests et Validation (1 semaine)

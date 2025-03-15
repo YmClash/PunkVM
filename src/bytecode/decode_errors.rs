@@ -24,3 +24,6 @@ impl fmt::Display for DecodeError{
 }
 
 impl std::error::Error for DecodeError {}
+
+
+pub type DecodeResult<T> = Result<T, DecodeError>;

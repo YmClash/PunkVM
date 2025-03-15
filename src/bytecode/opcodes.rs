@@ -14,6 +14,7 @@ pub enum Opcode{
     Inc = 0x06,
     Dec = 0x07,
     Neg = 0x08,
+    Mov = 0x09, //move
     //0x09 - 0x1F : Réservé pour les futures instructions ALU
 
     // Instructions Logiques et de bit (0x20 - 0x3F)

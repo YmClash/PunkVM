@@ -1,7 +1,7 @@
 // //src/pvm/registers.rs
 //
-// use crate::pvm::instructions::RegisterId;
-// use crate::pvm::pipelines::StatusFlags;
+// // use crate::pvm::instructions::RegisterId;
+// // use crate::pvm::pipelines::StatusFlags;
 // use crate::pvm::vm_errors::{VMError, VMResult};
 //
 //
