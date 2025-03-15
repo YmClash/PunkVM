@@ -62,9 +62,9 @@ impl ExecuteStage{
                 println!("Execute MOD: rs1_value={}, rs2_value={}, alu_result={}", rs1_value, rs2_value, alu_result);
             },
             Opcode::Mov => {
-                let val = ex_reg.immediate.unwrap_or(ex_reg.rs2_value);
-                alu_result = val;
-                println!("Execute MOV => alu_result = {}", alu_result);
+                let value = ex_reg.immediate.unwrap_or(ex_reg.rs2_value);
+                alu_result = value;
+                println!("Execute MOV: rs1_value={}, immediate={:?}, alu_result={}", rs1_value, ex_reg.immediate, alu_result);
             }
 
             Opcode::Inc => {

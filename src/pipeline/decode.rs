@@ -191,6 +191,7 @@ impl DecodeStage {
             // Instructions de Mov
             Opcode::Mov => {
                 if let Ok(ArgValue::Register(r)) = instruction.get_arg1_value() {
+
                     rd = Some(r as usize);
                     println!("Registre destination pour MOV: {:?}", rd);
                 }

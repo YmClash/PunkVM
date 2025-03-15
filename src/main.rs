@@ -34,9 +34,9 @@ fn main() -> VMResult<()> {
     println!(" PunkVM initialisée avec {} registre succès", vm.registers.len());
 
     // Créer le programme complexe
-    let program = create_complex_program();
+    // let program = create_complex_program();
     // let program = create_simple_complex_program();
-
+    let program = create_cmp_loop_program();
 
     // Charger le programme dans la VM
     println!("Chargement du programme...");
@@ -78,25 +78,6 @@ fn create_simple_complex_program() -> BytecodeFile {
     program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 1));   // R2 = 1
     program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 0));   // R3 = 0
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
-    // // Label: LOOP_START (implicite)
-    // // Incrémenter compteur: R0 = R0 + R2
-    // program.add_instruction(Instruction::create_reg_reg(Opcode::Add, 0, 2));
-    //
-    // // Ajouter à la somme: R3 = R3 + R0
-    // program.add_instruction(Instruction::create_reg_reg(Opcode::Add, 3, 0));
-    //
-    // // Comparer compteur à limite: R0 vs R1
-    // program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
-    //
-    // // Sauter si R0 < R1, retour à LOOP_START
-    // // // Note: Vous devrez adapter ce code selon votre implémentation
-    // let jump_instruction = Instruction::create_reg_imm8(Opcode::JmpIf, 0, 0xFF); // -1 signifie "retourner à l'instruction précédente"
-    // program.add_instruction(jump_instruction);
-    //
-    // // // Pour débogage, copier résultat dans d'autres registres
-    // program.add_instruction(Instruction::create_reg_reg(Opcode::Add, 10, 3)); // R10 = 0 + R3
-//////////////////////////////////////////////////////////////////////////////////////////////////////////
     // Opérations en format reg_reg_reg :
     // ADD R2, R0, R1   → R2 = 5 + 3 = 8
     program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 2, 0, 1));
@@ -137,8 +118,6 @@ fn create_simple_complex_program() -> BytecodeFile {
 
     program
 }
-
-
 
 /// Crée un programme complexe qui teste plusieurs aspects de la VM:
 /// - Dépendances de données
@@ -203,7 +182,8 @@ fn create_complex_program() -> BytecodeFile {
     // Sauter si R0 < R1
     // Calculer le décalage pour le saut vers LOOP_START
     let current_idx = program.code.len();
-    let offset_to_start = -(calculate_instruction_range_size(&program.code, loop_start_idx, current_idx) as i32);
+    // let offset_to_start = -(calculate_instruction_range_size(&program.code, loop_start_idx, current_idx) as i32);
+    let offset_to_start = -(calculate_range_size(&program.code, loop_start_idx, current_idx) as i8);
 
     // JmpIf R0 < R1, LOOP_START
     let jump_instruction = create_conditional_jump(offset_to_start);
@@ -260,26 +240,140 @@ fn create_load_with_register(dest_reg: u8, addr_reg: u8) -> Instruction {
     Instruction::create_reg_reg(Opcode::Load, dest_reg, addr_reg)
 }
 
-fn create_conditional_jump(offset: i32) -> Instruction {
-    // Crée un saut conditionnel avec un offset relatif
-    // L'implémentation exacte dépend de votre format d'instruction
-    let mut instruction = Instruction::create_no_args(Opcode::JmpIf);
 
-    // Encoder l'offset dans les arguments de l'instruction
-    // Cela peut nécessiter une adaptation selon votre format
-    let bytes = offset.to_le_bytes();
-    instruction.args = bytes.to_vec();
+/////////////////////////////////////////////////
 
-    instruction
+// fn create_conditional_jump(offset: i32) -> Instruction {
+//     // Crée un saut conditionnel avec un offset relatif
+//     // L'implémentation exacte dépend de votre format d'instruction
+//     let mut instruction = Instruction::create_no_args(Opcode::JmpIf);
+//
+//     // Encoder l'offset dans les arguments de l'instruction
+//     // Cela peut nécessiter une adaptation selon votre format
+//     let bytes = offset.to_le_bytes();
+//     instruction.args = bytes.to_vec();
+//
+//     instruction
+// }
+//
+// fn calculate_instruction_range_size(instructions: &[Instruction], start_idx: usize, end_idx: usize) -> usize {
+//     let mut total_size = 0;
+//     for i in start_idx..end_idx {
+//         total_size += instructions[i].total_size();
+//     }
+//     total_size
+// }
+///////////////////////////////////////////////////////////////
+
+
+/// Calcule la somme des tailles des instructions dans l'intervalle [start, end).
+fn calculate_range_size(instructions: &[Instruction], start: usize, end: usize) -> usize {
+    instructions[start..end].iter().map(|instr| instr.total_size()).sum()
 }
 
-fn calculate_instruction_range_size(instructions: &[Instruction], start_idx: usize, end_idx: usize) -> usize {
-    let mut total_size = 0;
-    for i in start_idx..end_idx {
-        total_size += instructions[i].total_size();
-    }
-    total_size
+/// Crée une instruction de saut conditionnel (JmpIfNot) avec un offset relatif (en i8).
+/// L'offset est encodé en Immediate8 (en deux's complement).
+fn create_conditional_jump(offset: i8) -> Instruction {
+    // Ici, on considère que l'instruction JmpIfNot utilise un registre fictif 0 (inutilisé) et l'immédiat est l'offset.
+    Instruction::create_reg_imm8(Opcode::JmpIfNot, 0, offset as u8)
 }
+
+/// Crée un programme qui teste CMP et un saut conditionnel dans une boucle.
+/// La boucle effectue :
+///   MOV R0, #0          ; initialisation du compteur
+///   MOV R1, #5          ; limite
+///   MOV R2, #1          ; incrément
+/// LOOP_START:
+///   ADD R0, R0, R2      ; R0 = R0 + 1
+///   CMP R0, R1          ; compare R0 et R1
+///   JmpIfNot <offset>   ; si R0 != R1, retour à LOOP_START
+///   HALT                ; sinon, fin du programme
+pub fn create_cmp_loop_program() -> BytecodeFile {
+    let mut program = BytecodeFile::new();
+    program.version = BytecodeVersion::new(0, 1, 0, 0);
+    program.add_metadata("name", "CMP Loop Program");
+    program.add_metadata("description", "Test CMP et saut conditionnel avec le format reg_reg[_imm]");
+
+    // Initialisation avec MOV (pour affecter des valeurs immédiates)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 0)); // R0 = 0 (compteur)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 5)); // R1 = 5 (limite)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 1)); // R2 = 1 (incrément)
+
+    // Marqueur de début de boucle : enregistre l'indice de la première instruction de la boucle.
+    let loop_start_idx = program.code.len();
+
+    // 4. Incrémenter le compteur : ADD R0, R0, R2
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 0, 0, 2));
+
+    // 5. Comparer le compteur à la limite : CMP R0, R1
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    // Note : ici, on utilise create_reg_reg pour CMP (format à deux registres). Le troisième argument est None.
+
+    // 6. JmpIfNot : si R0 != R1, sauter vers LOOP_START.
+    // On calcule l'offset relatif négatif entre l'instruction JmpIfNot (actuellement à index jump_idx)
+    // et le début de la boucle (loop_start_idx).
+    let jump_idx = program.code.len();
+    let range_size = calculate_range_size(&program.code, loop_start_idx, jump_idx);
+    // L'offset sera négatif pour revenir en arrière.
+    let offset: i8 = -(range_size as i8);
+    let jump_inst = create_conditional_jump(offset);
+    program.add_instruction(jump_inst);
+
+    // 7. HALT pour terminer le programme.
+    program.add_instruction(Instruction::create_no_args(Opcode::Halt));
+
+    // Calculer la taille totale du code et créer le segment de code
+    let total_size: u32 = program.code.iter().map(|instr| instr.total_size() as u32).sum();
+    program.segments = vec![
+        SegmentMetadata::new(SegmentType::Code, 0, total_size, 0)
+    ];
+
+    program
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 fn print_registers(vm: &VM) {
     for i in 0..16 {
@@ -357,18 +451,7 @@ fn print_stats(vm: &VM) {
 
 /*
 
-fn create_minimal_test_program() -> Result<BytecodeFile, Box<dyn std::error::Error>> {
-    let mut bytecode = BytecodeFile::new();
 
-    // Définition de la version
-    bytecode.version = BytecodeVersion::new(0, 1, 0, 0);
-
-    // Juste quelques instructions simples
-    bytecode.add_instruction(Instruction::create_reg_imm8(Opcode::Load, 0, 1));
-    bytecode.add_instruction(Instruction::create_no_args(Opcode::Halt));
-
-    Ok(bytecode)
-}
 
 // Crée un programme de test qui calcule la somme des nombres de 1 à 10
 fn create_test_program() -> Result<BytecodeFile, Box<dyn std::error::Error>> {
