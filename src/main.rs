@@ -34,8 +34,8 @@ fn main() -> VMResult<()> {
     println!(" PunkVM initialisée avec {} registre succès", vm.registers.len());
 
     // Créer le programme complexe
-    // let program = create_complex_program();
-    let program = create_simple_complex_program();
+    let program = create_complex_program();
+    // let program = create_simple_complex_program();
 
 
     // Charger le programme dans la VM
@@ -73,33 +73,51 @@ fn create_simple_complex_program() -> BytecodeFile {
     program.add_metadata("description", "Test des fonctionnalités avancées de PunkVM");
 
     // Initialisation des registres avec des valeurs de test
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Load, 0, 0));   // R0 = 0
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Load, 1, 10));  // R1 = 10
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Load, 2, 1));   // R2 = 1
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Load, 3, 0));   // R3 = 0
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 0));   // R0 = 0
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 10));  // R1 = 10
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 1));   // R2 = 1
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 0));   // R3 = 0
 
-    // Label: LOOP_START (implicite)
-    // Incrémenter compteur: R0 = R0 + R2
-    program.add_instruction(Instruction::create_reg_reg(Opcode::Add, 0, 2));
+////////////////////////////////////////////////////////////////////////////////////////////////////
+    // // Label: LOOP_START (implicite)
+    // // Incrémenter compteur: R0 = R0 + R2
+    // program.add_instruction(Instruction::create_reg_reg(Opcode::Add, 0, 2));
+    //
+    // // Ajouter à la somme: R3 = R3 + R0
+    // program.add_instruction(Instruction::create_reg_reg(Opcode::Add, 3, 0));
+    //
+    // // Comparer compteur à limite: R0 vs R1
+    // program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    //
+    // // Sauter si R0 < R1, retour à LOOP_START
+    // // // Note: Vous devrez adapter ce code selon votre implémentation
+    // let jump_instruction = Instruction::create_reg_imm8(Opcode::JmpIf, 0, 0xFF); // -1 signifie "retourner à l'instruction précédente"
+    // program.add_instruction(jump_instruction);
+    //
+    // // // Pour débogage, copier résultat dans d'autres registres
+    // program.add_instruction(Instruction::create_reg_reg(Opcode::Add, 10, 3)); // R10 = 0 + R3
+//////////////////////////////////////////////////////////////////////////////////////////////////////////
+    // Opérations en format reg_reg_reg :
+    // ADD R2, R0, R1   → R2 = 5 + 3 = 8
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 2, 0, 1));
 
-    // Ajouter à la somme: R3 = R3 + R0
-    program.add_instruction(Instruction::create_reg_reg(Opcode::Add, 3, 0));
+    // SUB R4, R3, R0   → R4 = 10 - 5 = 5
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Sub, 4, 3, 0));
 
-    // Comparer compteur à limite: R0 vs R1
-    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    // MUL R5, R2, R4   → R5 = 8 * 5 = 40
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Mul, 5, 2, 4));
 
-    // Sauter si R0 < R1, retour à LOOP_START
-    // Note: Vous devrez adapter ce code selon votre implémentation
-    let jump_instruction = Instruction::create_reg_imm8(Opcode::JmpIf, 0, 0xFF); // -1 signifie "retourner à l'instruction précédente"
-    program.add_instruction(jump_instruction);
+    // DIV R6, R5, R1   → R6 = 40 / 3 = 13 (division entière, si c'est le comportement défini)
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Div, 6, 5, 1));
 
-    // Pour débogage, copier résultat dans d'autres registres
-    program.add_instruction(Instruction::create_reg_reg(Opcode::Add, 10, 3)); // R10 = 0 + R3
-
-    // HALT: Arrêter l'exécution
+    // HALT → arrête l'exécution
     program.add_instruction(Instruction::create_no_args(Opcode::Halt));
 
-    // Calculer la taille totale du code
+
+    // // HALT: Arrêter l'exécution
+    program.add_instruction(Instruction::create_no_args(Opcode::Halt));
+
+    // // Calculer la taille totale du code
     let total_size: u32 = program.code.iter()
         .map(|instr| instr.total_size() as u32)
         .sum();
@@ -141,11 +159,11 @@ fn create_complex_program() -> BytecodeFile {
     // R3 = 0 (somme)
     // R4 = 100 (base pour les adresses mémoire)
 
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Load, 0, 0));   // R0 = 0
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Load, 1, 10));  // R1 = 10
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Load, 2, 1));   // R2 = 1
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Load, 3, 0));   // R3 = 0
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Load, 4, 100)); // R4 = 100
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 0));   // R0 = 0
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 10));  // R1 = 10
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 1));   // R2 = 1
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 0));   // R3 = 0
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 100)); // R4 = 100
 
     // Stocker la valeur initiale du compteur en mémoire
     // Store R0 @ [R4+0]
@@ -233,7 +251,8 @@ fn create_store_with_offset(value_reg: u8, base_reg: u8, offset: u8) -> Instruct
 
 fn create_load_with_offset(dest_reg: u8, base_reg: u8, offset: u8) -> Instruction {
     // Cette fonction simule: R{dest_reg} = Load @ [R{base_reg} + offset]
-    Instruction::create_reg_imm8(Opcode::Load, dest_reg, offset)
+    // Instruction::create_reg_imm8(Opcode::Load, dest_reg, offset)
+    Instruction::create_reg_imm8(Opcode::Mov, dest_reg, offset)
 }
 
 fn create_load_with_register(dest_reg: u8, addr_reg: u8) -> Instruction {
@@ -274,7 +293,7 @@ fn print_registers(vm: &VM) {
 
 fn print_stats(vm: &VM) {
     let stats = vm.stats();
-    println!("\nStatistiques d'exécution:");
+    println!("\n===== STATISTIQUES D'EXÉCUTION =====\n");
     println!("  Cycles: {}", stats.cycles);
     println!("  Instructions exécutées: {}", stats.instructions_executed);
     println!("  IPC (Instructions Par Cycle): {:.2}", stats.ipc);
@@ -299,6 +318,37 @@ fn print_stats(vm: &VM) {
         let forwarding_efficiency = (stats.forwards as f64 / stats.hazards as f64) * 100.0;
         println!("  Efficacité du forwarding: {:.2}%", forwarding_efficiency);
     }
+
+
+    // Évaluation des performances
+    println!("\n===== ÉVALUATION DES PERFORMANCES =====\n");
+
+    // Taux de hits du cache
+    let cache_hit_rate = if stats.memory_hits + stats.memory_misses > 0 {
+        stats.memory_hits as f64 / (stats.memory_hits + stats.memory_misses) as f64 * 100.0
+    } else {
+        0.0
+    };
+    println!("Taux de hits cache: {:.2}%", cache_hit_rate);
+
+    // Taux de stalls
+    let stall_rate = if stats.cycles > 0 {
+        stats.stalls as f64 / stats.cycles as f64 * 100.0
+    } else {
+        0.0
+    };
+    println!("Taux de stalls: {:.2}%", stall_rate);
+
+    // Efficacité du forwarding
+    let forwarding_efficiency = if stats.hazards > 0 {
+        stats.forwards as f64 / stats.hazards as f64 * 100.0
+    } else {
+        0.0
+    };
+    println!("Efficacité du forwarding: {:.2}%", forwarding_efficiency);
+
+    println!("\n===== TEST TERMINÉ =====\n");
+
 }
 /////////////////////////////////////////////////////////////////////////////////////////////////////
 
