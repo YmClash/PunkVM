@@ -60,24 +60,88 @@ mod tests {
         assert!(true);
     }
 
-    // Note: Il y a une erreur dans votre implémentation de reset()
-    // Elle s'appelle elle-même récursivement, ce qui provoque un stack overflow
-    // Le test suivant va échouer, mais il vous permet d'identifier ce problème
-    // #[test]
-    // fn test_writeback_stage_reset() {
-    //     let mut writeback = WritebackStage::new();
-    //     writeback.reset(); // Ceci provoquera un stack overflow
-    // }
 
-    // Voici la version correcte du test que vous pourrez utiliser après correction
     #[test]
     fn test_writeback_stage_reset() {
         let mut writeback = WritebackStage::new();
-        // La méthode reset devrait être modifiée pour ne rien faire
-        // car il n'y a pas d'état à réinitialiser
-        // writeback.reset();
+        writeback.reset();
         assert!(true);
     }
+
+    #[test]
+    fn test_writeback_with_two_register_format() {
+        let mut writeback = WritebackStage::new();
+        let mut registers = vec![0; 16];
+
+        // Créer une instruction au format deux registres: ADD R0, R1
+        let add_instruction = Instruction::create_reg_reg(Opcode::Add, 0, 1);
+
+        // Créer un registre Memory → Writeback
+        let wb_reg = MemoryWritebackRegister {
+            instruction: add_instruction,
+            result: 42,
+            rd: Some(0), // Registre destination R0
+        };
+
+        // Traiter l'instruction
+        let result = writeback.process_direct(&wb_reg, &mut registers);
+        assert!(result.is_ok());
+
+        // Vérifier que la valeur a été écrite dans le registre
+        assert_eq!(registers[0], 42);
+    }
+    #[test]
+    fn test_writeback_with_three_register_format() {
+        let mut writeback = WritebackStage::new();
+        let mut registers = vec![0; 16];
+
+        // Créer une instruction au format trois registres: ADD R2, R0, R1
+        let add_instruction = Instruction::create_reg_reg_reg(Opcode::Add, 2, 0, 1);
+
+        // Créer un registre Memory → Writeback
+        let wb_reg = MemoryWritebackRegister {
+            instruction: add_instruction,
+            result: 123,
+            rd: Some(2), // Registre destination R2
+        };
+
+        // Traiter l'instruction
+        let result = writeback.process_direct(&wb_reg, &mut registers);
+        assert!(result.is_ok());
+
+        // Vérifier que la valeur a été écrite dans le bon registre
+        assert_eq!(registers[2], 123);
+        // Vérifier que les autres registres n'ont pas été modifiés
+        assert_eq!(registers[0], 0);
+        assert_eq!(registers[1], 0);
+    }
+
+    #[test]
+    fn test_writeback_multiple_registers() {
+        let mut writeback = WritebackStage::new();
+        let mut registers = vec![0; 16];
+
+        // Écrire dans plusieurs registres en séquence
+        for i in 0..10 {
+            let add_instruction = Instruction::create_reg_reg(Opcode::Add, i as u8, 0);
+
+            let wb_reg = MemoryWritebackRegister {
+                instruction: add_instruction,
+                result: i as u64 * 10,
+                rd: Some(i),
+            };
+
+            let result = writeback.process_direct(&wb_reg, &mut registers);
+            assert!(result.is_ok());
+        }
+
+        // Vérifier que toutes les valeurs ont été correctement écrites
+        for i in 0..10 {
+            assert_eq!(registers[i], i as u64 * 10);
+        }
+    }
+
+
 
     #[test]
     fn test_writeback_simple_register_write() {
@@ -104,7 +168,7 @@ mod tests {
 
     // Version corrigée du test test_writeback_multiple_registers
     #[test]
-    fn test_writeback_multiple_registers() {
+    fn test_writeback_multiple_registers_1() {
         let mut writeback = WritebackStage::new();
         let mut registers = vec![0; 16];
 
@@ -126,6 +190,60 @@ mod tests {
         for i in 0..10 {
             assert_eq!(registers[i], i as u64 * 10);
         }
+    }
+    #[test]
+    fn test_writeback_three_register_sequence() {
+        let mut writeback = WritebackStage::new();
+        let mut registers = vec![0; 16];
+
+        // Simuler une séquence d'instructions au format trois registres
+        // 1. ADD R2, R0, R1 (R2 = R0 + R1)
+        // 2. SUB R3, R2, R0 (R3 = R2 - R0)
+        // 3. MUL R4, R3, R1 (R4 = R3 * R1)
+
+        // Préparation: initialiser R0=5 et R1=10
+        registers[0] = 5;
+        registers[1] = 10;
+
+        // Étape 1: ADD R2, R0, R1 (R2 = 5 + 10 = 15)
+        let add_instruction = Instruction::create_reg_reg_reg(Opcode::Add, 2, 0, 1);
+        let wb_reg_add = MemoryWritebackRegister {
+            instruction: add_instruction,
+            result: 15, // Résultat calculé par l'étage Execute et passé par Memory
+            rd: Some(2),
+        };
+        let result_add = writeback.process_direct(&wb_reg_add, &mut registers);
+        assert!(result_add.is_ok());
+        assert_eq!(registers[2], 15);
+
+        // Étape 2: SUB R3, R2, R0 (R3 = 15 - 5 = 10)
+        let sub_instruction = Instruction::create_reg_reg_reg(Opcode::Sub, 3, 2, 0);
+        let wb_reg_sub = MemoryWritebackRegister {
+            instruction: sub_instruction,
+            result: 10,
+            rd: Some(3),
+        };
+        let result_sub = writeback.process_direct(&wb_reg_sub, &mut registers);
+        assert!(result_sub.is_ok());
+        assert_eq!(registers[3], 10);
+
+        // Étape 3: MUL R4, R3, R1 (R4 = 10 * 10 = 100)
+        let mul_instruction = Instruction::create_reg_reg_reg(Opcode::Mul, 4, 3, 1);
+        let wb_reg_mul = MemoryWritebackRegister {
+            instruction: mul_instruction,
+            result: 100,
+            rd: Some(4),
+        };
+        let result_mul = writeback.process_direct(&wb_reg_mul, &mut registers);
+        assert!(result_mul.is_ok());
+        assert_eq!(registers[4], 100);
+
+        // Vérifier l'état final des registres
+        assert_eq!(registers[0], 5);   // Inchangé
+        assert_eq!(registers[1], 10);  // Inchangé
+        assert_eq!(registers[2], 15);  // ADD R2, R0, R1
+        assert_eq!(registers[3], 10);  // SUB R3, R2, R0
+        assert_eq!(registers[4], 100); // MUL R4, R3, R1
     }
 
     #[test]
@@ -203,5 +321,46 @@ mod tests {
             // Vérifier que la valeur a été correctement écrite
             assert_eq!(registers[i], value);
         }
+    }
+
+    #[test]
+    fn test_writeback_mixed_instruction_formats() {
+        let mut writeback = WritebackStage::new();
+        let mut registers = vec![0; 16];
+
+        // Initialiser des valeurs de base
+        registers[0] = 5;
+        registers[1] = 10;
+
+        // Format à trois registres: ADD R2, R0, R1
+        let add_instruction = Instruction::create_reg_reg_reg(Opcode::Add, 2, 0, 1);
+        let wb_reg_add = MemoryWritebackRegister {
+            instruction: add_instruction,
+            result: 15, // 5 + 10
+            rd: Some(2),
+        };
+        writeback.process_direct(&wb_reg_add, &mut registers).unwrap();
+
+        // Format à un registre: INC R2
+        let inc_instruction = Instruction::create_single_reg(Opcode::Inc, 2);
+        let wb_reg_inc = MemoryWritebackRegister {
+            instruction: inc_instruction,
+            result: 16, // 15 + 1
+            rd: Some(2),
+        };
+        writeback.process_direct(&wb_reg_inc, &mut registers).unwrap();
+
+        // Format à deux registres: MOV R3, R2
+        let mov_instruction = Instruction::create_reg_reg(Opcode::Mov, 3, 2);
+        let wb_reg_mov = MemoryWritebackRegister {
+            instruction: mov_instruction,
+            result: 16, // Valeur de R2
+            rd: Some(3),
+        };
+        writeback.process_direct(&wb_reg_mov, &mut registers).unwrap();
+
+        // Vérifier les résultats
+        assert_eq!(registers[2], 16); // Valeur après INC
+        assert_eq!(registers[3], 16); // Copie de R2
     }
 }

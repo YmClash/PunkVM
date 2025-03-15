@@ -188,8 +188,34 @@ impl DecodeStage {
                 // mais se basent sur les flags définis par les instructions précédentes
             },
 
+            // Instructions de Mov
+            Opcode::Mov => {
+                if let Ok(ArgValue::Register(r)) = instruction.get_arg1_value() {
+                    rd = Some(r as usize);
+                    println!("Registre destination pour MOV: {:?}", rd);
+                }
+
+                if let Ok(ArgValue::Immediate(imm)) = instruction.get_arg2_value() {
+                    // c'est un "Mov Rd, imm" par exemple
+                    // si c'est "create_reg_imm8(Opcode::Mov, reg, imm)"
+                    // alors arg1=Register, arg2=Immediate8
+                    // => le decode saura stocker l'immediate dans un champ (plus tard).
+                    println!("Valeur immédiate pour MOV: {:?}", imm);
+
+                }
+            },
+            // Instructions d'arret
+            Opcode::Halt => {
+                // Pas de registre à extraire
+                println!("Instruction HALT détectée");
+
+            },
+
+
             // Autres instructions (par défaut)
-            _ => {},
+            _ => {
+                return Err(format!("Instruction non prise en charge: {:?}", instruction.opcode));
+            },
         }
 
         Ok((rs1, rs2, rd))
@@ -202,11 +228,11 @@ impl DecodeStage {
             Ok(ArgValue::Immediate(imm)) => return Ok(Some(imm)),
             _ => {},
         }
-        match instruction.get_arg1_value() {
+        match instruction.get_arg2_value() {
             Ok(ArgValue::Immediate(imm)) => return Ok(Some(imm)),
             _ => {},
         }
-        match instruction.get_arg2_value() {
+        match instruction.get_arg3_value() {
             Ok(ArgValue::Immediate(imm)) => return Ok(Some(imm)),
             _ => {},
         }

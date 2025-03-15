@@ -1,6 +1,7 @@
 //src/pvm/vm_errors.rs
 use std::fmt;
-use std::error::Error;
+
+use std::io::Error;
 #[derive(Debug, Clone, PartialEq)]
 pub enum VMError {
     MemoryError(String),
@@ -11,6 +12,7 @@ pub enum VMError {
     ExecutionError(String),
     ALUError(String),
     DecodeError(String),
+
 }
 
 
@@ -25,6 +27,29 @@ impl VMError {
         VMError::MemoryError(msg.to_string())
     }
 
+    pub fn register_error(msg: &str) -> Self {
+        VMError::RegisterError(msg.to_string())
+    }
+
+    pub fn instruction_error(msg: &str) -> Self {
+        VMError::InstructionError(msg.to_string())
+    }
+
+    pub fn config_error(msg: &str) -> Self {
+        VMError::ConfigError(msg.to_string())
+    }
+
+    pub fn execution_error(msg: &str) -> Self {
+        VMError::ExecutionError(msg.to_string())
+    }
+
+    pub fn alu_error(msg: &str) -> Self {
+        VMError::ALUError(msg.to_string())
+    }
+
+    pub fn decode_error(msg: &str) -> Self {
+        VMError::DecodeError(msg.to_string())
+    }
 
 }
 
@@ -48,7 +73,11 @@ impl fmt::Display for VMError{
 
 
 
-impl Error for VMError{}
+impl From<Error> for VMError {
+    fn from(err:Error) -> Self {
+        VMError::ExecutionError(format!("I/O Error: {}", err))
+    }
+}
 
 
 /// Resultat type pour les operation de la VM
