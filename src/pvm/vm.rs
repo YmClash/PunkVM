@@ -169,55 +169,6 @@ impl PunkVM {
     }
 
     /// Exécute le programme chargé jusqu'à la fin ou jusqu'à une erreur
-    // pub fn run(&mut self) -> VMResult<()> {
-    //     if self.program.is_none() {
-    //         return Err(VMError::execution_error("Aucun programme chargé"));
-    //     }
-    //
-    //     self.state = VMState::Running;
-    //
-    //     // Boucle tant que Running
-    //     // while self.state == VMState::Running {
-    //     //     // self.step()?; // Si step() renvoie une erreur => on arrête
-    //     //     break; // Pour l'instant, on sort de la boucle
-    //     // }
-    //
-    //     loop {
-    //         if self.state != VMState::Running {
-    //             break;
-    //         }
-    //         let pipeline_state = self.pipeline.cycle(
-    //             self.pc as u32,
-    //             &mut self.registers,
-    //             &mut self.memory,
-    //             &mut self.alu,
-    //             &self.program.as_ref().unwrap().code,
-    //         ).map_err(|pipe_err| VMError::execution_error(&format!(
-    //             "Erreur pipeline: {}",
-    //             pipe_err
-    //         )))?;
-    //
-    //         self.pc = pipeline_state.next_pc as usize;
-    //         self.cycles += 1;
-    //         self.instructions_executed += pipeline_state.instructions_completed as u64;
-    //
-    //
-    //
-    //         // Si le pipeline signale qu’il est halted => on arrête
-    //         if pipeline_state.halted {
-    //             self.state = VMState::Halted;
-    //             break;
-    //         }
-    //     }
-    //
-    //
-    //     // Si on sort de la boucle, c'est soit Halted, soit Error
-    //     match &self.state {
-    //         VMState::Halted => Ok(()),
-    //         VMState::Error(msg) => Err(VMError::execution_error(msg)),
-    //         _ => Ok(()),
-    //     }
-    // }
     pub fn run(&mut self) -> VMResult<()> {
         if self.program.is_none() {
             return Err(VMError::execution_error("Aucun programme chargé"));
@@ -273,37 +224,6 @@ impl PunkVM {
             _ => Ok(()),
         }
     }
-
-    // pub fn run(&mut self) -> VMResult<()> {
-    //     if self.program.is_none() {
-    //         // return Err("Aucun programme chargé".to_string());
-    //         return Err(VMError::execution_error("Aucun programme chargé"));
-    //     }
-    //
-    //     self.state = VMState::Running;
-    //
-    //     while self.state == VMState::Running {
-    //         match self.step() {
-    //             Ok(_) => {},
-    //             Err(e) => {
-    //                 self.state = VMState::Error(e.to_string());
-    //                 return Err(e);
-    //             }
-    //         }
-    //     }
-    //
-    //     match &self.state {
-    //         VMState::Halted => Ok(()),
-    //         VMState::Error(msg) => Err(VMError::execution_error(msg)),
-    //         _ => Ok(()),
-    //     }
-    //
-    //     // if let VMState::Error(ref e) = self.state {
-    //     //     Err(e.clone())
-    //     // } else {
-    //     //     Ok(())
-    //     // }
-    // }
 
 
     /// Exécute un seul cycle du pipeline
@@ -367,8 +287,10 @@ impl PunkVM {
                 0.0
             },
             stalls: self.pipeline.stats().stalls,
-            hazards: self.pipeline.stats().hazards,
-            forwards: self.pipeline.stats().forwards,
+            // hazards: self.pipeline.stats().hazards,
+            hazards: self.pipeline.hazard_detection.get_hazards_count(),
+            // forwards: self.pipeline.stats().forwards,
+            forwards: self.pipeline.forwarding.get_forwards_count(),
             memory_hits: self.memory.stats().hits,
             memory_misses: self.memory.stats().misses,
         }

@@ -112,6 +112,7 @@ impl Memory{
         self.check_address(addr + 1)?;
         let b0 = self.read_byte(addr)?;
         let b1 = self.read_byte(addr + 1)?;
+        println!("read_word: b0 = {}, b1 = {}", b0, b1);
         Ok(u16::from_le_bytes([b0, b1]))
     }
 
@@ -122,6 +123,7 @@ impl Memory{
         let b1 = self.read_byte(addr + 1)?;
         let b2 = self.read_byte(addr + 2)?;
         let b3 = self.read_byte(addr + 3)?;
+        println!("read_dword: b0 = {}, b1 = {}, b2 = {}, b3 = {}", b0, b1, b2, b3);
         Ok(u32::from_le_bytes([b0, b1, b2, b3]))
     }
 
@@ -132,6 +134,7 @@ impl Memory{
         for i in 0..8 {
             buf[i] = self.read_byte(addr + i as u32)?;
         }
+        println!("read_qword: buf = {:?}", buf);
         Ok(u64::from_le_bytes(buf))
     }
 
@@ -157,6 +160,8 @@ impl Memory{
             // On considère que c'est un hit ?
             self.stats.hits += 1;
         }
+
+        println!("Ecriture dans la memoire: addr = 0x{:08X}, value = {}", addr, value);
 
         // 3) Écriture immédiate (write-through) en RAM
         self.memory[addr as usize] = value;
@@ -197,6 +202,7 @@ impl Memory{
         let bytes = value.to_le_bytes();
         self.write_byte(addr, bytes[0])?;
         self.write_byte(addr + 1, bytes[1])?;
+        println!("write_word: addr = 0x{:08X}, value = {}", addr, value);
         Ok(())
     }
 
@@ -209,6 +215,7 @@ impl Memory{
         for i in 0..4 {
             self.write_byte(addr + i, bytes[i as usize])?;
         }
+        println!("write_dword: addr = 0x{:08X}, value = {}", addr, value);
         Ok(())
     }
 
@@ -219,6 +226,7 @@ impl Memory{
         for i in 0..8 {
             self.write_byte(addr + i, bytes[i as usize])?;
         }
+        println!("write_qword: addr = 0x{:08X}, value = {}", addr, value);
         Ok(())
     }
 
@@ -242,6 +250,7 @@ impl Memory{
         for (i, &b) in data.iter().enumerate() {
             self.write_byte(addr + i as u32, b)?;
         }
+        println!("write_block: addr = 0x{:08X}, data = {:?}", addr, data);
         Ok(())
     }
 
@@ -250,6 +259,7 @@ impl Memory{
     /// Vide le store buffer en écrivant toutes les données en mémoire
     pub fn flush_store_buffer(&mut self) -> io::Result<()> {
         self.store_buffer.flush(&mut self.memory);
+        println!("flush_store_buffer: store buffer flushed");
         Ok(())
     }
 
@@ -296,6 +306,7 @@ impl Memory{
 
     /// Réinitialise le système mémoire
     pub fn reset(&mut self) {
+        println!("Resetting memory...");
         self.memory.iter_mut().for_each(|byte| *byte = 0);
         self.l1_cache.clear();
         self.store_buffer.clear();
@@ -304,6 +315,7 @@ impl Memory{
 
     /// Retourne les statistiques mémoire
     pub fn stats(&self) -> MemoryStats {
+        // println!("Memory stats: {:?}", self.stats);
         self.stats
     }
 

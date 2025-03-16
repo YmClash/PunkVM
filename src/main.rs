@@ -3,6 +3,7 @@
 // extern crate PunkVM;
 
 use std::time::Instant;
+use PunkVM::alu::alu::BranchCondition;
 use PunkVM::bytecode::files::{BytecodeVersion, SegmentMetadata, SegmentType, BytecodeFile};
 use PunkVM::bytecode::format::{ArgType, InstructionFormat};
 use PunkVM::bytecode::instructions::Instruction;
@@ -36,7 +37,13 @@ fn main() -> VMResult<()> {
     // Créer le programme complexe
     // let program = create_complex_program();
     // let program = create_simple_complex_program();
-    let program = create_cmp_loop_program();
+    // let program = create_cmp_loop_program();
+    // let program = create_pipeline_test_program();
+    // let program = create_reg_reg_reg_test_program();
+    let program = create_hazard_detection_test_program();
+
+
+
 
     // Charger le programme dans la VM
     println!("Chargement du programme...");
@@ -275,6 +282,23 @@ fn calculate_range_size(instructions: &[Instruction], start: usize, end: usize) 
 /// L'offset est encodé en Immediate8 (en deux's complement).
 fn create_conditional_jump(offset: i8) -> Instruction {
     // Ici, on considère que l'instruction JmpIfNot utilise un registre fictif 0 (inutilisé) et l'immédiat est l'offset.
+    println!("Création d'un saut conditionnel avec offset = {}", offset);
+    Instruction::create_reg_imm8(Opcode::JmpIfNot, 0, offset as u8)
+}
+fn calculate_cumulative_pc(instructions: &[Instruction], idx: usize) -> u32 {
+    instructions[..idx]
+        .iter()
+        .map(|instr| instr.total_size() as u32)
+        .sum()
+}
+
+fn create_branch_jump(offset: i32) -> Instruction {
+    let fmt = InstructionFormat::new(ArgType::None, ArgType::RelativeAddr, ArgType::None);
+    // Encodage de l'offset sur 4 octets en little-endian.
+    // let offset_bytes = offset.to_le_bytes().to_vec();
+    // Instruction::new(Opcode::JmpIfNot, fmt, offset_bytes)
+
+    println!("Création d'un saut conditionnel avec offset = {}", offset);
     Instruction::create_reg_imm8(Opcode::JmpIfNot, 0, offset as u8)
 }
 
@@ -292,41 +316,47 @@ pub fn create_cmp_loop_program() -> BytecodeFile {
     let mut program = BytecodeFile::new();
     program.version = BytecodeVersion::new(0, 1, 0, 0);
     program.add_metadata("name", "CMP Loop Program");
-    program.add_metadata("description", "Test CMP et saut conditionnel avec le format reg_reg[_imm]");
+    program.add_metadata("description", "Boucle contrôlée par CMP et branchement conditionnel");
 
-    // Initialisation avec MOV (pour affecter des valeurs immédiates)
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 0)); // R0 = 0 (compteur)
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 5)); // R1 = 5 (limite)
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 1)); // R2 = 1 (incrément)
+    // Initialisation avec MOV
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 0)); // R0 = 0
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 5)); // R1 = 5
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 1)); // R2 = 1
 
-    // Marqueur de début de boucle : enregistre l'indice de la première instruction de la boucle.
+    // Marquer le début de la boucle : on calcule le PC de début de boucle
     let loop_start_idx = program.code.len();
+    let loop_start_pc = calculate_cumulative_pc(&program.code, loop_start_idx);
 
-    // 4. Incrémenter le compteur : ADD R0, R0, R2
+    // Instruction 4 : ADD R0, R0, R2 (format reg_reg_reg)
     program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 0, 0, 2));
 
-    // 5. Comparer le compteur à la limite : CMP R0, R1
+    // Instruction 5 : CMP R0, R1 (format reg_reg)
     program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
-    // Note : ici, on utilise create_reg_reg pour CMP (format à deux registres). Le troisième argument est None.
 
-    // 6. JmpIfNot : si R0 != R1, sauter vers LOOP_START.
-    // On calcule l'offset relatif négatif entre l'instruction JmpIfNot (actuellement à index jump_idx)
-    // et le début de la boucle (loop_start_idx).
+    // Calculer le PC de l'instruction de saut (avant insertion du saut)
     let jump_idx = program.code.len();
-    let range_size = calculate_range_size(&program.code, loop_start_idx, jump_idx);
-    // L'offset sera négatif pour revenir en arrière.
-    let offset: i8 = -(range_size as i8);
-    let jump_inst = create_conditional_jump(offset);
+    let jump_pc = calculate_cumulative_pc(&program.code, jump_idx);
+
+    // L'offset relatif (en octets) nécessaire pour revenir au début de la boucle :
+    // offset = loop_start_pc - jump_pc.
+    let offset_i32 = (loop_start_pc as i32) - (jump_pc as i32);
+    // Vérifier que l'offset tient dans i8 (si besoin, adapter le format ou les tests)
+    let offset: i8 = offset_i32 as i8;
+    println!(
+        "Loop start idx: {}, loop_start_pc: {}, jump_idx: {}, jump_pc: {}, offset: {}",
+        loop_start_idx, loop_start_pc, jump_idx, jump_pc, offset
+    );
+
+    // Instruction 6 : JmpIfNot avec l'offset calculé
+    let jump_inst = create_branch_jump(offset as i32);
     program.add_instruction(jump_inst);
 
-    // 7. HALT pour terminer le programme.
+    // Instruction 7 : HALT
     program.add_instruction(Instruction::create_no_args(Opcode::Halt));
 
     // Calculer la taille totale du code et créer le segment de code
     let total_size: u32 = program.code.iter().map(|instr| instr.total_size() as u32).sum();
-    program.segments = vec![
-        SegmentMetadata::new(SegmentType::Code, 0, total_size, 0)
-    ];
+    program.segments = vec![SegmentMetadata::new(SegmentType::Code, 0, total_size, 0)];
 
     program
 }
@@ -334,31 +364,269 @@ pub fn create_cmp_loop_program() -> BytecodeFile {
 
 
 
+/// Crée un programme de test complet pour évaluer les performances du pipeline
+pub fn create_pipeline_test_program() -> BytecodeFile {
+    let mut program = BytecodeFile::new();
+    program.version = BytecodeVersion::new(0, 1, 0, 0);
+    program.add_metadata("name", "Pipeline Performance Test");
+    program.add_metadata("description", "Test du pipeline, forwarding, hazards et stalls");
+
+    // ---------- Test 1: Data Dependencies (RAW Hazards) ----------
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 5));   // R0 = 5
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 10));  // R1 = 10
+    //
+    // RAW Hazard: R2 depends on R0, should trigger forwarding
+    // program.add_instruction(Instruction::create_reg_reg(Opcode::Add, 2, 0));    // R2 = R0 (= 5) // tombe dans une loop infini
+    // program.add_instruction(Instruction::create_reg_reg(Opcode::Add, 3, 2));    // R3 = R2 (= 5) - RAW Hazard, needs forwarding   // tombe dans une loop infini
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 2, 0, 1)); // R2 = R0 + R1 (= 15) // avec reg_reg_reg  tout est OK
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 3, 2, 1)); // R3 = R2 + R1 (= 25)  // avec reg_reg_reg  tout est
+
+
+    // // Chain of dependencies to test multiple forwards
+    // program.add_instruction(Instruction::create_reg_reg(Opcode::Add, 4, 3));    // R4 = R3 - RAW Hazard      //tombe dans une loop infini
+    // program.add_instruction(Instruction::create_reg_reg(Opcode::Add, 5, 4));    // R5 = R4 - RAW Hazard      // tombe dans une loop infini
+    //
+    // // ---------- Test 2: Load-Use Hazard ----------
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 100)); // R6 = 100 (base address)
+    //
+    // // Store R0 to memory location [R6]
+    program.add_instruction(Instruction::create_reg_reg_offset(Opcode::Store, 0, 6, 0)); // Store R0 at [R6+0]
+    //
+    // // Load from memory then immediately use - should cause a Load-Use hazard
+    program.add_instruction(Instruction::create_reg_reg_offset(Opcode::Load, 7, 6, 0));  // R7 = Mem[R6+0]
+    // program.add_instruction(Instruction::create_reg_reg(Opcode::Add, 8, 7));             // R8 = R7 - Load-Use hazard
+    //
+    // // ---------- Test 3: Structural Hazard ----------
+    // // Two memory operations in sequence - potential structural hazard
+    program.add_instruction(Instruction::create_reg_reg_offset(Opcode::Store, 1, 6, 4)); // Store R1 at [R6+4]
+    program.add_instruction(Instruction::create_reg_reg_offset(Opcode::Load, 9, 6, 4));  // R9 = Mem[R6+4]
+    //
+    // // ---------- Test 4: Store-Load forwarding ----------
+    // // Store followed by Load from same address - should be forwarded from store buffer
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 42));          // R10 = 42
+    program.add_instruction(Instruction::create_reg_reg_offset(Opcode::Store, 10, 6, 8)); // Store R10 at [R6+8]
+    program.add_instruction(Instruction::create_reg_reg_offset(Opcode::Load, 11, 6, 8));  // R11 = Mem[R6+8] - Should be forwarded
+
+    // ---------- Test 5: Branch prediction ----------
+    // // Simple loop to test branch prediction (if implemented)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0));   // R12 = 0 (counter)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 3));   // R13 = 3 (max iterations)
+    //
+    // // Loop start marker
+    let loop_start_idx = program.code.len();
+
+    // Increment counter: R12 = R12 + 1
+    // program.add_instruction(Instruction::create_reg_imm8(Opcode::Add, 12, 1));       //tombe dans une loop infini
+
+    // // Compare counter to max
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 12, 13));
+    //
+    // Calculate offset for jump back
+    let current_idx = program.code.len();
+    let code_size_to_loop_start = calculate_instruction_range_size(&program.code, loop_start_idx, current_idx);
+    let loop_offset = -(code_size_to_loop_start as i8);
+
+    // Jump if not equal (R12 != R13)
+    // let jump_instruction = create_conditional_jump(loop_offset); // ici  on a  Erreur lors de l'exécution: ExecutionError:
+    // program.add_instruction(jump_instruction);   Erreur pipeline: Format d'adresse de saut conditionnel invalide
+
+    // ---------- Final Verification ----------
+    // Store results to verify correct execution
+    program.add_instruction(Instruction::create_reg_reg_offset(Opcode::Store, 5, 6, 12));  // Store R5 at [R6+12]
+    program.add_instruction(Instruction::create_reg_reg_offset(Opcode::Store, 11, 6, 16)); // Store R11 at [R6+16]
+    program.add_instruction(Instruction::create_reg_reg_offset(Opcode::Store, 12, 6, 20)); // Store R12 at [R6+20]
+
+    // End program
+    program.add_instruction(Instruction::create_no_args(Opcode::Halt));
+
+    // Configure memory segments
+    let total_code_size: u32 = program.code.iter()
+        .map(|instr| instr.total_size() as u32)
+        .sum();
+
+    let data_size = 512; // 512 bytes for data
+
+    program.segments = vec![
+        SegmentMetadata::new(SegmentType::Code, 0, total_code_size, 0),
+        SegmentMetadata::new(SegmentType::Data, 0, data_size, 0x1000)
+    ];
+
+    program.data = vec![0; data_size as usize];
+
+    println!("Programme de test du pipeline créé avec {} instructions", program.code.len());
+
+    program
+}
+
+/// Fonction utilitaire: calcule la taille totale des instructions dans une plage
+fn calculate_instruction_range_size(instructions: &[Instruction], start: usize, end: usize) -> usize {
+    instructions[start..end].iter().map(|instr| instr.total_size()).sum()
+}
+
+/// Fonction utilitaire: crée une instruction Store avec offset
+fn create_reg_reg_offset(opcode: Opcode, rs: u8, rb: u8, offset: i8) -> Instruction {
+    // Cette implémentation dépend de votre format d'instruction
+    // Supposons que le format soit (reg_dest, reg_base + offset)
+    Instruction::new(
+        opcode,
+        InstructionFormat::new(ArgType::Register, ArgType::RegisterOffset, ArgType::None),
+        vec![rs, rb, offset as u8]
+    )
+}
 
 
 
+pub fn create_reg_reg_reg_test_program() -> BytecodeFile {
+    let mut program = BytecodeFile::new();
+    // Version du programme
+    program.version = BytecodeVersion::new(0, 1, 0, 0);
+    // Métadonnées (optionnel)
+    program.add_metadata("name", "Test reg_reg_reg");
+    program.add_metadata("description", "Programme testant les instructions à trois registres.");
 
+    // Initialiser R0 et R1 avec des valeurs immédiates via MOV (instructions immédiates)
+    // Ici, on utilise create_reg_imm8 (qui utilise un format MOV avec immediate) pour initialiser les registres
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 5));   // R0 = 5
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 10));  // R1 = 10
 
+    // Opérations à trois registres
+    // R2 = R0 + R1  --> 5 + 10 = 15
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 2, 0, 1));
+    // R3 = R2 - R0  --> 15 - 5 = 10
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Sub, 3, 2, 0));
+    // R4 = R3 * R1  --> 10 * 10 = 100
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Mul, 4, 3, 1));
+    // R5 = R4 / R0  --> 100 / 5 = 20
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Div, 5, 4, 0));
+    // R6 = R2 + R4  --> 15 + 100 = 115
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 6, 2, 4));
+    // R7 = R6 - R5  --> 115 - 20 = 95
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Sub, 7, 6, 5));
+    // R8 = R7 + R2  --> 95 + 15 = 110
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 8, 7, 2));
 
+    // Fin du programme : HALT
+    program.add_instruction(Instruction::create_no_args(Opcode::Halt));
 
+    // Calculer la taille totale du code et créer le segment de code
+    let total_size: u32 = program.code.iter().map(|instr| instr.total_size() as u32).sum();
+    program.segments = vec![SegmentMetadata::new(SegmentType::Code, 0, total_size, 0)];
 
+    // (Optionnel) Créer un segment de données si nécessaire
+    let data_size = 256;
+    let data_segment = SegmentMetadata::new(SegmentType::Data, 0, data_size, 0x1000);
+    program.segments.push(data_segment);
+    program.data = vec![0; data_size as usize];
 
+    program
+}
 
+pub fn create_hazard_detection_test_program() -> BytecodeFile {
+    let mut program = BytecodeFile::new();
+    program.version = BytecodeVersion::new(0, 1, 0, 0);
+    program.add_metadata("name", "Hazard Detection Test");
+    program.add_metadata("description", "Programme testant la détection des hazards et stalls.");
 
+    // -------------------------------
+    // Test 1: Load-Use Hazard
+    // Ce type de hazard se produit quand on essaie d'utiliser le résultat
+    // d'un LOAD avant qu'il ne soit disponible
+    // -------------------------------
 
+    // Initialiser une adresse mémoire
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 0x10)); // R0 = adresse 0x10
 
+    // Stocker une valeur à cette adresse
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 42));  // R1 = 42
 
+    // Store - utiliser la méthode disponible create_reg_reg_offset
+    program.add_instruction(Instruction::create_reg_reg_offset(Opcode::Store, 1, 0, 0)); // MEM[R0] = R1
 
+    // Load - utiliser create_load_reg_offset
+    program.add_instruction(Instruction::create_load_reg_offset(2, 0, 0)); // R2 = MEM[R0]
 
+    // Load-Use Hazard: utiliser la valeur immédiatement (devrait générer un hazard)
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 3, 2, 1)); // R3 = R2 + R1 (hazard!)
 
+    // -------------------------------
+    // Test 2: RAW Hazards multiples en chaîne
+    // Crée une séquence de dépendances entre instructions qui se suivent
+    // -------------------------------
 
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 5));  // R4 = 5
 
+    // Série d'instructions dépendantes (RAW hazards)
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 5, 4, 4)); // R5 = R4 + R4
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 6, 5, 5)); // R6 = R5 + R5 (dépend du résultat précédent)
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 7, 6, 6)); // R7 = R6 + R6 (dépend du résultat précédent)
 
+    // -------------------------------
+    // Test 3: Hazard de contrôle (branchement)
+    // Test si un branchement cause un hazard et un flush
+    // -------------------------------
 
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 1));  // R8 = 1
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 1));  // R9 = 1
 
+    // Compare R8 et R9
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 8, 9));
 
+    // Branchement conditionnel (JmpIf) - puisque create_jumpif_rel n'existe pas
+    // Utilisons une autre approche - créer manuellement la structure
+    let jmpif_format = InstructionFormat::new(ArgType::None, ArgType::RelativeAddr, ArgType::None);
+    let offset_bytes = (14i32).to_le_bytes();
+    let mut jmpif_args = Vec::new();
+    jmpif_args.extend_from_slice(&offset_bytes);
+    program.add_instruction(Instruction::new(Opcode::JmpIf, jmpif_format, jmpif_args));
 
+    // Instructions qui seront sautées si le branchement est pris
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0xFF)); // R10 = 0xFF (ne devrait pas être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0xFF)); // R11 = 0xFF (ne devrait pas être exécuté)
 
+    // Destination du saut
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0xAA)); // R12 = 0xAA
+
+    // -------------------------------
+    // Test 4: Store-Load Hazard
+    // Une écriture suivie d'une lecture à la même adresse
+    // -------------------------------
+
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x20)); // R13 = adresse 0x20
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 77));   // R14 = 77
+
+    // Store suivi d'un Load à la même adresse
+    program.add_instruction(Instruction::create_reg_reg_offset(Opcode::Store, 14, 13, 0)); // MEM[R13] = R14
+    program.add_instruction(Instruction::create_load_reg_offset(15, 13, 0));  // R15 = MEM[R13] (hazard potentiel)
+
+    // -------------------------------
+    // Test 5: Hazard structurel (accès mémoire simultanés)
+    // Plusieurs accès mémoire qui peuvent causer des conflits de ressources
+    // -------------------------------
+
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 0x30)); // R0 = adresse 0x30
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 0x40)); // R1 = adresse 0x40
+
+    // Accès mémoire multiples consécutifs
+    program.add_instruction(Instruction::create_reg_reg_offset(Opcode::Store, 4, 0, 0)); // MEM[R0] = R4
+    program.add_instruction(Instruction::create_reg_reg_offset(Opcode::Store, 5, 1, 0)); // MEM[R1] = R5
+    program.add_instruction(Instruction::create_load_reg_offset(6, 0, 0)); // R6 = MEM[R0]
+    program.add_instruction(Instruction::create_load_reg_offset(7, 1, 0)); // R7 = MEM[R1]
+
+    // Fin du programme
+    program.add_instruction(Instruction::create_no_args(Opcode::Halt));
+
+    // Calculer la taille totale du code et créer le segment
+    let total_size: u32 = program.code.iter().map(|instr| instr.total_size() as u32).sum();
+    program.segments = vec![SegmentMetadata::new(SegmentType::Code, 0, total_size, 0)];
+
+    // Créer un segment de données
+    let data_size = 256;
+    let data_segment = SegmentMetadata::new(SegmentType::Data, 0, data_size, 0x1000);
+    program.segments.push(data_segment);
+    program.data = vec![0; data_size as usize];
+
+    program
+}
 
 
 
@@ -441,7 +709,8 @@ fn print_stats(vm: &VM) {
     };
     println!("Efficacité du forwarding: {:.2}%", forwarding_efficiency);
 
-    println!("\n===== TEST TERMINÉ =====\n");
+    println!("\n===== TEST TERMINÉ =====");
+    println!("=====PunkVM=By=YmC======\n");
 
 }
 /////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -449,235 +718,4 @@ fn print_stats(vm: &VM) {
 
 
 
-/*
 
-
-
-// Crée un programme de test qui calcule la somme des nombres de 1 à 10
-fn create_test_program() -> Result<BytecodeFile, Box<dyn std::error::Error>> {
-    let mut bytecode = BytecodeFile::new();
-
-    // Définition de la version
-    bytecode.version = BytecodeVersion::new(0, 1, 0, 0);
-
-    // Ajout de métadonnées
-    bytecode.add_metadata("name", "Somme 1 à 10");
-    bytecode.add_metadata("author", "PunkVM Team");
-
-    // Initialisation des registres
-    // R0 = compteur (1 à 10)
-    // R1 = somme totale
-    // R2 = valeur constante 10 (limite)
-    // R3 = valeur constante 1 (incrément)
-
-    // LOAD R0, 1     ; Initialiser compteur à 1
-    bytecode.add_instruction(Instruction::create_reg_imm8(Opcode::Load, 0, 1));
-
-    // LOAD R1, 0     ; Initialiser somme à 0
-    bytecode.add_instruction(Instruction::create_reg_imm8(Opcode::Load, 1, 0));
-
-    // LOAD R2, 10    ; Charger limite dans R2
-    bytecode.add_instruction(Instruction::create_reg_imm8(Opcode::Load, 2, 10));
-
-    // LOAD R3, 1     ; Charger incrément dans R3
-    bytecode.add_instruction(Instruction::create_reg_imm8(Opcode::Load, 3, 1));
-
-    // Ajouter un label pour la boucle
-    bytecode.add_symbol("loop_start", 4);
-
-    // ADD R1, R0     ; Ajouter compteur à la somme
-    bytecode.add_instruction(Instruction::create_reg_reg(Opcode::Add, 1, 0));
-
-    // ADD R0, R3     ; Incrémenter compteur
-    bytecode.add_instruction(Instruction::create_reg_reg(Opcode::Add, 0, 3));
-
-    // CMP R0, R2     ; Comparer compteur avec limite
-    bytecode.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
-
-    // JMP_IF_NOT -12  ; Si pas atteint limite, retourner au début de boucle
-    let loop_jmp = Instruction::new(
-        Opcode::JmpIfNot,
-        InstructionFormat::new(ArgType::None, ArgType::RelativeAddr),
-        vec![0xF4, 0xFF, 0xFF, 0xFF], // -12 en complément à 2 (environ, à ajuster selon taille réelle)
-    );
-    bytecode.add_instruction(loop_jmp);
-
-    // HALT           ; Fin du programme
-    bytecode.add_instruction(Instruction::create_no_args(Opcode::Halt));
-
-    Ok(bytecode)
-
-    /*
-    println!("\n===== TEST DE PUNKVM =====\n");
-
-    // Créer une VM avec la configuration par défaut
-    println!("Initialisation de la VM...");
-    // let mut vm = PunkVM::new();
-
-    // Créer un programme bytecode
-    println!("Création du programme de test...");
-    let mut program = BytecodeFile::new();
-
-
-    // Ajouter des instructions variées pour tester différents aspects de la VM
-    println!("Ajout des instructions...");
-
-    // NOP - ne fait rien
-    program.add_instruction(Instruction::create_no_args(Opcode::Nop));
-
-    // LOAD R0, 5 - charge valeur immédiate dans R0
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Load, 0, 5));
-
-    // LOAD R1, 7 - charge valeur immédiate dans R1
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Load, 1, 7));
-
-    // ADD R2, R0 - R2 = R2 + R0
-    program.add_instruction(Instruction::create_reg_reg(Opcode::Add, 2, 0));
-
-    // ADD R2, R1 - R2 = R2 + R1
-    program.add_instruction(Instruction::create_reg_reg(Opcode::Add, 2, 1));
-
-    // LOAD R3, 0x1000 - adresse mémoire pour test
-    program.add_instruction(Instruction::create_reg_imm16(Opcode::Load, 3, 0x1000));
-
-    // STORE R2, [R3] - stocke R2 à l'adresse dans R3
-    let store_instruction = Instruction::new(
-        Opcode::Store,
-        InstructionFormat::new(ArgType::Register, ArgType::Register),
-        vec![2, 3] // Utiliser R2 comme source et R3 comme adresse
-    );
-    program.add_instruction(store_instruction);
-
-    // LOAD R4, [R3] - charge depuis l'adresse dans R3
-    let load_instruction = Instruction::new(
-        Opcode::Load,
-        InstructionFormat::new(ArgType::Register, ArgType::Register),
-        vec![4, 3] // Destination R4, adresse R3
-    );
-    program.add_instruction(load_instruction);
-
-    // HALT - termine l'exécution
-    program.add_instruction(Instruction::create_no_args(Opcode::Halt));
-
-    // Définir les segments et métadonnées
-    let code_size = program.code.iter().map(|instr| instr.total_size()).sum::<usize>() as u32;
-    program.segments = vec![
-        SegmentMetadata::new(SegmentType::Code, 0, code_size, 0)
-    ];
-    program.data = Vec::new();
-    program.readonly_data = Vec::new();
-
-    // Charger le programme dans la VM
-    println!("Chargement du programme...");
-    match vm.load_program_from_bytecode(program) {
-        Ok(_) => println!("Programme chargé avec succès"),
-        Err(e) => {
-            println!("Erreur lors du chargement du programme: {}", e);
-            return Ok(());
-        }
-    }
-
-    // Exécuter la VM en mode pas à pas pour des statistiques détaillées
-    println!("\n===== EXÉCUTION DU PROGRAMME =====\n");
-
-    // Configurer un nombre maximum de cycles pour éviter une boucle infinie
-    let max_cycles = 30;
-    vm.state = VMState::Running;
-
-    for cycle in 0..max_cycles {
-        // Afficher l'état avant le cycle
-        println!("Cycle {}: PC = 0x{:X}", cycle, vm.pc);
-        println!("  Registres: R0={}, R1={}, R2={}, R3={}, R4={}",
-                 vm.registers[0], vm.registers[1], vm.registers[2],
-                 vm.registers[3], vm.registers[4]);
-
-        // Exécuter un cycle
-        match vm.step() {
-            Ok(_) => {},
-            Err(e) => {
-                println!("Erreur lors de l'exécution: {}", e);
-                break;
-            }
-        }
-
-        // Vérifier si l'exécution est terminée
-        if vm.state() == &VMState::Halted {
-            println!("Programme terminé au cycle {}", cycle);
-            break;
-        }
-
-        // Afficher les statistiques intermédiaires
-        let stats = vm.stats();
-        println!("  Instructions exécutées: {}", stats.instructions_executed);
-        println!("  IPC: {:.2}", stats.ipc);
-        println!();
-    }
-
-    // Afficher les résultats
-    println!("\n===== ÉTAT FINAL =====\n");
-    println!("Registres:");
-    println!("  R0 = {} (devrait être 5)", vm.registers[0]);
-    println!("  R1 = {} (devrait être 7)", vm.registers[1]);
-    println!("  R2 = {} (devrait être 12 = 5+7)", vm.registers[2]);
-    println!("  R3 = {} (devrait être 0x1000 = 4096)", vm.registers[3]);
-    println!("  R4 = {} (devrait être 12, chargé depuis l'adresse 0x1000)", vm.registers[4]);
-
-    // Vérifier la mémoire à l'adresse 0x1000
-    let memory_value = vm.memory.read_qword(0x1000).unwrap_or(0);
-    println!("\nMémoire:");
-    println!("  [0x1000] = {} (devrait être 12)", memory_value);
-
-    // Afficher les statistiques d'exécution
-    let stats = vm.stats();
-    println!("\n===== STATISTIQUES D'EXÉCUTION =====\n");
-    println!("Cycles: {}", stats.cycles);
-    println!("Instructions exécutées: {}", stats.instructions_executed);
-    println!("IPC (Instructions Par Cycle): {:.2}", stats.ipc);
-    println!("Stalls: {}", stats.stalls);
-    println!("Hazards: {}", stats.hazards);
-    println!("Forwards: {}", stats.forwards);
-    println!("Cache hits: {}", stats.memory_hits);
-    println!("Cache misses: {}", stats.memory_misses);
-
-    // Évaluation des performances
-    println!("\n===== ÉVALUATION DES PERFORMANCES =====\n");
-
-    // Taux de hits du cache
-    let cache_hit_rate = if stats.memory_hits + stats.memory_misses > 0 {
-        stats.memory_hits as f64 / (stats.memory_hits + stats.memory_misses) as f64 * 100.0
-    } else {
-        0.0
-    };
-    println!("Taux de hits cache: {:.2}%", cache_hit_rate);
-
-    // Taux de stalls
-    let stall_rate = if stats.cycles > 0 {
-        stats.stalls as f64 / stats.cycles as f64 * 100.0
-    } else {
-        0.0
-    };
-    println!("Taux de stalls: {:.2}%", stall_rate);
-
-    // Efficacité du forwarding
-    let forwarding_efficiency = if stats.hazards > 0 {
-        stats.forwards as f64 / stats.hazards as f64 * 100.0
-    } else {
-        0.0
-    };
-    println!("Efficacité du forwarding: {:.2}%", forwarding_efficiency);
-
-    println!("\n===== TEST TERMINÉ =====\n");
-    Ok(())
-
-    */
-
-
-
-
-
-
-
-
-
-}
-*/
