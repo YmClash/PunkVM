@@ -294,23 +294,37 @@ impl ALU {
 
             ALUOperation::Cmp => {
                 // Compare = Sub mais ne stocke pas le résultat
+                // let (result, carry) = a.overflowing_sub(b);
+                //
+                // // Extraction des signes et // Calcul de overflow
+                // let a_sign = (a >> 63) & 1;
+                // let b_sign = (b >> 63) & 1;
+                // let result_sign = (result >> 63) & 1;
+                // let overflow = (a_sign != b_sign) && (a_sign != result_sign);
+                //
+                // // signe le negative si result < 0
+                // let negative =result_sign == 1;
+                //
+                // self.flags.carry = carry;
+                // self.flags.overflow = overflow;
+                // self.flags.zero = a == b;
+                // self.flags.negative = negative;
+                //
+                //
+                // result
                 let (result, carry) = a.overflowing_sub(b);
-
-                // Extraction des signes et // Calcul de l'overflow
                 let a_sign = (a >> 63) & 1;
                 let b_sign = (b >> 63) & 1;
                 let result_sign = (result >> 63) & 1;
                 let overflow = (a_sign != b_sign) && (a_sign != result_sign);
-
-                // signe le negative si resultat < 0
-                let negative =result_sign == 1;
-
+                let negative = result_sign == 1;
                 self.flags.carry = carry;
                 self.flags.overflow = overflow;
                 self.flags.zero = a == b;
                 self.flags.negative = negative;
 
-
+                println!("CMP Flags après comparaison: zero={}, negative={}, overflow={}, carry={}",
+                         self.flags.zero, self.flags.negative, self.flags.overflow, self.flags.carry);
                 result
 
             },
@@ -320,11 +334,11 @@ impl ALU {
                 let result = a & b;
                 self.flags.carry = false;
                 self.flags.overflow = false;
-                result // Retourne le résultat mais il n'est normalement pas utilisé
+                result // Retourne le résultat, mais il n'est normalement pas utilisé
             },
 
             ALUOperation::Mov => {
-                // Simplement retourne b (pas d'impact sur les flags)
+                // Simplement retourne (pas d'impact sur les flags)
                 self.flags.carry = false;
                 self.flags.overflow = false;
                 b
@@ -350,7 +364,12 @@ impl ALU {
         match condition {
             BranchCondition::Always => true,
             BranchCondition::Equal => self.flags.zero,
-            BranchCondition::NotEqual => !self.flags.zero,
+            // BranchCondition::NotEqual => !self.flags.zero,
+            BranchCondition::NotEqual => {
+                let result = !self.flags.zero;
+                println!("BranchCondition::NotEqual: zero={}, result={}", self.flags.zero, result);
+                result
+            },
             BranchCondition::Greater => !self.flags.zero && !self.flags.negative,
             BranchCondition::GreaterEqual => !self.flags.negative,
             BranchCondition::Less => self.flags.negative,
@@ -366,7 +385,7 @@ impl ALU {
         }
     }
 
-    /// Réinitialise les flags de l'ALU
+    /// Réinitialise-les flags de l'ALU
     pub fn reset_flags(&mut self) {
         self.flags = ALUFlags::default();
     }
