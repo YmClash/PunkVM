@@ -418,7 +418,7 @@ impl BytecodeFile {
     }
 
     /// Encode les métadonnées en bytes
-    fn encode_metadata(&self) -> Vec<u8> {
+    pub fn encode_metadata(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
 
         // Nombre d'entrées de métadonnées
@@ -441,7 +441,7 @@ impl BytecodeFile {
     }
 
     /// Décode les métadonnées depuis des bytes
-    fn decode_metadata(bytes: &[u8]) -> io::Result<HashMap<String, String>> {
+    pub fn decode_metadata(bytes: &[u8]) -> io::Result<HashMap<String, String>> {
         if bytes.len() < 4 {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -523,7 +523,7 @@ impl BytecodeFile {
     }
 
     /// Encode le code en bytes
-    fn encode_code(&self) -> Vec<u8>{
+    pub fn encode_code(&self) -> Vec<u8>{
         let mut bytes = Vec::new();
 
         // Nombre d'instructions
@@ -539,7 +539,7 @@ impl BytecodeFile {
     }
 
     /// Décode le segment de code depuis des bytes
-    fn decode_code(bytes: &[u8]) -> io::Result<Vec<Instruction>> {
+    pub fn decode_code(bytes: &[u8]) -> io::Result<Vec<Instruction>> {
         if bytes.len() < 4 {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -573,7 +573,7 @@ impl BytecodeFile {
     }
 
     /// Encode les symboles en bytes
-    fn encode_symbols(&self) -> Vec<u8> {
+    pub fn encode_symbols(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
 
         // Nombre de symboles
@@ -594,7 +594,7 @@ impl BytecodeFile {
     }
 
     /// Décode les symboles depuis des bytes
-    fn decode_symbols(bytes: &[u8]) -> io::Result<HashMap<String, u32>> {
+    pub fn decode_symbols(bytes: &[u8]) -> io::Result<HashMap<String, u32>> {
         if bytes.len() < 4 {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -662,13 +662,13 @@ impl BytecodeFile {
 
 }
 
-
 // Test unitaire pour les fichiers de bytecode
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::bytecode::opcodes::Opcode;
-    use crate::bytecode::format::InstructionFormat;
+    use crate::bytecode::format::{ArgType, InstructionFormat};
+    use crate::bytecode::instructions::Instruction;
     use std::io::ErrorKind;
     use tempfile::tempdir;
 
@@ -766,6 +766,36 @@ mod tests {
     }
 
     #[test]
+    fn test_bytecode_file_with_arithmetic_instructions() {
+        // Création d'un fichier bytecode avec des instructions arithmétiques
+        let mut bytecode = BytecodeFile::new();
+
+        // Ajouter des instructions arithmétiques avec le nouveau format à 3 registres
+        let instr1 = Instruction::create_reg_reg_reg(Opcode::Add, 2, 0, 1);  // R2 = R0 + R1
+        let instr2 = Instruction::create_reg_reg_reg(Opcode::Sub, 3, 0, 1);  // R3 = R0 - R1
+        let instr3 = Instruction::create_reg_reg_reg(Opcode::Mul, 4, 0, 1);  // R4 = R0 * R1
+
+        bytecode.add_instruction(instr1);
+        bytecode.add_instruction(instr2);
+        bytecode.add_instruction(instr3);
+
+        assert_eq!(bytecode.code.len(), 3);
+
+        // Vérifier le premier opcode
+        assert_eq!(bytecode.code[0].opcode, Opcode::Add);
+
+        // Vérifier les types d'arguments du format
+        assert_eq!(bytecode.code[0].format.arg1_type, ArgType::Register);
+        assert_eq!(bytecode.code[0].format.arg2_type, ArgType::Register);
+        assert_eq!(bytecode.code[0].format.arg3_type, ArgType::Register);
+
+        // Vérifier les valeurs des registres
+        assert_eq!(bytecode.code[0].args[0], 2);  // Rd (destination)
+        assert_eq!(bytecode.code[0].args[1], 0);  // Rs1 (source 1)
+        assert_eq!(bytecode.code[0].args[2], 1);  // Rs2 (source 2)
+    }
+
+    #[test]
     fn test_bytecode_file_io() {
         // Création d'un répertoire temporaire pour les tests
         let dir = tempdir().expect("Impossible de créer un répertoire temporaire");
@@ -795,6 +825,110 @@ mod tests {
         assert_eq!(loaded.data, vec![1, 2, 3]);
         assert_eq!(loaded.readonly_data, vec![4, 5, 6]);
         assert_eq!(loaded.symbols.get("main"), Some(&0));
+    }
+
+    #[test]
+    fn test_bytecode_file_with_three_register_instructions_io() {
+        // Test d'écriture et lecture d'un fichier contenant des instructions à 3 registres
+        let dir = tempdir().expect("Impossible de créer un répertoire temporaire");
+        let file_path = dir.path().join("test_three_reg.punk");
+
+        // Création du fichier bytecode
+        let mut bytecode = BytecodeFile::new();
+        bytecode.version = BytecodeVersion::new(1, 0, 0, 0);
+
+        // Ajouter une instruction ADD avec 3 registres
+        let add_instr = Instruction::create_reg_reg_reg(Opcode::Add, 2, 0, 1);  // R2 = R0 + R1
+        bytecode.add_instruction(add_instr);
+
+        // Écrire le fichier
+        bytecode.write_to_file(&file_path).expect("Impossible d'écrire le fichier bytecode");
+
+        // Lire le fichier
+        let loaded = BytecodeFile::read_from_file(&file_path).expect("Impossible de lire le fichier bytecode");
+
+        // Vérifier que l'instruction est correctement chargée
+        assert_eq!(loaded.code.len(), 1);
+        assert_eq!(loaded.code[0].opcode, Opcode::Add);
+
+        // Vérifier les valeurs des registres
+        assert_eq!(loaded.code[0].args.len(), 3);
+        assert_eq!(loaded.code[0].args[0], 2);  // Rd
+        assert_eq!(loaded.code[0].args[1], 0);  // Rs1
+        assert_eq!(loaded.code[0].args[2], 1);  // Rs2
+    }
+
+    #[test]
+    fn test_bytecode_file_extended_size_io() {
+        // Test d'écriture et lecture d'un fichier avec une instruction de grande taille
+        let dir = tempdir().expect("Impossible de créer un répertoire temporaire");
+        let file_path = dir.path().join("test_extended.punk");
+
+        // Création du fichier bytecode
+        let mut bytecode = BytecodeFile::new();
+
+        // Créer une instruction avec beaucoup de données pour forcer un size_type Extended
+        let large_args = vec![0; 248];  // Suffisant pour dépasser la limite de 255 octets
+        let large_instr = Instruction::new(
+            Opcode::Add,
+            InstructionFormat::double_reg(),
+            large_args
+        );
+
+        bytecode.add_instruction(large_instr);
+
+        // Écrire le fichier
+        bytecode.write_to_file(&file_path).expect("Impossible d'écrire le fichier bytecode");
+
+        // Lire le fichier
+        let loaded = BytecodeFile::read_from_file(&file_path).expect("Impossible de lire le fichier bytecode");
+
+        // Vérifier que l'instruction est correctement chargée
+        assert_eq!(loaded.code.len(), 1);
+        assert_eq!(loaded.code[0].opcode, Opcode::Add);
+        assert_eq!(loaded.code[0].args.len(), 248);
+    }
+
+    #[test]
+    fn test_bytecode_file_complex_program() {
+        // Créer un programme complet avec des instructions variées
+        let mut bytecode = BytecodeFile::new();
+
+        // Ajouter des métadonnées
+        bytecode.add_metadata("name", "Programme de test");
+        bytecode.add_metadata("author", "PunkVM Team");
+        bytecode.add_metadata("version", "1.0.0");
+
+        // Initialisation des registres
+        bytecode.add_instruction(Instruction::create_reg_imm8(Opcode::Load, 0, 10));  // R0 = 10
+        bytecode.add_instruction(Instruction::create_reg_imm8(Opcode::Load, 1, 5));   // R1 = 5
+
+        // Opérations arithmétiques
+        bytecode.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 2, 0, 1));  // R2 = R0 + R1
+        bytecode.add_instruction(Instruction::create_reg_reg_reg(Opcode::Sub, 3, 0, 1));  // R3 = R0 - R1
+        bytecode.add_instruction(Instruction::create_reg_reg_reg(Opcode::Mul, 4, 0, 1));  // R4 = R0 * R1
+        bytecode.add_instruction(Instruction::create_reg_reg_reg(Opcode::Div, 5, 0, 1));  // R5 = R0 / R1
+
+        // Opérations logiques
+        bytecode.add_instruction(Instruction::create_reg_reg_reg(Opcode::And, 6, 0, 1));  // R6 = R0 & R1
+        bytecode.add_instruction(Instruction::create_reg_reg_reg(Opcode::Or, 7, 0, 1));   // R7 = R0 | R1
+
+        // Fin du programme
+        bytecode.add_instruction(Instruction::create_no_args(Opcode::Halt));
+
+        // Ajouter un symbole pour le début du programme
+        bytecode.add_symbol("start", 0);
+
+        // Vérifier le nombre d'instructions
+        assert_eq!(bytecode.code.len(), 9);
+
+        // Vérifier les métadonnées
+        assert_eq!(bytecode.metadata.len(), 3);
+        assert_eq!(bytecode.metadata.get("name"), Some(&"Programme de test".to_string()));
+
+        // Vérifier les symboles
+        assert_eq!(bytecode.symbols.len(), 1);
+        assert_eq!(bytecode.symbols.get("start"), Some(&0));
     }
 
     #[test]
@@ -852,5 +986,31 @@ mod tests {
         assert_eq!(decoded.len(), 2);
         assert_eq!(decoded.get("sym1"), Some(&0x1000));
         assert_eq!(decoded.get("sym2"), Some(&0x2000));
+    }
+
+    #[test]
+    fn test_encode_decode_code() {
+        // Créer un ensemble d'instructions de test
+        let mut code = Vec::new();
+        code.push(Instruction::create_no_args(Opcode::Nop));
+        code.push(Instruction::create_reg_imm8(Opcode::Load, 0, 42));
+        code.push(Instruction::create_reg_reg_reg(Opcode::Add, 2, 0, 1));
+
+        let mut bytecode = BytecodeFile::new();
+        bytecode.code = code.clone();
+
+        let encoded = bytecode.encode_code();
+        let decoded = BytecodeFile::decode_code(&encoded).expect("Failed to decode code");
+
+        assert_eq!(decoded.len(), 3);
+        assert_eq!(decoded[0].opcode, Opcode::Nop);
+        assert_eq!(decoded[1].opcode, Opcode::Load);
+        assert_eq!(decoded[2].opcode, Opcode::Add);
+
+        // Vérifier les arguments de l'instruction Add
+        assert_eq!(decoded[2].args.len(), 3);
+        assert_eq!(decoded[2].args[0], 2);
+        assert_eq!(decoded[2].args[1], 0);
+        assert_eq!(decoded[2].args[2], 1);
     }
 }

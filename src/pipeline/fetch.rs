@@ -103,7 +103,7 @@ impl FetchStage {
 mod tests {
     use super::*;
     use crate::bytecode::opcodes::Opcode;
-    use crate::bytecode::instructions::Instruction;
+    use crate::bytecode::instructions::{ArgValue, Instruction};
     use crate::bytecode::format::InstructionFormat;
     use crate::bytecode::format::ArgType;
 
@@ -213,6 +213,153 @@ mod tests {
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Instruction non trouvée"));
     }
+    #[test]
+    fn test_fetch_stage_three_register_instruction() {
+        let mut fetch = FetchStage::new(16);
+
+        // Créer une instruction avec trois registres
+        // ADD R2, R0, R1 (R2 = R0 + R1)
+        let add = Instruction::create_reg_reg_reg(Opcode::Add, 2, 0, 1);
+        let instructions = vec![add.clone()];
+
+        // Traiter l'instruction
+        let result = fetch.process_direct(0, &instructions);
+
+        // Vérifier que l'instruction a été correctement récupérée
+        assert!(result.is_ok());
+        let fd_reg = result.unwrap();
+        assert_eq!(fd_reg.pc, 0);
+        assert_eq!(fd_reg.instruction.opcode, Opcode::Add);
+
+        // Vérifier que l'instruction est bien du format à trois registres
+        if let Ok(ArgValue::Register(rd)) = fd_reg.instruction.get_arg1_value() {
+            assert_eq!(rd, 2);
+        } else {
+            panic!("Premier argument doit être un registre");
+        }
+
+        if let Ok(ArgValue::Register(rs1)) = fd_reg.instruction.get_arg2_value() {
+            assert_eq!(rs1, 0);
+        } else {
+            panic!("Deuxième argument doit être un registre");
+        }
+
+        if let Ok(ArgValue::Register(rs2)) = fd_reg.instruction.get_arg3_value() {
+            assert_eq!(rs2, 1);
+        } else {
+            panic!("Troisième argument doit être un registre");
+        }
+    }
+
+    #[test]
+    fn test_fetch_stage_mixed_instruction_formats() {
+        let mut fetch = FetchStage::new(16);
+
+        // Créer une séquence d'instructions avec différents formats
+        let add3 = Instruction::create_reg_reg_reg(Opcode::Add, 2, 0, 1); // ADD R2, R0, R1 (format à 3 registres)
+        let sub2 = Instruction::create_reg_reg(Opcode::Sub, 3, 2);       // SUB R3, R2 (format à 2 registres)
+        let mov1 = Instruction::create_single_reg(Opcode::Inc, 4);       // INC R4 (format à 1 registre)
+        let nop0 = Instruction::create_no_args(Opcode::Nop);             // NOP (format sans registre)
+
+        let instructions = vec![add3.clone(), sub2.clone(), mov1.clone(), nop0.clone()];
+
+        // Adresses des instructions
+        let pc0 = 0;
+        let pc1 = add3.total_size() as u32;
+        let pc2 = pc1 + sub2.total_size() as u32;
+        let pc3 = pc2 + mov1.total_size() as u32;
+
+        // Vérifier la première instruction (3 registres)
+        let result0 = fetch.process_direct(pc0, &instructions);
+        assert!(result0.is_ok());
+        let fd_reg0 = result0.unwrap();
+        assert_eq!(fd_reg0.instruction.opcode, Opcode::Add);
+
+        // Vérifier la deuxième instruction (2 registres)
+        let result1 = fetch.process_direct(pc1, &instructions);
+        assert!(result1.is_ok());
+        let fd_reg1 = result1.unwrap();
+        assert_eq!(fd_reg1.instruction.opcode, Opcode::Sub);
+
+        // Vérifier la troisième instruction (1 registre)
+        let result2 = fetch.process_direct(pc2, &instructions);
+        assert!(result2.is_ok());
+        let fd_reg2 = result2.unwrap();
+        assert_eq!(fd_reg2.instruction.opcode, Opcode::Inc);
+
+        // Vérifier la quatrième instruction (0 registre)
+        let result3 = fetch.process_direct(pc3, &instructions);
+        assert!(result3.is_ok());
+        let fd_reg3 = result3.unwrap();
+        assert_eq!(fd_reg3.instruction.opcode, Opcode::Nop);
+    }
+
+    #[test]
+    fn test_fetch_stage_complex_instruction_sequence() {
+        let mut fetch = FetchStage::new(16);
+
+        // Créer une séquence d'instructions représentant un petit programme
+        // qui effectue: R3 = R0 + R1 * R2
+        let mul = Instruction::create_reg_reg_reg(Opcode::Mul, 4, 1, 2);  // R4 = R1 * R2
+        let add = Instruction::create_reg_reg_reg(Opcode::Add, 3, 0, 4);  // R3 = R0 + R4
+
+        let instructions = vec![mul.clone(), add.clone()];
+
+        // Adresses des instructions
+        let pc0 = 0;
+        let pc1 = mul.total_size() as u32;
+
+        // Vérifier que les instructions sont correctement récupérées dans l'ordre
+        let result0 = fetch.process_direct(pc0, &instructions);
+        assert!(result0.is_ok());
+        let fd_reg0 = result0.unwrap();
+        assert_eq!(fd_reg0.instruction.opcode, Opcode::Mul);
+
+        let result1 = fetch.process_direct(pc1, &instructions);
+        assert!(result1.is_ok());
+        let fd_reg1 = result1.unwrap();
+        assert_eq!(fd_reg1.instruction.opcode, Opcode::Add);
+
+        // Vérifier que le buffer contient les instructions dans le bon ordre
+        // (après avoir récupéré les deux instructions, le buffer devrait être vide)
+        assert_eq!(fetch.fetch_buffer.len(), 0);
+    }
+
+    #[test]
+    fn test_fetch_stage_instruction_sizes() {
+        let mut fetch = FetchStage::new(16);
+
+        // Créer des instructions avec différentes tailles
+        let nop = Instruction::create_no_args(Opcode::Nop);                       // Petite instruction
+        let add = Instruction::create_reg_reg_reg(Opcode::Add, 2, 0, 1);          // Instruction moyenne
+
+        // Instruction plus grande avec un format personnalisé et des arguments immédiats
+        let format = InstructionFormat::new(ArgType::Register, ArgType::Register, ArgType::Immediate32);
+        let custom = Instruction::new(
+            Opcode::Add,
+            format,
+            vec![3, 4, 0xFF, 0xFF, 0xFF, 0xFF]  // R3, R4, valeur immédiate 0xFFFFFFFF
+        );
+
+        let instructions = vec![nop.clone(), add.clone(), custom.clone()];
+
+        // Calculer les adresses correctes
+        let pc0 = 0;
+        let pc1 = nop.total_size() as u32;
+        let pc2 = pc1 + add.total_size() as u32;
+
+        // Vérifier que les adresses sont correctement calculées lors de la récupération des instructions
+        let result0 = fetch.process_direct(pc0, &instructions);
+        let result1 = fetch.process_direct(pc1, &instructions);
+        let result2 = fetch.process_direct(pc2, &instructions);
+
+        assert!(result0.is_ok() && result1.is_ok() && result2.is_ok());
+
+        // Vérifier que le fetch buffer est maintenant vide (toutes les instructions traitées)
+        assert_eq!(fetch.fetch_buffer.len(), 0);
+    }
+
+
 }
 
 

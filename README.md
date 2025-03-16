@@ -17,65 +17,107 @@ PunkVM est une machine virtuelle de haute performance conçue pour exécuter le 
 
 PunkVM est actuellement en développement actif. Consultez le [Roadmap](ROADMAP.md) pour plus de détails sur le plan de développement et l'état d'avancement.
 
-## Prérequis
+[//]: # ()
+[//]: # (## Prérequis)
 
-- Rust 1.70 ou supérieur
-- Cargo
-- (Optionnel) Cranelift pour la compilation JIT
+[//]: # ()
+[//]: # (- Rust 1.70 ou supérieur)
 
-## Installation
+[//]: # (- Cargo)
 
-```bash
-# Cloner le dépôt
-git clone https://github.com/YmClash/PunkVM.git
-cd punkvm
+[//]: # (- &#40;Optionnel&#41; Cranelift pour la compilation JIT)
 
-# Compiler le projet
-cargo build --release
+[//]: # ()
+[//]: # (## Installation)
 
-# Exécuter les tests
-cargo test
-```
+[//]: # ()
+[//]: # (```bash)
 
-## Utilisation
+[//]: # (# Cloner le dépôt)
 
-### Exécution de Bytecode
+[//]: # (git clone https://github.com/YmClash/PunkVM.git)
 
-```rust
-use punkvm::{VirtualMachine, BytecodeLoader};
+[//]: # (cd punkvm)
 
-fn main() {
-    // Charger le bytecode depuis un fichier
-    let bytecode = BytecodeLoader::from_file("program.pbc").unwrap();
-    
-    // Créer et configurer la VM
-    let mut vm = VirtualMachine::new();
-    
-    // Exécuter le programme
-    let result = vm.execute(bytecode);
-    
-    println!("Résultat: {:?}", result);
-}
-```
+[//]: # ()
+[//]: # (# Compiler le projet)
 
-### Intégration avec PunkLang
+[//]: # (cargo build --release)
 
-```rust
-use punklang::{Compiler, CompileOptions};
-use punkvm::VirtualMachine;
+[//]: # ()
+[//]: # (# Exécuter les tests)
 
-fn main() {
-    // Compiler le code source PunkLang
-    let compiler = Compiler::new();
-    let bytecode = compiler.compile("source.punk", CompileOptions::default()).unwrap();
-    
-    // Exécuter le bytecode
-    let mut vm = VirtualMachine::new();
-    let result = vm.execute(bytecode);
-    
-    println!("Résultat: {:?}", result);
-}
-```
+[//]: # (cargo test)
+
+[//]: # (```)
+
+[//]: # ()
+[//]: # (## Utilisation)
+
+[//]: # ()
+[//]: # (### Exécution de Bytecode)
+
+[//]: # ()
+[//]: # (```rust)
+
+[//]: # (use punkvm::{VirtualMachine, BytecodeLoader};)
+
+[//]: # ()
+[//]: # (fn main&#40;&#41; {)
+
+[//]: # (    // Charger le bytecode depuis un fichier)
+
+[//]: # (    let bytecode = BytecodeLoader::from_file&#40;"program.pbc"&#41;.unwrap&#40;&#41;;)
+
+[//]: # (    )
+[//]: # (    // Créer et configurer la VM)
+
+[//]: # (    let mut vm = VirtualMachine::new&#40;&#41;;)
+
+[//]: # (    )
+[//]: # (    // Exécuter le programme)
+
+[//]: # (    let result = vm.execute&#40;bytecode&#41;;)
+
+[//]: # (    )
+[//]: # (    println!&#40;"Résultat: {:?}", result&#41;;)
+
+[//]: # (})
+
+[//]: # (```)
+
+[//]: # ()
+[//]: # (### Intégration avec PunkLang)
+
+[//]: # ()
+[//]: # (```rust)
+
+[//]: # (use punklang::{Compiler, CompileOptions};)
+
+[//]: # (use punkvm::VirtualMachine;)
+
+[//]: # ()
+[//]: # (fn main&#40;&#41; {)
+
+[//]: # (    // Compiler le code source PunkLang)
+
+[//]: # (    let compiler = Compiler::new&#40;&#41;;)
+
+[//]: # (    let bytecode = compiler.compile&#40;"source.punk", CompileOptions::default&#40;&#41;&#41;.unwrap&#40;&#41;;)
+
+[//]: # (    )
+[//]: # (    // Exécuter le bytecode)
+
+[//]: # (    let mut vm = VirtualMachine::new&#40;&#41;;)
+
+[//]: # (    let result = vm.execute&#40;bytecode&#41;;)
+
+[//]: # (    )
+[//]: # (    println!&#40;"Résultat: {:?}", result&#41;;)
+
+[//]: # (})
+
+[//]: # (```)
 
 ## Architecture
 
