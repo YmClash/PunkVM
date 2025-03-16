@@ -676,10 +676,10 @@ fn print_stats(vm: &VM) {
         println!("  Taux de hits cache: {:.2}%", hit_rate);
     }
 
-    if stats.hazards > 0 && stats.forwards > 0 {
-        let forwarding_efficiency = (stats.forwards as f64 / stats.hazards as f64) * 100.0;
-        println!("  Efficacité du forwarding: {:.2}%", forwarding_efficiency);
-    }
+    // if stats.hazards > 0 && stats.forwards > 0 {
+    //     let forwarding_efficiency = (stats.forwards as f64  / stats.hazards as f64) * 100.0;
+    //     println!("  Efficacité du forwarding: {:.2}%", forwarding_efficiency);
+    // }
 
 
     // Évaluation des performances
@@ -702,8 +702,9 @@ fn print_stats(vm: &VM) {
     println!("Taux de stalls: {:.2}%", stall_rate);
 
     // Efficacité du forwarding
-    let forwarding_efficiency = if stats.hazards > 0 {
-        stats.forwards as f64 / stats.hazards as f64 * 100.0
+    let total_data_dependencies = stats.forwards + stats.hazards;
+    let forwarding_efficiency = if total_data_dependencies > 0 {
+        stats.forwards as f64 / total_data_dependencies as f64 * 100.0
     } else {
         0.0
     };

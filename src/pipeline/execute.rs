@@ -21,18 +21,20 @@ impl ExecuteStage{
     /// Traite l'étage Execute directement
     pub fn process_direct(&mut self, ex_reg: &DecodeExecuteRegister, alu: &mut ALU) -> Result<ExecuteMemoryRegister, String> {
         // Valeurs par défaut
-        let mut alu_result = 0;
-        let mut branch_taken = false;
-        let mut branch_target = None;
-        let mut store_value = None;
-        // let mut mem_addr = ex_reg.mem_addr;
+        // let mut branch_taken = false;
+        // let mut branch_target = None;
+        // on récupère les valeur calcule en decode
 
-
-        // on recupere les valeur calcule en decode
         let rs1_value = ex_reg.rs1_value;
         let rs2_value = ex_reg.rs2_value;
-        // let rd_value = ex_reg.rd;
+        let mut alu_result = 0;
         let mem_addr = ex_reg.mem_addr;
+
+        let mut branch_taken = false;
+        let mut branch_target = ex_reg.branch_addr;
+
+        let mut store_value = None;
+
 
         // Exécuter l'opération en fonction de l'opcode
         match ex_reg.instruction.opcode {
@@ -230,7 +232,7 @@ impl ExecuteStage{
             instruction: ex_reg.instruction.clone(),
             alu_result,
             rd: ex_reg.rd,
-            store_value,
+            store_value:None,   // pour CMP
             mem_addr,
             branch_target,
             branch_taken,

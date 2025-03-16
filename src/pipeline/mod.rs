@@ -30,9 +30,9 @@ pub struct Pipeline {
     /// Module de l'étage Writeback
     writeback: writeback::WritebackStage,
     /// Unité de détection de hazards
-    hazard_detection: hazard::HazardDetectionUnit,
+    pub hazard_detection: hazard::HazardDetectionUnit,
     /// Unité de forwarding
-    forwarding: forward::ForwardingUnit,
+    pub forwarding: forward::ForwardingUnit,
     /// Statistiques du pipeline
     stats: PipelineStats,
     /// Configuration
@@ -338,6 +338,7 @@ impl Pipeline {
         // 1) Clone de l’état local
         let mut state = self.state.clone();
         state.stalled = false;
+        state.instructions_completed = 0;
 
         // 2) Détection de hazards
         if self.enable_hazard_detection {
@@ -433,9 +434,16 @@ impl Pipeline {
             self.writeback.process_direct(mw_reg, registers)?;
             // On considère qu’une instruction est finalisée ici
             state.instructions_completed += 1;
-            self.stats.instructions += 1;
+            // self.stats.instructions += 1;
         }
         state.memory_writeback = None;
+
+        self.stats.hazards = self.hazard_detection.get_hazards_count();
+        self.stats.forwards = self.forwarding.get_forwards_count();
+        // if state.stalled {
+        //     self.stats.stalls += 1;
+        // }
+
 
         // 9) Mise à jour de self.state
         self.state = state.clone();

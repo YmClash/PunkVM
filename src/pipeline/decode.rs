@@ -53,12 +53,18 @@ impl DecodeStage {
 
         // Extraction de la valeur immédiate
         let immediate = self.extract_immediate(instruction)?;
+        println!("Valeur immédiate extraite: {:?}", immediate);
 
         // Calcul de l'adresse de branchement (si instruction de branchement)
         let branch_addr = self.calculate_branch_address(instruction, fd_reg.pc)?;
+        println!("Adresse de branchement calculée: {:?}", branch_addr);
+
 
         // Calcul de l'adresse mémoire (si instruction mémoire)
         let mem_addr = self.calculate_memory_address(instruction, registers)?;
+        println!("Adresse mémoire calculée: {:?}", mem_addr);
+
+
 
         Ok(DecodeExecuteRegister {
             instruction: instruction.clone(),
@@ -132,10 +138,12 @@ impl DecodeStage {
             Opcode::Cmp | Opcode::Test => {
                 if let Ok(ArgValue::Register(r)) = instruction.get_arg1_value() {
                     rs1 = Some(r as usize);
+                    println!("DecodeStage: Registre source 1 pour CMP: {:?}", rs1);
                 }
 
                 if let Ok(ArgValue::Register(r)) = instruction.get_arg2_value() {
                     rs2 = Some(r as usize);
+                    println!("DecodeStage: Registre source 2 pour CMP: {:?}", rs2);
                 }
             },
 
