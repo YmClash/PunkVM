@@ -6,7 +6,7 @@ use crate::bytecode::opcodes::Opcode;
 /// Unité de détection de hazards
 pub struct HazardDetectionUnit {
     // Compteur de hazards détectés
-    hazards_count: u64,
+    pub hazards_count: u64,
 }
 
 #[derive(Debug, PartialEq)]
@@ -42,30 +42,35 @@ impl HazardDetectionUnit {
     pub fn detect_hazards_with_type(&mut self, state: &PipelineState) -> HazardResult {
         // 1. Data Hazards (RAW - Read After Write)
         if self.is_data_hazard(state) {
+            println!("Data hazard detected");
             self.hazards_count += 1;
             return HazardResult::DataDependency;
         }
 
         // 2. Load-Use Hazards (cas spécial de Data Hazard)
         if self.is_load_use_hazards(state) {
+            println!("Load-Use hazard detected");
             self.hazards_count += 1;
             return HazardResult::LoadUse;
         }
 
         // 3. Control Hazards
         if self.is_control_hazard(state) {
+            println!("Control hazard detected");
             self.hazards_count += 1;
             return HazardResult::ControlHazard;
         }
 
         // 4. Structural Hazards
         if self.is_structural_hazard(state) {
+            println!("Structural hazard detected");
             self.hazards_count += 1;
             return HazardResult::StructuralHazard;
         }
 
         // 5. Store-Load Hazards
         if self.is_store_load_hazard(state) {
+            println!("Store-Load hazard detected");
             self.hazards_count += 1;
             return HazardResult::StoreLoad;
         }
@@ -124,6 +129,7 @@ impl HazardDetectionUnit {
     fn is_data_hazard(&self, state: &PipelineState) -> bool {
         let decode_reg = match &state.decode_execute {
             Some(reg) => reg,
+
             None => return false,
         };
         let (rs1, rs2) = (decode_reg.rs1, decode_reg.rs2);
@@ -138,6 +144,7 @@ impl HazardDetectionUnit {
                 // Si decode a besoin du rd_ex de execute
                 if rs1 == Some(rd_ex) || rs2 == Some(rd_ex) {
                     println!("Data hazard (RAW) : decode needs R{}", rd_ex);
+
                     return true;
                 }
             }
@@ -148,6 +155,7 @@ impl HazardDetectionUnit {
             if let Some(rd_mem) = mem_reg.rd {
                 if rs1 == Some(rd_mem) || rs2 == Some(rd_mem) {
                     println!("Data hazard (RAW) : decode needs R{} (written in Memory stage)", rd_mem);
+
                     return true;
                 }
             }
@@ -257,6 +265,7 @@ impl HazardDetectionUnit {
             );
             if ex_is_mem_op && mem_is_mem_op {
                 println!("Structural hazard : mem ops in both EX & MEM");
+
                 return true;
             }
         }
@@ -265,11 +274,14 @@ impl HazardDetectionUnit {
 
     /// Réinitialise l'unité de détection de hazards
     pub fn reset(&mut self) {
+        println!("Resetting hazards count");
         self.hazards_count = 0;
+
     }
 
     /// Retourne le nombre de hazards détectés
     pub fn get_hazards_count(&self) -> u64 {
+        println!("Hazards count: {}", self.hazards_count);
         self.hazards_count
     }
 }
