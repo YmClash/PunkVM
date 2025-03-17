@@ -56,9 +56,6 @@ impl Instruction{
         println!("DEBUG: new() => overhead={}, args.len()={}, potential_size={}, needed_if_compact={}, size_type={:?}",
                  overhead, args.len(), potential_size, needed_if_compact, size_type
         );
-
-
-
         Self {
             opcode,
             format,
@@ -81,16 +78,7 @@ impl Instruction{
                  overhead + size_field_size + self.args.len()
         );
 
-
         overhead + size_field_size + self.args.len()
-
-        
-        // let header_size = 2 ; // Opcode 1B + format 1B
-        // let size_field_size = match self.size_type{
-        //     SizeType::Compact => 1,
-        //     SizeType::Extended => 3,     // 3 octets: 0xFF (marqueur) + 2 octets de taille
-        // };
-        // header_size + size_field_size + self.args.len()
     }
 
     /// Encode l'instruction dans un Vec<u8>
@@ -128,10 +116,8 @@ impl Instruction{
                 bytes.push(hi);
             }
         };
-
         // 4) args
         bytes.extend_from_slice(&self.args);
-
         bytes
     }
 
@@ -334,8 +320,12 @@ impl Instruction{
                     Err(DecodeError::InvalidArgumentOffset)
                 }
             },
+
         }
     }
+
+
+    /// ici on a les fonctions d'aide pour créer des instructions
 
     /// Crée une instruction simple sans arguments
     pub fn create_no_args(opcode: Opcode) -> Self {
@@ -413,9 +403,182 @@ impl Instruction{
 
     }
 
+    /// ici on a les Branch instructions  akaa Jump instructions ou bien saut conditionnel
+    // pub fn create_branch(opcode: Opcode, reg: u8, offset: i32) -> Self {
+    //     // Crée une instruction de saut conditionnel
+    //     let fmt = InstructionFormat::branch(); // (Register, RelativeAddr, None)?
+    //     let mut args = vec![reg & 0x0F];
+    //     args.extend_from_slice(&offset.to_le_bytes()[..4]); // 4 octets pour l'adresse relative
+    //     Self::new(opcode, fmt, args)
+    // }
+
+    pub fn create_jump(offset: i32) -> Self {
+        // Crée une instruction de saut inconditionnel
+        let fmt = InstructionFormat::jump();
+        let mut args = Vec::new();
+        // Encodage sur 4 octets de l’offset relatif (little-endian)
+        args.extend_from_slice(&offset.to_le_bytes());
+        Self::new(Opcode::Jmp, fmt, args)
+    }
+
+    pub fn create_jump_if(offset: i32) -> Self {
+        // Crée une instruction de saut conditionnel
+        let fmt = InstructionFormat::jumpif();
+        let mut args = Vec::new();
+        // Encodage sur 4 octets de l’offset relatif (little-endian)
+        args.extend_from_slice(&offset.to_le_bytes());
+        Self::new(Opcode::JmpIf, fmt, args)
+    }
+
+    pub fn create_jump_if_not(offset: i32) -> Self {
+        // Crée une instruction de saut conditionnel
+        let fmt = InstructionFormat::jump_if_not();
+        let mut args = Vec::new();
+        // Encodage sur 4 octets de l’offset relatif (little-endian)
+        args.extend_from_slice(&offset.to_le_bytes());
+        Self::new(Opcode::JmpIfNot, fmt, args)
+    }
+
+    pub fn create_jump_if_equal(offset: i32) -> Self {
+        // Crée une instruction de saut conditionnel
+        let fmt = InstructionFormat::jump_if_equal();
+        let mut args = Vec::new();
+        // Encodage sur 4 octets de l’offset relatif (little-endian)
+        args.extend_from_slice(&offset.to_le_bytes());
+        Self::new(Opcode::JmpIfEqual, fmt, args)
+    }
+
+    pub fn create_jump_if_not_equal(offset: i32) -> Self {
+        // Crée une instruction de saut conditionnel
+        let fmt = InstructionFormat::jump_if_notequal();
+        let mut args = Vec::new();
+        // Encodage sur 4 octets de l’offset relatif (little-endian)
+        args.extend_from_slice(&offset.to_le_bytes());
+        Self::new(Opcode::JmpIfNotEqual, fmt, args)
+    }
+
+    pub fn create_jump_if_greater(offset: i32) -> Self {
+        // Crée une instruction de saut conditionnel
+        let fmt = InstructionFormat::jump_if_greater();
+        let mut args = Vec::new();
+        // Encodage sur 4 octets de l’offset relatif (little-endian)
+        args.extend_from_slice(&offset.to_le_bytes());
+        Self::new(Opcode::JumpIfGreater, fmt, args)
+    }
+
+    pub fn create_jump_if_greater_equal(offset: i32) -> Self {
+        // Crée une instruction de saut conditionnel
+        let fmt = InstructionFormat::jump_if_greaterequal();
+        let mut args = Vec::new();
+        // Encodage sur 4 octets de l’offset relatif (little-endian)
+        args.extend_from_slice(&offset.to_le_bytes());
+        Self::new(Opcode::JumpIfGreaterEqual, fmt, args)
+    }
+
+    pub fn create_jump_if_less(offset: i32) -> Self {
+        // Crée une instruction de saut conditionnel
+        let fmt = InstructionFormat::jump_if_less();
+        let mut args = Vec::new();
+        // Encodage sur 4 octets de l’offset relatif (little-endian)
+        args.extend_from_slice(&offset.to_le_bytes());
+        Self::new(Opcode::JumpIfLess, fmt, args)
+    }
+
+    pub fn create_jump_if_less_equal(offset: i32) -> Self {
+        // Crée une instruction de saut conditionnel
+        let fmt = InstructionFormat::jump_if_lessequal();
+        let mut args = Vec::new();
+        // Encodage sur 4 octets de l’offset relatif (little-endian)
+        args.extend_from_slice(&offset.to_le_bytes());
+        Self::new(Opcode::JumpIfLessEqual, fmt, args)
+    }
+
+    pub fn create_jump_above(offset: i32) -> Self {
+        // Crée une instruction de saut conditionnel
+        let fmt = InstructionFormat::jump_if_above();
+        let mut args = Vec::new();
+        // Encodage sur 4 octets de l’offset relatif (little-endian)
+        args.extend_from_slice(&offset.to_le_bytes());
+        Self::new(Opcode::JumpIfAbove, fmt, args)
+    }
+
+    pub fn create_jump_above_equal(offset: i32) -> Self {
+        // Crée une instruction de saut conditionnel
+        let fmt = InstructionFormat::jump_if_aboveequal();
+        let mut args = Vec::new();
+        // Encodage sur 4 octets de l’offset relatif (little-endian)
+        args.extend_from_slice(&offset.to_le_bytes());
+        Self::new(Opcode::JumpIfAboveEqual, fmt, args)
+    }
+
+    pub fn create_jump_below(offset: i32) -> Self {
+        // Crée une instruction de saut conditionnel
+        let fmt = InstructionFormat::jump_if_below();
+        let mut args = Vec::new();
+        // Encodage sur 4 octets de l’offset relatif (little-endian)
+        args.extend_from_slice(&offset.to_le_bytes());
+        Self::new(Opcode::JumpIfBelow, fmt, args)
+    }
+
+    pub fn create_jump_below_equal(offset: i32) -> Self {
+        // Crée une instruction de saut conditionnel
+        let fmt = InstructionFormat::jump_if_belowequal();
+        let mut args = Vec::new();
+        // Encodage sur 4 octets de l’offset relatif (little-endian)
+        args.extend_from_slice(&offset.to_le_bytes());
+        Self::new(Opcode::JumpIfBelowEqual, fmt, args)
+    }
+
+    pub fn create_jump_not_zero(offset: i32) -> Self {
+        // Crée une instruction de saut conditionnel
+        let fmt = InstructionFormat::jump_if_not_zero();
+        let mut args = Vec::new();
+        // Encodage sur 4 octets de l’offset relatif (little-endian)
+        args.extend_from_slice(&offset.to_le_bytes());
+        Self::new(Opcode::JumpIfNotZero, fmt, args)
+    }
+
+    pub fn create_jump_zero(offset: i32) -> Self {
+        // Crée une instruction de saut conditionnel
+        let fmt = InstructionFormat::jump_if_zero();
+        let mut args = Vec::new();
+        // Encodage sur 4 octets de l’offset relatif (little-endian)
+        args.extend_from_slice(&offset.to_le_bytes());
+        Self::new(Opcode::JumpIfZero, fmt, args)
+    }
+
+    pub fn create_jump_if_overflow(offset: i32) -> Self {
+        // Crée une instruction de saut conditionnel
+        let fmt = InstructionFormat::jump_if_overflow();
+        let mut args = Vec::new();
+        // Encodage sur 4 octets de l’offset relatif (little-endian)
+        args.extend_from_slice(&offset.to_le_bytes());
+        Self::new(Opcode::JumpIfOverflow, fmt, args)
+    }
+
+    pub fn create_jump_if_not_overflow(offset: i32) -> Self {
+        // Crée une instruction de saut conditionnel
+        let fmt = InstructionFormat::jump_if_not_overflow();
+        let mut args = Vec::new();
+        // Encodage sur 4 octets de l’offset relatif (little-endian)
+        args.extend_from_slice(&offset.to_le_bytes());
+        Self::new(Opcode::JumpIfNotOverflow, fmt, args)
+    }
+
+    pub fn create_jump_if_positive(offset: i32) -> Self {
+        // Crée une instruction de saut conditionnel
+        let fmt = InstructionFormat::jump_if_positive();
+        let mut args = Vec::new();
+        // Encodage sur 4 octets de l’offset relatif (little-endian)
+        args.extend_from_slice(&offset.to_le_bytes());
+        Self::new(Opcode::JumpIfPositive, fmt, args)
+    }
+
 
 
 }
+
+
 
 // Test unitaire pour les instructions
 #[cfg(test)]
@@ -740,4 +903,173 @@ mod tests {
         let args_size2 = format2.args_size();
         assert_eq!(args_size2, 2);  // 1 octet pour registre + 1 octet pour immédiat
     }
+
+
+    #[test]
+    fn test_jump_instructions() {
+        // Test de création d'instruction de saut
+        let offset = 42;
+        let jump_instr = Instruction::create_jump(offset);
+        assert_eq!(jump_instr.opcode, Opcode::Jmp);
+        assert_eq!(jump_instr.args.len(), 4); // 4 octets pour l'offset
+
+        // Test de création d'instruction de saut conditionnel
+        let jump_if_instr = Instruction::create_jump_if(offset);
+        assert_eq!(jump_if_instr.opcode, Opcode::JmpIf);
+        assert_eq!(jump_if_instr.args.len(), 4); // 4 octets pour l'offset
+    }
+
+    #[test]
+    fn test_jump_if() {
+        // Test de création d'instruction de saut conditionnel
+        let offset = 42;
+        let jump_if_instr = Instruction::create_jump_if(offset);
+        assert_eq!(jump_if_instr.opcode, Opcode::JmpIf);
+        assert_eq!(jump_if_instr.args.len(), 4); // 4 octets pour l'offset
+    }
+
+    #[test]
+    fn test_jump_if_not() {
+        // Test de création d'instruction de saut conditionnel
+        let offset = 42;
+        let jump_if_not_instr = Instruction::create_jump_if_not(offset);
+        assert_eq!(jump_if_not_instr.opcode, Opcode::JmpIfNot);
+        assert_eq!(jump_if_not_instr.args.len(), 4); // 4 octets pour l'offset
+    }
+
+    #[test]
+    fn test_jump_if_equal() {
+        // Test de création d'instruction de saut conditionnel
+        let offset = 42;
+        let jump_if_equal_instr = Instruction::create_jump_if_equal(offset);
+        assert_eq!(jump_if_equal_instr.opcode, Opcode::JmpIfEqual);
+        assert_eq!(jump_if_equal_instr.args.len(), 4); // 4 octets pour l'offset
+    }
+
+    #[test]
+    fn test_jump_if_not_equal() {
+        // Test de création d'instruction de saut conditionnel
+        let offset = 42;
+        let jump_if_not_equal_instr = Instruction::create_jump_if_not_equal(offset);
+        assert_eq!(jump_if_not_equal_instr.opcode, Opcode::JmpIfNotEqual);
+        assert_eq!(jump_if_not_equal_instr.args.len(), 4); // 4 octets pour l'offset
+    }
+
+    #[test]
+    fn test_jump_if_greater() {
+        // Test de création d'instruction de saut conditionnel
+        let offset = 42;
+        let jump_if_greater_instr = Instruction::create_jump_if_greater(offset);
+        assert_eq!(jump_if_greater_instr.opcode, Opcode::JumpIfGreater);
+        assert_eq!(jump_if_greater_instr.args.len(), 4); // 4 octets pour l'offset
+    }
+
+    #[test]
+    fn test_jump_if_greater_equal() {
+        // Test de création d'instruction de saut conditionnel
+        let offset = 42;
+        let jump_if_greater_equal_instr = Instruction::create_jump_if_greater_equal(offset);
+        assert_eq!(jump_if_greater_equal_instr.opcode, Opcode::JumpIfGreaterEqual);
+        assert_eq!(jump_if_greater_equal_instr.args.len(), 4); // 4 octets pour l'offset
+    }
+
+    #[test]
+    fn test_jump_if_less() {
+        // Test de création d'instruction de saut conditionnel
+        let offset = 42;
+        let jump_if_less_instr = Instruction::create_jump_if_less(offset);
+        assert_eq!(jump_if_less_instr.opcode, Opcode::JumpIfLess);
+        assert_eq!(jump_if_less_instr.args.len(), 4); // 4 octets pour l'offset
+    }
+
+    #[test]
+    fn test_jump_if_less_equal() {
+        // Test de création d'instruction de saut conditionnel
+        let offset = 42;
+        let jump_if_less_equal_instr = Instruction::create_jump_if_less_equal(offset);
+        assert_eq!(jump_if_less_equal_instr.opcode, Opcode::JumpIfLessEqual);
+        assert_eq!(jump_if_less_equal_instr.args.len(), 4); // 4 octets pour l'offset
+    }
+
+    #[test]
+    fn test_jump_above() {
+        // Test de création d'instruction de saut conditionnel
+        let offset = 42;
+        let jump_above_instr = Instruction::create_jump_above(offset);
+        assert_eq!(jump_above_instr.opcode, Opcode::JumpIfAbove);
+        assert_eq!(jump_above_instr.args.len(), 4); // 4 octets pour l'offset
+    }
+    #[test]
+    fn test_jump_above_equal() {
+        // Test de création d'instruction de saut conditionnel
+        let offset = 42;
+        let jump_above_equal_instr = Instruction::create_jump_above_equal(offset);
+        assert_eq!(jump_above_equal_instr.opcode, Opcode::JumpIfAboveEqual);
+        assert_eq!(jump_above_equal_instr.args.len(), 4); // 4 octets pour l'offset
+    }
+
+    #[test]
+    fn test_jump_below() {
+        // Test de création d'instruction de saut conditionnel
+        let offset = 42;
+        let jump_below_instr = Instruction::create_jump_below(offset);
+        assert_eq!(jump_below_instr.opcode, Opcode::JumpIfBelow);
+        assert_eq!(jump_below_instr.args.len(), 4); // 4 octets pour l'offset
+    }
+
+    #[test]
+    fn test_jump_below_equal() {
+        // Test de création d'instruction de saut conditionnel
+        let offset = 42;
+        let jump_below_equal_instr = Instruction::create_jump_below_equal(offset);
+        assert_eq!(jump_below_equal_instr.opcode, Opcode::JumpIfBelowEqual);
+        assert_eq!(jump_below_equal_instr.args.len(), 4); // 4 octets pour l'offset
+    }
+
+    #[test]
+    fn test_jump_zero() {
+        // Test de création d'instruction de saut conditionnel
+        let offset = 42;
+        let jump_zero_instr = Instruction::create_jump_zero(offset);
+        assert_eq!(jump_zero_instr.opcode, Opcode::JumpIfZero);
+        assert_eq!(jump_zero_instr.args.len(), 4); // 4 octets pour l'offset
+    }
+
+    #[test]
+    fn test_jump_not_zero() {
+        // Test de création d'instruction de saut conditionnel
+        let offset = 42;
+        let jump_not_zero_instr = Instruction::create_jump_not_zero(offset);
+        assert_eq!(jump_not_zero_instr.opcode, Opcode::JumpIfNotZero);
+        assert_eq!(jump_not_zero_instr.args.len(), 4); // 4 octets pour l'offset
+    }
+
+    #[test]
+    fn test_jump_if_overflow() {
+        // Test de création d'instruction de saut conditionnel
+        let offset = 42;
+        let jump_if_overflow_instr = Instruction::create_jump_if_overflow(offset);
+        assert_eq!(jump_if_overflow_instr.opcode, Opcode::JumpIfOverflow);
+        assert_eq!(jump_if_overflow_instr.args.len(), 4); // 4 octets pour l'offset
+    }
+
+    #[test]
+    fn test_jump_if_not_overflow() {
+        // Test de création d'instruction de saut conditionnel
+        let offset = 42;
+        let jump_if_not_overflow_instr = Instruction::create_jump_if_not_overflow(offset);
+        assert_eq!(jump_if_not_overflow_instr.opcode, Opcode::JumpIfNotOverflow);
+        assert_eq!(jump_if_not_overflow_instr.args.len(), 4); // 4 octets pour l'offset
+    }
+
+    #[test]
+    fn test_jump_if_positive() {
+        // Test de création d'instruction de saut conditionnel
+        let offset = 42;
+        let jump_if_positive_instr = Instruction::create_jump_if_positive(offset);
+        assert_eq!(jump_if_positive_instr.opcode, Opcode::JumpIfPositive);
+        assert_eq!(jump_if_positive_instr.args.len(), 4); // 4 octets pour l'offset
+    }
+
+
 }
