@@ -154,6 +154,95 @@ impl InstructionFormat {
     pub fn no_args() -> Self {
         Self::new(ArgType::None, ArgType::None, ArgType::None)
     }
+
+    //Format pout les instructions de saut
+    pub fn jump() -> Self {
+        Self::new(ArgType::None, ArgType::Immediate32, ArgType::None)
+        // Self {
+        //     arg1_type: ArgType::None,
+        //     arg2_type: ArgType::Immediate32, // offset relatif sur 32 bits
+        //     arg3_type: ArgType::None,
+        // }
+    }
+
+    pub fn jumpif() -> Self {
+        Self::new(ArgType::Register, ArgType::Immediate32, ArgType::None)
+    }
+
+    pub fn jump_if_not() -> Self {
+        Self::new(ArgType::Register, ArgType::Immediate32, ArgType::None)
+    }
+
+    pub fn jump_if_equal() -> Self {
+        Self::new(ArgType::Register, ArgType::Immediate32, ArgType::None)
+    }
+    pub fn jump_if_notequal() -> Self {
+        Self::new(ArgType::Register, ArgType::Immediate32, ArgType::None)
+    }
+
+    pub fn jump_if_greater() -> Self {
+        Self::new(ArgType::Register, ArgType::Immediate32, ArgType::None)
+    }
+
+    pub fn jump_if_greaterequal() -> Self {
+        Self::new(ArgType::Register, ArgType::Immediate32, ArgType::None)
+    }
+
+    pub fn jump_if_less() -> Self {
+        Self::new(ArgType::Register, ArgType::Immediate32, ArgType::None)
+    }
+    pub fn jump_if_lessequal() -> Self {
+        Self::new(ArgType::Register, ArgType::Immediate32, ArgType::None)
+    }
+    pub fn jump_if_above() -> Self {
+        Self::new(ArgType::Register, ArgType::Immediate32, ArgType::None)
+    }
+
+    pub fn jump_if_aboveequal() -> Self {
+        Self::new(ArgType::Register, ArgType::Immediate32, ArgType::None)
+    }
+
+    pub fn jump_if_below() -> Self {
+        Self::new(ArgType::Register, ArgType::Immediate32, ArgType::None)
+    }
+
+    pub fn jump_if_belowequal() -> Self {
+        Self::new(ArgType::Register, ArgType::Immediate32, ArgType::None)
+    }
+
+    pub fn jump_if_overflow() -> Self {
+        Self::new(ArgType::Register, ArgType::Immediate32, ArgType::None)
+    }
+
+    pub fn jump_if_not_overflow() -> Self {
+        Self::new(ArgType::Register, ArgType::Immediate32, ArgType::None)
+    }
+
+    pub fn jump_if_zero() -> Self {
+        Self::new(ArgType::Register, ArgType::Immediate32, ArgType::None)
+    }
+    pub fn jump_if_not_zero() -> Self {
+        Self::new(ArgType::Register, ArgType::Immediate32, ArgType::None)
+    }
+
+    pub fn jump_if_positive() -> Self {
+        Self::new(ArgType::Register, ArgType::Immediate32, ArgType::None)
+    }
+
+
+    //Format pour les instructions de type CALL
+    pub fn call() -> Self{
+        Self::new(ArgType::None, ArgType::Immediate64, ArgType::None)
+    }
+
+    //Format pour les instructions de type RET
+    pub fn ret() -> Self{
+        Self::no_args()
+    }
+
+    pub fn reg_reg_offset() -> Self {
+        Self::new(ArgType::Register, ArgType::RegisterOffset, ArgType::None)
+    }
 }
 
 
@@ -319,5 +408,183 @@ mod tests {
         let encoded2 = [0xF0, 0xFF];
         let result2 = InstructionFormat::decode(encoded2);
         assert!(result2.is_none(), "Décodage devrait échouer si on a un ArgType invalide");
+    }
+
+
+    #[test]
+    fn test_jump_format() {
+        let fmt = InstructionFormat::jump();
+        let encoded = fmt.encode();
+        let decoded = InstructionFormat::decode(encoded).unwrap();
+        assert_eq!(fmt, decoded);
+    }
+
+    #[test]
+    fn test_jump_if_format() {
+        let fmt = InstructionFormat::jumpif();
+        let encoded = fmt.encode();
+        let decoded = InstructionFormat::decode(encoded).unwrap();
+        assert_eq!(fmt, decoded);
+    }
+
+    #[test]
+    fn test_jump_if_not_format() {
+        let fmt = InstructionFormat::jump_if_not();
+        let encoded = fmt.encode();
+        let decoded = InstructionFormat::decode(encoded).unwrap();
+        assert_eq!(fmt, decoded);
+    }
+
+    #[test]
+    fn test_jump_if_equal_format() {
+        let fmt = InstructionFormat::jump_if_equal();
+        let encoded = fmt.encode();
+        let decoded = InstructionFormat::decode(encoded).unwrap();
+        assert_eq!(fmt, decoded);
+    }
+
+    #[test]
+    fn test_jump_if_not_equal_format() {
+        let fmt = InstructionFormat::jump_if_notequal();
+        let encoded = fmt.encode();
+        let decoded = InstructionFormat::decode(encoded).unwrap();
+        assert_eq!(fmt, decoded);
+    }
+
+    #[test]
+    fn test_jump_if_greater_format() {
+        let fmt = InstructionFormat::jump_if_greater();
+        let encoded = fmt.encode();
+        let decoded = InstructionFormat::decode(encoded).unwrap();
+        assert_eq!(fmt, decoded);
+    }
+
+    #[test]
+    fn test_jump_if_greater_equal_format() {
+        let fmt = InstructionFormat::jump_if_greaterequal();
+        let encoded = fmt.encode();
+        let decoded = InstructionFormat::decode(encoded).unwrap();
+        assert_eq!(fmt, decoded);
+    }
+
+
+    #[test]
+    fn test_jump_if_less_format() {
+        let fmt = InstructionFormat::jump_if_less();
+        let encoded = fmt.encode();
+        let decoded = InstructionFormat::decode(encoded).unwrap();
+        assert_eq!(fmt, decoded);
+    }
+
+    #[test]
+    fn test_jump_if_less_equal_format() {
+        let fmt = InstructionFormat::jump_if_lessequal();
+        let encoded = fmt.encode();
+        let decoded = InstructionFormat::decode(encoded).unwrap();
+        assert_eq!(fmt, decoded);
+    }
+
+    #[test]
+    fn test_jump_if_above_format() {
+        let fmt = InstructionFormat::jump_if_above();
+        let encoded = fmt.encode();
+        let decoded = InstructionFormat::decode(encoded).unwrap();
+        assert_eq!(fmt, decoded);
+    }
+
+    #[test]
+    fn test_jump_if_above_equal_format() {
+        let fmt = InstructionFormat::jump_if_aboveequal();
+        let encoded = fmt.encode();
+        let decoded = InstructionFormat::decode(encoded).unwrap();
+        assert_eq!(fmt, decoded);
+    }
+
+    #[test]
+    fn test_jump_if_below_format() {
+        let fmt = InstructionFormat::jump_if_below();
+        let encoded = fmt.encode();
+        let decoded = InstructionFormat::decode(encoded).unwrap();
+        assert_eq!(fmt, decoded);
+    }
+
+    #[test]
+    fn test_jump_if_below_equal_format() {
+        let fmt = InstructionFormat::jump_if_belowequal();
+        let encoded = fmt.encode();
+        let decoded = InstructionFormat::decode(encoded).unwrap();
+        assert_eq!(fmt, decoded);
+    }
+
+    #[test]
+    fn test_jump_if_overflow_format() {
+        let fmt = InstructionFormat::jump_if_overflow();
+        let encoded = fmt.encode();
+        let decoded = InstructionFormat::decode(encoded).unwrap();
+        assert_eq!(fmt, decoded);
+    }
+
+    #[test]
+    fn test_jump_if_not_overflow_format() {
+        let fmt = InstructionFormat::jump_if_not_overflow();
+        let encoded = fmt.encode();
+        let decoded = InstructionFormat::decode(encoded).unwrap();
+        assert_eq!(fmt, decoded);
+    }
+
+    #[test]
+    fn test_jump_if_zero_format() {
+        let fmt = InstructionFormat::jump_if_zero();
+        let encoded = fmt.encode();
+        let decoded = InstructionFormat::decode(encoded).unwrap();
+        assert_eq!(fmt, decoded);
+    }
+
+    #[test]
+    fn test_jump_if_not_zero_format() {
+        let fmt = InstructionFormat::jump_if_not_zero();
+        let encoded = fmt.encode();
+        let decoded = InstructionFormat::decode(encoded).unwrap();
+        assert_eq!(fmt, decoded);
+    }
+
+    #[test]
+    fn test_jump_if_positive_format() {
+        let fmt = InstructionFormat::jump_if_positive();
+        let encoded = fmt.encode();
+        let decoded = InstructionFormat::decode(encoded).unwrap();
+        assert_eq!(fmt, decoded);
+    }
+
+
+
+
+
+
+
+
+    #[test]
+    fn test_call_format() {
+        let fmt = InstructionFormat::call();
+        let encoded = fmt.encode();
+        let decoded = InstructionFormat::decode(encoded).unwrap();
+        assert_eq!(fmt, decoded);
+    }
+
+
+    #[test]
+    fn test_ret_format() {
+        let fmt = InstructionFormat::ret();
+        let encoded = fmt.encode();
+        let decoded = InstructionFormat::decode(encoded).unwrap();
+        assert_eq!(fmt, decoded);
+    }
+
+    #[test]
+    fn test_reg_reg_offset_format() {
+        let fmt = InstructionFormat::reg_reg_offset();
+        let encoded = fmt.encode();
+        let decoded = InstructionFormat::decode(encoded).unwrap();
+        assert_eq!(fmt, decoded);
     }
 }
