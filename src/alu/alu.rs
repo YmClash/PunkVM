@@ -343,6 +343,7 @@ impl ALU {
                 self.flags.overflow = false;
                 b
             },
+
         };
 
 
@@ -362,26 +363,96 @@ impl ALU {
     /// Vérifie si une condition de branchement est satisfaite
     pub fn check_condition(&self, condition: BranchCondition) -> bool {
         match condition {
-            BranchCondition::Always => true,
-            BranchCondition::Equal => self.flags.zero,
+            // BranchCondition::Always => true,
+            BranchCondition::Always => {
+                println!("BranchCondition::Always: always true");
+                true
+            },
+            // BranchCondition::Equal => self.flags.zero,
+            BranchCondition::Equal => {
+                let result = self.flags.zero;
+                println!("BranchCondition::Equal: zero={}, result={}", self.flags.zero, result);
+                result
+            },
+
             // BranchCondition::NotEqual => !self.flags.zero,
             BranchCondition::NotEqual => {
                 let result = !self.flags.zero;
                 println!("BranchCondition::NotEqual: zero={}, result={}", self.flags.zero, result);
                 result
             },
-            BranchCondition::Greater => !self.flags.zero && !self.flags.negative,
-            BranchCondition::GreaterEqual => !self.flags.negative,
-            BranchCondition::Less => self.flags.negative,
-            BranchCondition::LessEqual => self.flags.zero || self.flags.negative,
-            BranchCondition::Above => !self.flags.carry && !self.flags.zero,
-            BranchCondition::AboveEqual => !self.flags.carry,
-            BranchCondition::Below => self.flags.carry,
-            BranchCondition::BelowEqual => self.flags.carry || self.flags.zero,
-            BranchCondition::Overflow => self.flags.overflow,
-            BranchCondition::NotOverflow => !self.flags.overflow,
-            BranchCondition::Negative => self.flags.negative,
-            BranchCondition::Positive => !self.flags.negative,
+            // BranchCondition::Greater => !self.flags.zero && !self.flags.negative,
+            BranchCondition::Greater =>{
+                let result = !self.flags.zero && !self.flags.negative;
+                println!("BranchCondition::Greater: zero={}, negative={}, result={}", self.flags.zero, self.flags.negative, result);
+                result
+            }
+            // BranchCondition::GreaterEqual => !self.flags.negative,
+            BranchCondition::GreaterEqual => {
+                let result = !self.flags.negative;
+                println!("BranchCondition::GreaterEqual: negative={}, result={}", self.flags.negative, result);
+                result
+            },
+            // BranchCondition::Less => self.flags.negative,
+            BranchCondition::Less => {
+                let result = self.flags.negative;
+                println!("BranchCondition::Less: negative={}, result={}", self.flags.negative, result);
+                result
+            },
+            // BranchCondition::LessEqual => self.flags.zero || self.flags.negative,
+            BranchCondition::LessEqual => {
+                let result = self.flags.zero || self.flags.negative;
+                println!("BranchCondition::LessEqual: zero={}, negative={}, result={}", self.flags.zero, self.flags.negative, result);
+                result
+            },
+            // BranchCondition::Above => !self.flags.carry && !self.flags.zero,
+            BranchCondition::Above => {
+                let result = !self.flags.carry && !self.flags.zero;
+                println!("BranchCondition::Above: carry={}, zero={}, result={}", self.flags.carry, self.flags.zero, result);
+                result
+            },
+            // BranchCondition::AboveEqual => !self.flags.carry,
+            BranchCondition::AboveEqual => {
+                let result = !self.flags.carry;
+                println!("BranchCondition::AboveEqual: carry={}, result={}", self.flags.carry, result);
+                result
+            },
+            // BranchCondition::Below => self.flags.carry,
+            BranchCondition::Below => {
+                let result = self.flags.carry;
+                println!("BranchCondition::Below: carry={}, result={}", self.flags.carry, result);
+                result
+            },
+            // BranchCondition::BelowEqual => self.flags.carry || self.flags.zero,
+            BranchCondition::BelowEqual => {
+                let result = self.flags.carry || self.flags.zero;
+                println!("BranchCondition::BelowEqual: carry={}, zero={}, result={}", self.flags.carry, self.flags.zero, result);
+                result
+            },
+            // BranchCondition::Overflow => self.flags.overflow,
+            BranchCondition::Overflow => {
+                let result = self.flags.overflow;
+                println!("BranchCondition::Overflow: overflow={}, result={}", self.flags.overflow, result);
+                result
+            },
+            // BranchCondition::NotOverflow => !self.flags.overflow,
+            BranchCondition::NotOverflow => {
+                let result = !self.flags.overflow;
+                println!("BranchCondition::NotOverflow: overflow={}, result={}", self.flags.overflow, result);
+                result
+            },
+            // BranchCondition::Negative => self.flags.negative,
+            BranchCondition::Negative => {
+                let result = self.flags.negative;
+                println!("BranchCondition::Negative: negative={}, result={}", self.flags.negative, result);
+                result
+            },
+            // BranchCondition::Positive => !self.flags.negative,
+            BranchCondition::Positive => {
+                let result = !self.flags.negative;
+                println!("BranchCondition::Positive: negative={}, result={}", self.flags.negative, result);
+                result
+            },
         }
     }
 
