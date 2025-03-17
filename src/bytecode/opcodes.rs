@@ -182,7 +182,12 @@ impl Opcode {
     pub fn is_branch(&self) -> bool {
         matches!(
             self,
-            Self::Jmp | Self::JmpIf | Self::JmpIfNot | Self::Call | Self::Ret
+            Self::Jmp | Self::JmpIf | Self::JmpIfNot | Self::JmpIfEqual | Self::JmpIfNotEqual |
+            Self::JumpIfGreater | Self::JumpIfGreaterEqual | Self::JumpIfLess | Self::JumpIfLessEqual |
+            Self::JumpIfAbove | Self::JumpIfAboveEqual | Self::JumpIfBelow | Self::JumpIfBelowEqual |
+            Self::JumpIfNotZero | Self::JumpIfZero | Self::JumpIfOverflow | Self::JumpIfNotOverflow |
+            Self::JumpIfPositive | Self::Call | Self::Ret
+
         )
     }
 
@@ -241,6 +246,23 @@ mod tests {
         assert!(Opcode::JmpIf.is_branch());
         assert!(Opcode::Call.is_branch());
         assert!(Opcode::Ret.is_branch());
+        assert!(Opcode::JmpIfNot.is_branch());
+
+        assert!(Opcode::JmpIfEqual.is_branch());
+        assert!(Opcode::JmpIfNotEqual.is_branch());
+        assert!(Opcode::JumpIfGreater.is_branch());
+        assert!(Opcode::JumpIfGreaterEqual.is_branch());
+        assert!(Opcode::JumpIfLess.is_branch());
+        assert!(Opcode::JumpIfLessEqual.is_branch());
+        assert!(Opcode::JumpIfAbove.is_branch());
+        assert!(Opcode::JumpIfAboveEqual.is_branch());
+        assert!(Opcode::JumpIfBelow.is_branch());
+        assert!(Opcode::JumpIfBelowEqual.is_branch());
+        assert!(Opcode::JumpIfNotZero.is_branch());
+        assert!(Opcode::JumpIfZero.is_branch());
+        assert!(Opcode::JumpIfOverflow.is_branch());
+        assert!(Opcode::JumpIfNotOverflow.is_branch());
+        assert!(Opcode::JumpIfPositive.is_branch());
 
         // Instructions non-branchement
         assert!(!Opcode::Add.is_branch());
