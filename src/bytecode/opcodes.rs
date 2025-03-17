@@ -33,11 +33,28 @@ pub enum Opcode{
     Jmp = 0x40,
     JmpIf = 0x41,
     JmpIfNot = 0x42,
-    Call = 0x43,
-    Ret = 0x44,
-    Cmp = 0x45,
-    Test = 0x46,
-    //0x47 - 0x5F : Réservé pour les futures instructions de controle de flux
+    JmpIfEqual = 0x43, //JmpIfEqual
+    JmpIfNotEqual = 0x44, //JmpIfNotEqual
+    JumpIfGreater = 0x45, //JumpIfGreater
+    JumpIfGreaterEqual = 0x46, //JumpIfGreaterOrEqual
+    JumpIfLess = 0x47, //JumpIfLess
+    JumpIfLessEqual = 0x48, //JumpIfLessOrEqual
+    JumpIfAbove = 0x49, //JumpIfAbove
+    JumpIfAboveEqual = 0x4A, //JumpIfAboveOrEqual
+    JumpIfBelow = 0x4B, //JumpIfBelow
+    JumpIfBelowEqual = 0x4C, //JumpIfBelowOrEqual
+    JumpIfNotZero = 0x4D, //JumpIfNotZero
+    JumpIfZero = 0x4E, //JumpIfZero
+    JumpIfOverflow = 0x4F, //JumpIfOverflow
+    JumpIfNotOverflow = 0x50, //JumpIfNotOverflow
+    JumpIfPositive = 0x51, //JumpIfPositive
+
+    Call = 0x52, //Call
+    Ret = 0x53, //Ret
+    Cmp = 0x54, //Cmp
+    Test = 0x55, //Test
+    //0x56 - 0x5F : Réservé pour les futures instructions de controle de flux
+
 
     // Instructions d'accès mémoire (0x60 - 0x7F)
     Load = 0x60,
@@ -106,10 +123,29 @@ impl Opcode {
             0x40 => Some(Self::Jmp),
             0x41 => Some(Self::JmpIf),
             0x42 => Some(Self::JmpIfNot),
-            0x43 => Some(Self::Call),
-            0x44 => Some(Self::Ret),
-            0x45 => Some(Self::Cmp),
-            0x46 => Some(Self::Test),
+            0x43 => Some(Self::JmpIfEqual),
+            0x44 => Some(Self::JmpIfNotEqual),
+            0x45 => Some(Self::JumpIfGreater),
+            0x46 => Some(Self::JumpIfGreaterEqual),
+            0x47 => Some(Self::JumpIfLess),
+            0x48 => Some(Self::JumpIfLessEqual),
+            0x49 => Some(Self::JumpIfAbove),
+            0x4A => Some(Self::JumpIfAboveEqual),
+            0x4B => Some(Self::JumpIfBelow),
+            0x4C => Some(Self::JumpIfBelowEqual),
+            0x4D => Some(Self::JumpIfNotZero),
+            0x4E => Some(Self::JumpIfZero),
+            0x4F => Some(Self::JumpIfOverflow),
+            0x50 => Some(Self::JumpIfNotOverflow),
+            0x51 => Some(Self::JumpIfPositive),
+
+            0x52 => Some(Self::Call),
+            0x53 => Some(Self::Ret),
+            0x54 => Some(Self::Cmp),
+            0x55 => Some(Self::Test),
+
+
+
 
             0x60 => Some(Self::Load),
             0x61 => Some(Self::Store),
