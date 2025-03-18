@@ -14,6 +14,9 @@ pub enum ArgType{
     RelativeAddr = 0x7,        // Adresse relative (offset par rapport au PC)
     AbsoluteAddr = 0x8,        // Adresse absolue
     RegisterOffset = 0x9,      // Registre + offset (pour accès mémoire indexé)
+    // Flag = 0xA, // 4 bits pour les flags (ex: ZF, SF, OF, CF)
+
+
     // 0xA-0xF réservés pour extensions futures
 }
 impl ArgType{
@@ -30,6 +33,7 @@ impl ArgType{
             0x7 => Some(Self::RelativeAddr),
             0x8 => Some(Self::AbsoluteAddr),
             0x9 => Some(Self::RegisterOffset),
+            // 0xA => Some(Self::Flag),
             _ => None,
         }
     }
@@ -47,6 +51,7 @@ impl ArgType{
             Self::RelativeAddr => 4, // Typiquement 32 bits pour un offset
             Self::AbsoluteAddr => 4, // Pourrait être 8 sur systèmes 64 bits
             Self::RegisterOffset => 2, // Registre (1B) + offset (1B)
+            // Self::Flag => 1, // 4 bits pour les flags, mais on aligne sur le byte
         }
     }
 
@@ -226,6 +231,10 @@ impl InstructionFormat {
     }
 
     pub fn jump_if_positive() -> Self {
+        Self::new(ArgType::Register, ArgType::Immediate32, ArgType::None)
+    }
+
+    pub fn jump_if_negative() -> Self {
         Self::new(ArgType::Register, ArgType::Immediate32, ArgType::None)
     }
 

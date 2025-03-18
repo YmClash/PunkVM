@@ -1,6 +1,4 @@
 //src/pipeline/fetch.rs
-
-
 use std::collections::VecDeque;
 use crate::bytecode::instructions::Instruction;
 use crate::pipeline::{FetchDecodeRegister,/* stage::PipelineStage*/};
@@ -50,6 +48,7 @@ impl FetchStage {
         let mut addr = pc;
         for idx in current_index..instructions.len() {
             if self.fetch_buffer.len() >= self.buffer_size {
+                println!("Buffer plein, arrêt du préchargement");
                 break;
             }
 
@@ -76,6 +75,10 @@ impl FetchStage {
 
             // Précharger davantage d'instructions si nécessaire
             self.prefetch(pc + instruction.total_size() as u32, instructions);
+
+            println!("Instruction récupérée à l'adresse 0x{:08X}", pc);
+
+            println!("Fetched Instruction: {:?}", instruction);
 
             Ok(FetchDecodeRegister {
                 instruction,
@@ -358,6 +361,7 @@ mod tests {
         // Vérifier que le fetch buffer est maintenant vide (toutes les instructions traitées)
         assert_eq!(fetch.fetch_buffer.len(), 0);
     }
+
 
 
 }

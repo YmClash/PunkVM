@@ -65,6 +65,9 @@ impl DecodeStage {
         println!("Adresse mémoire calculée: {:?}", mem_addr);
 
 
+        println!("Decoding instruction: {:?}", fd_reg.instruction);
+
+
 
         Ok(DecodeExecuteRegister {
             instruction: instruction.clone(),
@@ -191,10 +194,23 @@ impl DecodeStage {
             },
 
             // Instructions de branchement conditionnel
-            Opcode::JmpIf | Opcode::JmpIfNot => {
-                // Ces instructions n'utilisent pas explicitement de registres,
-                // mais se basent sur les flags définis par les instructions précédentes
-            },
+            // Opcode::JmpIf | Opcode::JmpIfNot | Opcode::JmpIfEqual | Opcode::JmpIfNotEqual |
+            // Opcode::JmpIfGreater | Opcode::JmpIfGreaterEqual| Opcode::JmpIfLess | Opcode::JmpIfLessEqual |
+            // Opcode::JmpIfAbove | Opcode::JmpIfAboveEqual | Opcode::JmpIfBelow | Opcode::JmpIfBelowEqual |
+            // Opcode::JmpIfZero | Opcode::JmpIfNotZero | Opcode::JmpIfOverflow | Opcode::JmpIfNotOverflow |
+            // Opcode::JmpIfPositive => {
+            //     println!("Instruction de branchement conditionnel détectée");
+            //     println!("Ajoute des Flag");
+            //     if let Ok(ArgValue::Register(r)) = instruction.get_arg1_value() {
+            //         rs1 = Some(r as usize);
+            //         println!("Registre source 1 pour branchement: {:?}", rs1);
+            //     }
+            //
+            //     if let Ok(ArgValue::Register(r)) = instruction.get_arg2_value() {
+            //         rs2 = Some(r as usize);
+            //         println!("Registre source 2 pour branchement: {:?}", rs2);
+            //     }
+            // },
 
             // Instructions de Mov
             Opcode::Mov => {
@@ -265,49 +281,87 @@ impl DecodeStage {
 
     /// Calcule l'adresse de branchement (si instruction de branchement)
     fn calculate_branch_address(&self, instruction: &Instruction, pc: u32) -> Result<Option<u32>, String> {
-        // Vérifier si c'est une instruction de branchement
-        if !instruction.opcode.is_branch() {
+        println!("DecodeStage: Calcul de l'adresse de branchement pour l'instruction {:?}", instruction);
+        // Vérifier si c'est une instruction de branchement supportée
+        if !instruction.opcode.is_branch() &&
+            !matches!(instruction.opcode,
+            Opcode::Jmp | Opcode::JmpIf | Opcode::JmpIfNot |
+            Opcode::JmpIfEqual | Opcode::JmpIfNotEqual |
+            Opcode::JmpIfGreater | Opcode::JmpIfGreaterEqual |
+            Opcode::JmpIfLess | Opcode::JmpIfLessEqual |
+            Opcode::JmpIfAbove | Opcode::JmpIfAboveEqual |
+            Opcode::JmpIfBelow | Opcode::JmpIfBelowEqual |
+            Opcode::JmpIfZero | Opcode::JmpIfNotZero |
+            Opcode::JmpIfOverflow | Opcode::JmpIfNotOverflow |
+            Opcode::JmpIfPositive | Opcode::JmpIfNegative |
+            Opcode::Call | Opcode::Ret) {
             return Ok(None);
         }
 
         match instruction.opcode {
-            // Saut absolu
+            // Cas pour un saut inconditionnel
             Opcode::Jmp => {
                 match instruction.get_arg2_value() {
+                    Ok(ArgValue::Immediate(value)) => {
+                        let offset = value as i32;
+                        Ok(Some(compute_target(pc, offset)))
+                    },
+                    Ok(ArgValue::RelativeAddr(offset)) => {
+                        Ok(Some(compute_target(pc, offset)))
+                    },
                     Ok(ArgValue::AbsoluteAddr(addr)) => Ok(Some(addr as u32)),
-                    Ok(ArgValue::RelativeAddr(offset)) => Ok(Some((pc as i64 + offset as i64) as u32)),
-                    _ => Err("Format d'adresse de saut invalide".to_string()),
+                    _ => Err("Format d'adresse de saut conditionnel invalide pour Jmp".to_string()),
                 }
             },
 
-            // Saut conditionnel
+            // Cas pour des sauts conditionnels simples
             Opcode::JmpIf | Opcode::JmpIfNot => {
                 match instruction.get_arg2_value() {
+                    Ok(ArgValue::Immediate(value)) => {
+                        let offset = value as i32;
+                        Ok(Some(compute_target(pc, offset)))
+                    },
+                    Ok(ArgValue::RelativeAddr(offset)) => Ok(Some(compute_target(pc, offset))),
                     Ok(ArgValue::AbsoluteAddr(addr)) => Ok(Some(addr as u32)),
-                    Ok(ArgValue::RelativeAddr(offset)) => Ok(Some((pc as i64 + offset as i64) as u32)),
-                    _ => Err("Format d'adresse de saut conditionnel invalide".to_string()),
+                    _ => Err("Format d'adresse de saut conditionnel invalide pour JmpIf/JmpIfNot".to_string()),
                 }
             },
 
-            // Appel de fonction
+            // Cas pour des sauts conditionnels avec comparaison
+            Opcode::JmpIfEqual | Opcode::JmpIfNotEqual |
+            Opcode::JmpIfGreater | Opcode::JmpIfGreaterEqual |
+            Opcode::JmpIfLess | Opcode::JmpIfLessEqual |
+            Opcode::JmpIfAbove | Opcode::JmpIfAboveEqual |
+            Opcode::JmpIfBelow | Opcode::JmpIfBelowEqual |
+            Opcode::JmpIfZero | Opcode::JmpIfNotZero |
+            Opcode::JmpIfOverflow | Opcode::JmpIfNotOverflow |
+            Opcode::JmpIfPositive | Opcode::JmpIfNegative => {
+                match instruction.get_arg2_value() {
+                    Ok(ArgValue::AbsoluteAddr(addr)) => Ok(Some(addr as u32)),
+                    Ok(ArgValue::RelativeAddr(offset)) => Ok(Some(compute_target(pc, offset))),
+                    _ => Err(format!("Format d'adresse de saut conditionnel invalide pour {:?}", instruction.opcode)),
+                }
+            },
+
+            // Appel et retour
             Opcode::Call => {
                 match instruction.get_arg2_value() {
                     Ok(ArgValue::AbsoluteAddr(addr)) => Ok(Some(addr as u32)),
-                    Ok(ArgValue::RelativeAddr(offset)) => Ok(Some((pc as i64 + offset as i64) as u32)),
+                    Ok(ArgValue::RelativeAddr(offset)) => Ok(Some(compute_target(pc, offset))),
                     _ => Err("Format d'adresse d'appel invalide".to_string()),
                 }
             },
 
-            // Retour de fonction (pas d'adresse explicite)
             Opcode::Ret => Ok(None),
 
-            // Autres instructions de branchement (si ajoutées à l'avenir)
             _ => Ok(None),
         }
     }
 
+
     /// Calcule l'adresse mémoire (si instruction mémoire)
     fn calculate_memory_address(&self, instruction: &Instruction, registers: &[u64]) -> Result<Option<u32>, String> {
+        // println!("DecodeStage: Calcul de l'adresse mémoire pour l'instruction {:?}", instruction);
         // Vérifier si c'est une instruction mémoire
         match instruction.opcode {
             Opcode::Load | Opcode::LoadB | Opcode::LoadW | Opcode::LoadD |
@@ -342,12 +396,21 @@ impl DecodeStage {
         }
     }
 
+
+
+
     /// Réinitialise l'étage Decode
     pub fn reset(&mut self) {
         // Pas d'état interne à réinitialiser pour cet étage
     }
 }
 
+fn compute_target(pc: u32, offset: i32) -> u32 {
+    println!("DecodeStage: Calcul de l'adresse cible pour le saut");
+    // Calculer l'adresse cible
+    (pc as i64 + offset as i64) as u32
+
+}
 
 // Test unitaire pour l'étage Decode
 #[cfg(test)]
