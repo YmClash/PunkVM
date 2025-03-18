@@ -161,7 +161,7 @@ impl Memory{
             self.stats.hits += 1;
         }
 
-        println!("Ecriture dans la memoire: addr = 0x{:08X}, value = {}", addr, value);
+        // println!("Ecriture dans la memoire: addr = 0x{:08X}, value = {}", addr, value);
 
         // 3) Écriture immédiate (write-through) en RAM
         self.memory[addr as usize] = value;

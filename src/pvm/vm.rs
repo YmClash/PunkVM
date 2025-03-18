@@ -204,8 +204,7 @@ impl PunkVM {
                 },
                 Err(err) => {
                     // Si l'erreur est due à HALT, convertir en VMState::Halted
-                    if err.to_string().contains("HALT") {
-                        self.state = VMState::Halted;
+                    if self.state == VMState::Halted {
                         break;
                     } else {
                         // Sinon propager l'erreur

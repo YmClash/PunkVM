@@ -35,24 +35,33 @@ pub enum Opcode{
     JmpIfNot = 0x42,
     JmpIfEqual = 0x43, //JmpIfEqual
     JmpIfNotEqual = 0x44, //JmpIfNotEqual
-    JumpIfGreater = 0x45, //JumpIfGreater
-    JumpIfGreaterEqual = 0x46, //JumpIfGreaterOrEqual
-    JumpIfLess = 0x47, //JumpIfLess
-    JumpIfLessEqual = 0x48, //JumpIfLessOrEqual
-    JumpIfAbove = 0x49, //JumpIfAbove
-    JumpIfAboveEqual = 0x4A, //JumpIfAboveOrEqual
-    JumpIfBelow = 0x4B, //JumpIfBelow
-    JumpIfBelowEqual = 0x4C, //JumpIfBelowOrEqual
-    JumpIfNotZero = 0x4D, //JumpIfNotZero
-    JumpIfZero = 0x4E, //JumpIfZero
-    JumpIfOverflow = 0x4F, //JumpIfOverflow
-    JumpIfNotOverflow = 0x50, //JumpIfNotOverflow
-    JumpIfPositive = 0x51, //JumpIfPositive
+    JmpIfGreater = 0x45, //JumpIfGreater
+    JmpIfGreaterEqual = 0x46, //JumpIfGreaterOrEqual
+    JmpIfLess = 0x47, //JumpIfLess
+    JmpIfLessEqual = 0x48, //JumpIfLessOrEqual
+    JmpIfAbove = 0x49, //JumpIfAbove
+    JmpIfAboveEqual = 0x4A, //JumpIfAboveOrEqual
+    JmpIfBelow = 0x4B, //JumpIfBelow
+    JmpIfBelowEqual = 0x4C, //JumpIfBelowOrEqual
+    JmpIfNotZero = 0x4D, //JumpIfNotZero
+    JmpIfZero = 0x4E, //JumpIfZero
+    JmpIfOverflow = 0x4F, //JumpIfOverflow
+    JmpIfNotOverflow = 0x50, //JumpIfNotOverflow
+    JmpIfPositive = 0x51, //JumpIfPositive
+    JmpIfNegative = 0x52, //JumpIfNegative
 
-    Call = 0x52, //Call
-    Ret = 0x53, //Ret
-    Cmp = 0x54, //Cmp
-    Test = 0x55, //Test
+
+    Call = 0x53, //Call
+    Ret = 0x54, //Ret
+    Cmp = 0x55, //Cmp
+    Test = 0x56, //Test
+    //0x57 - 0x5F : Réservé pour les futures instructions de controle de flux
+
+
+    // Call = 0x52, //Call
+    // Ret = 0x53, //Ret
+    // Cmp = 0x54, //Cmp
+    // Test = 0x55, //Test
     //0x56 - 0x5F : Réservé pour les futures instructions de controle de flux
 
 
@@ -125,24 +134,32 @@ impl Opcode {
             0x42 => Some(Self::JmpIfNot),
             0x43 => Some(Self::JmpIfEqual),
             0x44 => Some(Self::JmpIfNotEqual),
-            0x45 => Some(Self::JumpIfGreater),
-            0x46 => Some(Self::JumpIfGreaterEqual),
-            0x47 => Some(Self::JumpIfLess),
-            0x48 => Some(Self::JumpIfLessEqual),
-            0x49 => Some(Self::JumpIfAbove),
-            0x4A => Some(Self::JumpIfAboveEqual),
-            0x4B => Some(Self::JumpIfBelow),
-            0x4C => Some(Self::JumpIfBelowEqual),
-            0x4D => Some(Self::JumpIfNotZero),
-            0x4E => Some(Self::JumpIfZero),
-            0x4F => Some(Self::JumpIfOverflow),
-            0x50 => Some(Self::JumpIfNotOverflow),
-            0x51 => Some(Self::JumpIfPositive),
+            0x45 => Some(Self::JmpIfGreater),
+            0x46 => Some(Self::JmpIfGreaterEqual),
+            0x47 => Some(Self::JmpIfLess),
+            0x48 => Some(Self::JmpIfLessEqual),
+            0x49 => Some(Self::JmpIfAbove),
+            0x4A => Some(Self::JmpIfAboveEqual),
+            0x4B => Some(Self::JmpIfBelow),
+            0x4C => Some(Self::JmpIfBelowEqual),
+            0x4D => Some(Self::JmpIfNotZero),
+            0x4E => Some(Self::JmpIfZero),
+            0x4F => Some(Self::JmpIfOverflow),
+            0x50 => Some(Self::JmpIfNotOverflow),
+            0x51 => Some(Self::JmpIfPositive),
+            0x52 => Some(Self::JmpIfNegative),
 
-            0x52 => Some(Self::Call),
-            0x53 => Some(Self::Ret),
-            0x54 => Some(Self::Cmp),
-            0x55 => Some(Self::Test),
+
+            0x53 => Some(Self::Call),
+            0x54 => Some(Self::Ret),
+            0x55 => Some(Self::Cmp),
+            0x56 => Some(Self::Test),
+
+            //
+            // 0x52 => Some(Self::Call),
+            // 0x53 => Some(Self::Ret),
+            // 0x54 => Some(Self::Cmp),
+            // 0x55 => Some(Self::Test),
 
 
 
@@ -183,10 +200,10 @@ impl Opcode {
         matches!(
             self,
             Self::Jmp | Self::JmpIf | Self::JmpIfNot | Self::JmpIfEqual | Self::JmpIfNotEqual |
-            Self::JumpIfGreater | Self::JumpIfGreaterEqual | Self::JumpIfLess | Self::JumpIfLessEqual |
-            Self::JumpIfAbove | Self::JumpIfAboveEqual | Self::JumpIfBelow | Self::JumpIfBelowEqual |
-            Self::JumpIfNotZero | Self::JumpIfZero | Self::JumpIfOverflow | Self::JumpIfNotOverflow |
-            Self::JumpIfPositive | Self::Call | Self::Ret
+            Self::JmpIfGreater | Self::JmpIfGreaterEqual | Self::JmpIfLess | Self::JmpIfLessEqual |
+            Self::JmpIfAbove | Self::JmpIfAboveEqual | Self::JmpIfBelow | Self::JmpIfBelowEqual |
+            Self::JmpIfNotZero | Self::JmpIfZero | Self::JmpIfOverflow | Self::JmpIfNotOverflow |
+            Self::JmpIfPositive | Self::JmpIfNegative | Self::Call | Self::Ret
 
         )
     }
@@ -250,19 +267,20 @@ mod tests {
 
         assert!(Opcode::JmpIfEqual.is_branch());
         assert!(Opcode::JmpIfNotEqual.is_branch());
-        assert!(Opcode::JumpIfGreater.is_branch());
-        assert!(Opcode::JumpIfGreaterEqual.is_branch());
-        assert!(Opcode::JumpIfLess.is_branch());
-        assert!(Opcode::JumpIfLessEqual.is_branch());
-        assert!(Opcode::JumpIfAbove.is_branch());
-        assert!(Opcode::JumpIfAboveEqual.is_branch());
-        assert!(Opcode::JumpIfBelow.is_branch());
-        assert!(Opcode::JumpIfBelowEqual.is_branch());
-        assert!(Opcode::JumpIfNotZero.is_branch());
-        assert!(Opcode::JumpIfZero.is_branch());
-        assert!(Opcode::JumpIfOverflow.is_branch());
-        assert!(Opcode::JumpIfNotOverflow.is_branch());
-        assert!(Opcode::JumpIfPositive.is_branch());
+        assert!(Opcode::JmpIfGreater.is_branch());
+        assert!(Opcode::JmpIfGreaterEqual.is_branch());
+        assert!(Opcode::JmpIfLess.is_branch());
+        assert!(Opcode::JmpIfLessEqual.is_branch());
+        assert!(Opcode::JmpIfAbove.is_branch());
+        assert!(Opcode::JmpIfAboveEqual.is_branch());
+        assert!(Opcode::JmpIfBelow.is_branch());
+        assert!(Opcode::JmpIfBelowEqual.is_branch());
+        assert!(Opcode::JmpIfNotZero.is_branch());
+        assert!(Opcode::JmpIfZero.is_branch());
+        assert!(Opcode::JmpIfOverflow.is_branch());
+        assert!(Opcode::JmpIfNotOverflow.is_branch());
+        assert!(Opcode::JmpIfPositive.is_branch());
+        assert!(Opcode::JmpIfNegative.is_branch());
 
         // Instructions non-branchement
         assert!(!Opcode::Add.is_branch());
