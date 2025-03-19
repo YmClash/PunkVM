@@ -38,12 +38,14 @@ fn main() -> VMResult<()> {
     // let program = create_complex_program();
     // let program = create_simple_complex_program();
     // let program = create_cmp_loop_program();
-    // let program = create_pipeline_test_program();
+    let program = create_pipeline_test_program();
     // let program = create_reg_reg_reg_test_program();
     // let program = create_hazard_detection_test_program();
-    let program = create_branch_test_program();
+    // let program = create_branch_test_program();
     // let program = create_branch_test_program_2();
     // let program = create_branch_test_program_3();
+    // let program = create_branch_test_program_4();
+
 
     // Charger le programme dans la VM
     println!("Chargement du programme...");
@@ -564,11 +566,18 @@ pub fn create_hazard_detection_test_program() -> BytecodeFile {
 
     // Branchement conditionnel (JmpIf) - puisque create_jumpif_rel n'existe pas
     // Utilisons une autre approche - créer manuellement la structure
-    let jmpif_format = InstructionFormat::new(ArgType::None, ArgType::RelativeAddr, ArgType::None);
-    let offset_bytes = (14i32).to_le_bytes();
-    let mut jmpif_args = Vec::new();
-    jmpif_args.extend_from_slice(&offset_bytes);
-    program.add_instruction(Instruction::new(Opcode::JmpIf, jmpif_format, jmpif_args));
+    // let jmpif_format = InstructionFormat::new(ArgType::None, ArgType::RelativeAddr, ArgType::None);
+    // let offset_bytes = (14i32).to_le_bytes();
+    // let mut jmpif_args = Vec::new();
+    // jmpif_args.extend_from_slice(&offset_bytes);
+    // program.add_instruction(Instruction::new(Opcode::JmpIf, jmpif_format, jmpif_args));
+    program.add_instruction(Instruction::create_jump_if(14)); // JmpIf (devrait être pris)
+    // program.add_instruction(Instruction::create_jump_if_not(14)); // JmpIfNot (devrait être pris)
+    // program.add_instruction(Instruction::create_jump_if_less_equal(14)); // JmpIfEqual (devrait être pris)
+    // program.add_instruction(Instruction::create_jump_if_not_equal(14)); // JmpIfNotEqual (devrait être pris)
+    // program.add_instruction(Instruction::create_jump(14)); // Jmp (devrait être pris)
+    program.add_instruction(Instruction::create_jump_if_equal(14)); // JmpIfEqual (devrait être pris)
+
 
     // Instructions qui seront sautées si le branchement est pris
     program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0xFF)); // R10 = 0xFF (ne devrait pas être exécuté)
@@ -836,6 +845,55 @@ pub fn create_branch_test_program() -> BytecodeFile {
     program.segments.push(data_segment);
     program.data = vec![0; data_size as usize];
 
+    program
+}
+
+
+
+fn create_branch_test_program_4() -> BytecodeFile {
+    let mut program = BytecodeFile::new();
+
+    // ----- Initialisation -----
+    // R0 = 5
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 5));
+    // R1 = 5
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 5));
+
+    // ----- Comparaison -----
+    // Compare R0 et R1 (met à jour les flags de l'ALU)
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+
+    // ----- Saut conditionnel -----
+    // Si R0 == R1, on saute l'instruction suivante (qui mettrait R2 à 0)
+    // Le saut prend en argument un offset relatif (ici, 6 octets, qui correspond à la taille d'une instruction MOV en mode compact)
+    program.add_instruction(Instruction::create_jump_if_equal(6));
+
+    // Cette instruction ne devrait pas s'exécuter si la condition est vraie
+    // R2 = 0 (ceci est ici pour vérifier que le saut est bien pris)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 0));
+
+    // Si le saut a été pris, on arrive ici
+    // R2 = 1
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 1));
+
+    // ----- Fin du programme -----
+    program.add_instruction(Instruction::create_no_args(Opcode::Halt));
+
+    // Vous devez également définir le segment de code (et éventuellement les segments de données)
+    // Par exemple :
+    let total_size: u32 = program.code.iter()
+        .map(|instr| instr.total_size() as u32)
+        .sum();
+    program.segments = vec![
+        PunkVM::bytecode::files::SegmentMetadata::new(
+            PunkVM::bytecode::files::SegmentType::Code,
+            0,
+            total_size,
+            0
+        )
+    ];
+
+    // Retour du programme
     program
 }
 
