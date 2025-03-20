@@ -38,15 +38,17 @@ fn main() -> VMResult<()> {
     // let program = create_complex_program();
     // let program = create_simple_complex_program();
     // let program = create_cmp_loop_program();
-    let program = create_pipeline_test_program();
+    // let program = create_pipeline_test_program();
     // let program = create_reg_reg_reg_test_program();
     // let program = create_hazard_detection_test_program();
     // let program = create_branch_test_program();
     // let program = create_branch_test_program_2();
     // let program = create_branch_test_program_3();
     // let program = create_branch_test_program_4();
-
-
+    // let program = create_branch_comparison_test_program();
+    // let program = create_all_branch_test_program();
+    // let program = create_3_branch_test_program();
+    let program= create_box_branch_test_program();
     // Charger le programme dans la VM
     println!("Chargement du programme...");
     vm.load_program_from_bytecode(program)?;
@@ -572,11 +574,11 @@ pub fn create_hazard_detection_test_program() -> BytecodeFile {
     // jmpif_args.extend_from_slice(&offset_bytes);
     // program.add_instruction(Instruction::new(Opcode::JmpIf, jmpif_format, jmpif_args));
     program.add_instruction(Instruction::create_jump_if(14)); // JmpIf (devrait être pris)
-    // program.add_instruction(Instruction::create_jump_if_not(14)); // JmpIfNot (devrait être pris)
+    // program.add_instruction(Instruction::ccreate_jump_if_not(14)); // JmpIfNot (devrait être pris)
     // program.add_instruction(Instruction::create_jump_if_less_equal(14)); // JmpIfEqual (devrait être pris)
     // program.add_instruction(Instruction::create_jump_if_not_equal(14)); // JmpIfNotEqual (devrait être pris)
     // program.add_instruction(Instruction::create_jump(14)); // Jmp (devrait être pris)
-    program.add_instruction(Instruction::create_jump_if_equal(14)); // JmpIfEqual (devrait être pris)
+    // program.add_instruction(Instruction::create_jump_if_equal(14)); // JmpIfEqual (devrait être pris)
 
 
     // Instructions qui seront sautées si le branchement est pris
@@ -895,6 +897,445 @@ fn create_branch_test_program_4() -> BytecodeFile {
 
     // Retour du programme
     program
+}
+
+
+pub fn create_branch_comparison_test_program() -> BytecodeFile {
+    let mut program = BytecodeFile::new();
+    program.version = BytecodeVersion::new(0, 1, 0, 0);
+    program.add_metadata("name", "Test de comparaison JmpIf et JmpIfEqual");
+    program.add_metadata("description", "Programme testant les deux types de branchements conditionnels.");
+
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0));  // R15 = 0 (compteur de boucle)
+
+    // Initialisation des registres pour les tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 10));  // R0 = 10
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 10));  // R1 = 10 (égal à R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 20));  // R2 = 20 (différent de R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 0));   // R3 = 0 (compteur de tests réussis)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 1));   // R4 = 1 (incrément)
+
+    // ------ Test 1: JmpIf (devrait sauter) ------
+    // Comparer R0 et R1 (qui sont égaux)
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+
+    // Calcul de l'offset pour le saut
+    let offset_jmpif = 14; // Approximation de la taille de 2 instructions
+
+    // Utiliser JmpIf pour sauter si égal
+    program.add_instruction(Instruction::create_jump_if(offset_jmpif));
+
+    // Si on arrive ici, le saut a échoué (ne devrait pas arriver)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0xFF)); // R7 = 0xFF (échec)
+
+    // Destination du saut JmpIf (si réussi)
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 3, 3, 4)); // R3++ (Incrémenter compteur de succès)
+
+    // ------ Test 2: JmpIfEqual (devrait sauter) ------
+    // Comparer R0 et R1 (qui sont égaux)
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+
+    // Calcul de l'offset pour le saut
+    let offset_jmpifequal = 14; // Approximation de la taille de 2 instructions
+
+    // Utiliser JmpIfEqual pour sauter si égal
+    program.add_instruction(Instruction::create_jump_if_equal(offset_jmpifequal));
+
+    // Si on arrive ici, le saut a échoué
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0xFF)); // R8 = 0xFF (échec)
+
+    // Destination du saut JmpIfEqual (si réussi)
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 3, 3, 4)); // R3++ (Incrémenter compteur de succès)
+
+    // ------ Test 3: JmpIf (ne devrait pas sauter) ------
+    // Comparer R0 et R2 (qui sont différents)
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+
+    // Utiliser JmpIf pour sauter si égal (ne devrait pas sauter)
+    program.add_instruction(Instruction::create_jump_if(offset_jmpif));
+
+    // Si on arrive ici, le saut n'a pas été pris (correct)
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 3, 3, 4)); // R3++ (Incrémenter compteur de succès)
+
+    // Instructions que le JmpIf ne devrait pas sauter
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xAA)); // R9 = 0xAA (marqueur)
+
+    // ------ Test 4: JmpIfEqual (ne devrait pas sauter) ------
+    // Comparer R0 et R2 (qui sont différents)
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+
+    // Utiliser JmpIfEqual pour sauter si égal (ne devrait pas sauter)
+    program.add_instruction(Instruction::create_jump_if_equal(offset_jmpifequal));
+
+    // Si on arrive ici, le saut n'a pas été pris (correct)
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 3, 3, 4)); // R3++ (Incrémenter compteur de succès)
+
+    // Instructions que le JmpIfEqual ne devrait pas sauter
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0xBB)); // R10 = 0xBB (marqueur)
+
+    // Vérification finale des résultats
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 4)); // R5 = 4 (nombre total de tests)
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 5));
+    program.add_instruction(Instruction::create_jump_if_equal(offset_jmpifequal));
+
+    // Si on arrive ici, au moins un test a échoué
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0xFF)); // R6 = 0xFF (échec global)
+    program.add_instruction(Instruction::create_jump(7)); // Sauter à la fin
+
+    // Destination du saut si tous les tests ont réussi
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0xAA)); // R6 = 0xAA (succès global)
+
+    // Fin du programme
+    program.add_instruction(Instruction::create_no_args(Opcode::Halt));
+
+    // Calcul de la taille totale du code et création des segments
+    let total_size: u32 = program.code.iter().map(|instr| instr.total_size() as u32).sum();
+    program.segments = vec![SegmentMetadata::new(SegmentType::Code, 0, total_size, 0)];
+
+    // Segment de données
+    let data_size = 64;
+    let data_segment = SegmentMetadata::new(SegmentType::Data, 0, data_size, 0x1000);
+    program.segments.push(data_segment);
+    program.data = vec![0; data_size as usize];
+
+    program
+}
+
+
+
+
+pub fn create_all_branch_test_program() -> BytecodeFile {
+    let mut program = BytecodeFile::new();
+    program.version = BytecodeVersion::new(0, 1, 0, 0);
+    program.add_metadata("name", "Branch Instructions Test");
+    program.add_metadata("description", "Programme testant les différentes instructions de branchement.");
+
+    // Initialiser les registres pour les tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 0)); // R0 = 0
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 1)); // R1 = 1
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 10)); // R2 = 10
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0)); // R15 = 0 (compteur de tests réussis)
+
+    // ================================
+    // Test 1: JmpIfEqual (ZF = 1)
+    // ================================
+    // Compare R1 et R1 (égaux => ZF = 1)
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 1));
+    // Branchement (devrait être pris car ZF = 1)
+    program.add_instruction(Instruction::create_jump_if_equal(2));
+    // Si le branchement n'est pas pris (échec)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 0xFF));
+    // Si le branchement est pris (succès)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 0x01));
+    // Incrémenter le compteur de tests réussis
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Add, 15, 3));
+
+    // ================================
+    // Test 2: JmpIfNotEqual (ZF = 0)
+    // ================================
+    // Compare R1 et R2 (différents => ZF = 0)
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 2));
+    // Branchement (devrait être pris car ZF = 0)
+    program.add_instruction(Instruction::create_jump_if_not_equal(2));
+    // Si le branchement n'est pas pris (échec)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0xFF));
+    // Si le branchement est pris (succès)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0x01));
+    // Incrémenter le compteur de tests réussis
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Add, 15, 4));
+
+    // ================================
+    // Test 3: JmpIfLess (SF = 1)
+    // ================================
+    // Compare R0 et R1 (R0 < R1 => SF = 1)
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    // Branchement (devrait être pris car SF = 1)
+    program.add_instruction(Instruction::create_jump_if_less(2));
+    // Si le branchement n'est pas pris (échec)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0xFF));
+    // Si le branchement est pris (succès)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x01));
+    // Incrémenter le compteur de tests réussis
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Add, 15, 5));
+
+    // ================================
+    // Test 4: JmpIfGreater (SF = 0, ZF = 0)
+    // ================================
+    // Compare R2 et R1 (R2 > R1 => SF = 0, ZF = 0)
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 2, 1));
+    // Branchement (devrait être pris car SF = 0, ZF = 0)
+    program.add_instruction(Instruction::create_jump_if_greater(2));
+    // Si le branchement n'est pas pris (échec)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0xFF));
+    // Si le branchement est pris (succès)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x01));
+    // Incrémenter le compteur de tests réussis
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Add, 15, 6));
+
+    // ================================
+    // Test 5: JmpIfLessEqual (SF = 1 ou ZF = 1)
+    // ================================
+    // Compare R0 et R0 (égaux => ZF = 1)
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 0));
+    // Branchement (devrait être pris car ZF = 1)
+    program.add_instruction(Instruction::create_jump_if_less_equal(2));
+    // Si le branchement n'est pas pris (échec)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0xFF));
+    // Si le branchement est pris (succès)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x01));
+    // Incrémenter le compteur de tests réussis
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Add, 15, 7));
+
+    // ================================
+    // Test 6: JmpIfGreaterEqual (SF = 0 ou ZF = 1)
+    // ================================
+    // Compare R1 et R1 (égaux => ZF = 1)
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 1));
+    // Branchement (devrait être pris car ZF = 1)
+    program.add_instruction(Instruction::create_jump_if_greater_equal(2));
+    // Si le branchement n'est pas pris (échec)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0xFF));
+    // Si le branchement est pris (succès)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x01));
+    // Incrémenter le compteur de tests réussis
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Add, 15, 8));
+
+    // ================================
+    // Test 7: Saut inconditionnel (Jmp)
+    // ================================
+    // Saut inconditionnel (devrait toujours être pris)
+    program.add_instruction(Instruction::create_jump(2));
+    // Si le branchement n'est pas pris (échec)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF));
+    // Si le branchement est pris (succès)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x01));
+    // Incrémenter le compteur de tests réussis
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Add, 15, 9));
+
+    // ================================
+    // Test 8: JmpIfNotZero (ZF = 0)
+    // ================================
+    // Compare R1 et R2 (différents => ZF = 0)
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 2));
+    // Branchement (devrait être pris car ZF = 0)
+    program.add_instruction(Instruction::create_jump_if_not_zero(2));
+    // Si le branchement n'est pas pris (échec)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0xFF));
+    // Si le branchement est pris (succès)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x01));
+    // Incrémenter le compteur de tests réussis
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Add, 15, 10));
+
+    // ================================
+    // Test 9: JmpIfZero (ZF = 1)
+    // ================================
+    // Compare R1 et R1 (égaux => ZF = 1)
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 1));
+    // Branchement (devrait être pris car ZF = 1)
+    program.add_instruction(Instruction::create_jump_if_zero(2));
+    // Si le branchement n'est pas pris (échec)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0xFF));
+    // Si le branchement est pris (succès)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x01));
+    // Incrémenter le compteur de tests réussis
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Add, 15, 11));
+
+    // ================================
+    // Test 10: Test avec Saut Négatif
+    // ================================
+    // Préparation d'un registre pour le test
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0));
+    // Étiquette pour le début de la boucle
+    let loop_start_idx = program.code.len();
+
+    // Incrémenter R12
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Add, 12, 1));
+
+    // Comparer R12 avec 3
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Cmp, 12, 3));
+
+    // Si R12 < 3, retourner au début de la boucle
+    let loop_end_idx = program.code.len();
+
+    // Calcul de l'offset pour revenir au début de la boucle
+    let offset = -(((loop_end_idx - loop_start_idx) * 6) as i32); // 6 est la taille moyenne d'une instruction
+
+    // Créer un saut relatif en arrière
+    let jmpif_format = InstructionFormat::new(ArgType::None, ArgType::RelativeAddr, ArgType::None);
+    let offset_bytes = offset.to_le_bytes();
+    let mut jmpif_args = Vec::new();
+    jmpif_args.extend_from_slice(&offset_bytes);
+    program.add_instruction(Instruction::new(Opcode::JmpIfLess, jmpif_format, jmpif_args));
+
+    // Si on est ici, R12 devrait valoir 3, ce qui est un succès
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Cmp, 12, 3));
+    program.add_instruction(Instruction::create_jump_if_equal(2));
+    // Si le test a échoué
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0));
+    // Si le test a réussi
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x01));
+    // Incrémenter le compteur de tests réussis
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Add, 15, 13));
+
+    // Fin du programme
+    program.add_instruction(Instruction::create_no_args(Opcode::Halt));
+
+    // Calculer la taille totale du code et créer le segment
+    let total_size: u32 = program.code.iter().map(|instr| instr.total_size() as u32).sum();
+    program.segments = vec![SegmentMetadata::new(SegmentType::Code, 0, total_size, 0)];
+
+    // Créer un segment de données vide
+    let data_size = 256;
+    let data_segment = SegmentMetadata::new(SegmentType::Data, 0, data_size, 0x1000);
+    program.segments.push(data_segment);
+    program.data = vec![0; data_size as usize];
+
+    program
+}
+
+
+
+
+pub fn create_3_branch_test_program() -> BytecodeFile {
+    let mut program = BytecodeFile::new();
+    program.version = BytecodeVersion::new(0, 1, 0, 0);
+    program.add_metadata("name", "Branch Instructions Test");
+    program.add_metadata("description", "Programme testant les différentes instructions de branchement.");
+
+
+
+
+    // Initialiser les registres pour les tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 0)); // R0 = 0
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 1)); // R1 = 1
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 10)); // R2 = 10
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0)); // R15 = 0 (compteur de tests réussis)
+
+    // ================================
+    // Test 1: JmpIfEqual (ZF = 1)
+    // ================================
+    // Compare R1 et R1 (égaux => ZF = 1)
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 1));
+
+    // Branchement (devrait être pris car ZF = 1)
+    // Calculer la taille réelle de l'instruction de branchement plus la taille de l'instruction suivante
+
+
+    let instr_size = 6; // Estimation de la taille d'une instruction typique
+    program.add_instruction(Instruction::create_jump_if_equal(instr_size * 2)); // Sauter 2 instructions
+
+    // Si le branchement n'est pas pris (échec)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 0xFF));
+
+    // Si le branchement est pris (succès)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 0x01));
+
+    // Incrémenter le compteur de tests réussis
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Add, 15, 3));
+
+    // Ajoutons quelques tests simples supplémentaires
+
+    // ================================
+    // Test 2: JmpIfNotEqual (ZF = 0)
+    // ================================
+    // Compare R1 et R2 (différents => ZF = 0)
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 2));
+
+    // Branchement (devrait être pris car ZF = 0)
+    program.add_instruction(Instruction::create_jump_if_not_equal(instr_size * 2));
+
+    // Si le branchement n'est pas pris (échec)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0xFF));
+
+    // Si le branchement est pris (succès)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0x01));
+
+    // Incrémenter le compteur de tests réussis
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Add, 15, 4));
+
+    // ================================
+    // Test 3: Saut inconditionnel (Jmp)
+    // ================================
+    // Saut inconditionnel (devrait toujours être pris)
+    program.add_instruction(Instruction::create_jump(instr_size * 2));
+
+    // Si le branchement n'est pas pris (échec)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0xFF));
+
+    // Si le branchement est pris (succès)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x01));
+
+    // Incrémenter le compteur de tests réussis
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Add, 15, 5));
+
+    // Fin du programme
+    program.add_instruction(Instruction::create_no_args(Opcode::Halt));
+
+    // Calculer la taille totale du code et créer le segment
+    let total_size: u32 = program.code.iter().map(|instr| instr.total_size() as u32).sum();
+    program.segments = vec![SegmentMetadata::new(SegmentType::Code, 0, total_size, 0)];
+
+    // Créer un segment de données vide
+    let data_size = 256;
+    let data_segment = SegmentMetadata::new(SegmentType::Data, 0, data_size, 0x1000);
+    program.segments.push(data_segment);
+    program.data = vec![0; data_size as usize];
+
+    program
+}
+
+
+pub fn create_box_branch_test_program() -> BytecodeFile {
+    let mut program = BytecodeFile::new();
+    program.version = BytecodeVersion::new(0, 1, 0, 0);
+    program.add_metadata("name", "Branch Simple Test");
+    program.add_metadata("description", "Programme testant les branchements avec sauts arrière");
+
+    // Initialiser registres
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 0));   // R0 = 0
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 1));   // R1 = 1
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 0));   // R2 = 0 (compteur de boucle)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 5));   // R3 = 5 (limite de boucle)
+
+    // Point d'entrée de la boucle
+    let loop_start_idx = program.code.len();
+
+    // Incrémenter le compteur
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Add, 2, 1));   // R2 += 1
+
+    // Comparer le compteur avec la limite
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 2, 3));    // Compare R2 et R3
+
+    // Si R2 < R3, continuer la boucle
+    // Le format pour créer un saut avec un offset négatif
+    let jmp_format = InstructionFormat::new(ArgType::None, ArgType::RelativeAddr, ArgType::None);
+
+    // Calculer un offset négatif pour revenir au début de la boucle
+    // La taille moyenne d'une instruction est d'environ 6 bytes
+    let offset :i8 = -12;  // Pour sauter 2 instructions en arrière (-6 * 2)
+
+    let offset_bytes = offset.to_le_bytes();
+    let mut jmp_args = Vec::new();
+    jmp_args.extend_from_slice(&offset_bytes);
+
+    // Créer le saut si R2 < R3
+    program.add_instruction(Instruction::new(Opcode::JmpIfLess, jmp_format, jmp_args));
+
+    // Fin du programme
+    program.add_instruction(Instruction::create_no_args(Opcode::Halt));
+
+    // Segment de code
+    let total_size: u32 = program.code.iter().map(|instr| instr.total_size() as u32).sum();
+    program.segments = vec![SegmentMetadata::new(SegmentType::Code, 0, total_size, 0)];
+
+    // Segment de données
+    let data_size = 256;
+    let data_segment = SegmentMetadata::new(SegmentType::Data, 0, data_size, 0x1000);
+    program.segments.push(data_segment);
+    program.data = vec![0; data_size as usize];
+
+    program
+
 }
 
 
