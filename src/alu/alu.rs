@@ -32,6 +32,12 @@ pub enum ALUOperation {
     Cmp,  // Compare (comme Sub mais ne stocke pas le résultat)
     Test, // Test (comme And mais ne stocke pas le résultat)
     Mov,  // Copie la valeur
+    // Instructions de contrôle de flux
+    // Jumps, branches, etc.
+    // Jmp,
+    // Call,
+    // Ret,
+
 }
 
 /// Unité ALU (Arithmetic Logic Unit)
@@ -453,6 +459,18 @@ impl ALU {
                 println!("BranchCondition::Positive: negative={}, result={}", self.flags.negative, result);
                 result
             },
+            // BranchCondition::NotZero => !self.flags.zero,
+            BranchCondition::NotZero => {
+                let result = !self.flags.zero;
+                println!("BranchCondition::NotZero: zero={}, result={}", self.flags.zero, result);
+                result
+            },
+            // BranchCondition::Zero => self.flags.zero,
+            BranchCondition::Zero => {
+                let result = self.flags.zero;
+                println!("BranchCondition::Zero: zero={}, result={}", self.flags.zero, result);
+                result
+            },
         }
     }
 
@@ -481,6 +499,8 @@ pub enum BranchCondition {
     NotOverflow,  // OF = 0
     Negative,     // SF = 1
     Positive,     // SF = 0
+    NotZero,     // ZF = 0
+    Zero,         // ZF = 1
 
 }
 
