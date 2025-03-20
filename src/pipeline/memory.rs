@@ -22,10 +22,6 @@ pub struct MemoryStage{
     pub fn process_direct(&mut self, mem_reg: &ExecuteMemoryRegister, memory: &mut Memory) -> Result<MemoryWritebackRegister, String> {
         let mut result = mem_reg.alu_result;
 
-        // println!("MemoryStage: Instruction opcode={:?}, mem_addr={:?}, store_value={:?}",
-        //          mem_reg.instruction.opcode, mem_reg.mem_addr, mem_reg.store_value
-        // );
-
 
         // Traitement spécifique selon l'opcode
         match mem_reg.instruction.opcode {
@@ -172,6 +168,10 @@ pub struct MemoryStage{
             // Autres instructions - rien à faire dans l'étage Memory
             _ => {}
         }
+
+        // println!("MemoryStage: Instruction opcode={:?}, mem_addr={:?}, store_value={:?}",
+        //          mem_reg.instruction.opcode, mem_reg.mem_addr, mem_reg.store_value
+        // );
 
         Ok(MemoryWritebackRegister {
             instruction: mem_reg.instruction.clone(),
