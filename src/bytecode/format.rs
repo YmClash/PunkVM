@@ -15,8 +15,6 @@ pub enum ArgType{
     AbsoluteAddr = 0x8,        // Adresse absolue
     RegisterOffset = 0x9,      // Registre + offset (pour accès mémoire indexé)
     // Flag = 0xA, // 4 bits pour les flags (ex: ZF, SF, OF, CF)
-
-
     // 0xA-0xF réservés pour extensions futures
 }
 impl ArgType{
@@ -160,9 +158,9 @@ impl InstructionFormat {
         Self::new(ArgType::None, ArgType::None, ArgType::None)
     }
 
-    //Format pout les instructions de saut
+    // Format pout les instructions de saut
     pub fn jump() -> Self {
-        Self::new(ArgType::None, ArgType::Immediate32, ArgType::None)
+        Self::new(ArgType::None, ArgType::RelativeAddr, ArgType::None)
         // Self {
         //     arg1_type: ArgType::None,
         //     arg2_type: ArgType::Immediate32, // offset relatif sur 32 bits
@@ -170,78 +168,87 @@ impl InstructionFormat {
         // }
     }
 
+    // pub fn jump() -> Self {
+    //     Self::new(ArgType::None, ArgType::Flag, ArgType::None)
+    //     // Self {
+    //     //     arg1_type: ArgType::None,
+    //     //     arg2_type: ArgType::Immediate32, // offset relatif sur 32 bits
+    //     //     arg3_type: ArgType::None,
+    //     // }
+    // }
+
     pub fn jumpif() -> Self {
-        Self::new(ArgType::Register, ArgType::Immediate32, ArgType::None)
+        Self::new(ArgType::None, ArgType::RelativeAddr, ArgType::None)
     }
 
     pub fn jump_if_not() -> Self {
-        Self::new(ArgType::Register, ArgType::Immediate32, ArgType::None)
+        Self::new(ArgType::None, ArgType::RelativeAddr, ArgType::None)
     }
 
     pub fn jump_if_equal() -> Self {
-        Self::new(ArgType::Register, ArgType::Immediate32, ArgType::None)
+        Self::new(ArgType::None, ArgType::RelativeAddr, ArgType::None)
     }
     pub fn jump_if_notequal() -> Self {
-        Self::new(ArgType::Register, ArgType::Immediate32, ArgType::None)
+        Self::new(ArgType::None, ArgType::RelativeAddr, ArgType::None)
     }
 
     pub fn jump_if_greater() -> Self {
-        Self::new(ArgType::Register, ArgType::Immediate32, ArgType::None)
+        Self::new(ArgType::None, ArgType::RelativeAddr, ArgType::None)
     }
 
     pub fn jump_if_greaterequal() -> Self {
-        Self::new(ArgType::Register, ArgType::Immediate32, ArgType::None)
+        Self::new(ArgType::None, ArgType::RelativeAddr, ArgType::None)
     }
 
     pub fn jump_if_less() -> Self {
-        Self::new(ArgType::Register, ArgType::Immediate32, ArgType::None)
+        Self::new(ArgType::None, ArgType::RelativeAddr, ArgType::None)
     }
     pub fn jump_if_lessequal() -> Self {
-        Self::new(ArgType::Register, ArgType::Immediate32, ArgType::None)
+        Self::new(ArgType::None, ArgType::RelativeAddr, ArgType::None)
     }
     pub fn jump_if_above() -> Self {
-        Self::new(ArgType::Register, ArgType::Immediate32, ArgType::None)
+        Self::new(ArgType::None, ArgType::RelativeAddr, ArgType::None)
     }
 
     pub fn jump_if_aboveequal() -> Self {
-        Self::new(ArgType::Register, ArgType::Immediate32, ArgType::None)
+        Self::new(ArgType::None, ArgType::RelativeAddr, ArgType::None)
     }
 
     pub fn jump_if_below() -> Self {
-        Self::new(ArgType::Register, ArgType::Immediate32, ArgType::None)
+        Self::new(ArgType::None, ArgType::RelativeAddr, ArgType::None)
     }
 
     pub fn jump_if_belowequal() -> Self {
-        Self::new(ArgType::Register, ArgType::Immediate32, ArgType::None)
+        Self::new(ArgType::None, ArgType::RelativeAddr, ArgType::None)
     }
 
     pub fn jump_if_overflow() -> Self {
-        Self::new(ArgType::Register, ArgType::Immediate32, ArgType::None)
+        Self::new(ArgType::None, ArgType::RelativeAddr, ArgType::None)
     }
 
     pub fn jump_if_not_overflow() -> Self {
-        Self::new(ArgType::Register, ArgType::Immediate32, ArgType::None)
+        Self::new(ArgType::None, ArgType::RelativeAddr, ArgType::None)
     }
 
     pub fn jump_if_zero() -> Self {
-        Self::new(ArgType::Register, ArgType::Immediate32, ArgType::None)
+        Self::new(ArgType::None, ArgType::RelativeAddr, ArgType::None)
     }
     pub fn jump_if_not_zero() -> Self {
-        Self::new(ArgType::Register, ArgType::Immediate32, ArgType::None)
+        Self::new(ArgType::None, ArgType::RelativeAddr, ArgType::None)
     }
 
     pub fn jump_if_positive() -> Self {
-        Self::new(ArgType::Register, ArgType::Immediate32, ArgType::None)
+        Self::new(ArgType::None, ArgType::RelativeAddr, ArgType::None)
     }
 
     pub fn jump_if_negative() -> Self {
-        Self::new(ArgType::Register, ArgType::Immediate32, ArgType::None)
+        Self::new(ArgType::None, ArgType::RelativeAddr, ArgType::None)
     }
 
 
     //Format pour les instructions de type CALL
     pub fn call() -> Self{
-        Self::new(ArgType::None, ArgType::Immediate64, ArgType::None)
+        Self::new(ArgType::None, ArgType::RelativeAddr, ArgType::None)
     }
 
     //Format pour les instructions de type RET
