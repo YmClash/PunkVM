@@ -40,7 +40,7 @@ fn main() -> VMResult<()> {
     // let program = create_cmp_loop_program();
     // let program = create_pipeline_test_program();
     // let program = create_reg_reg_reg_test_program();
-    // let program = create_hazard_detection_test_program();
+    let program = create_hazard_detection_test_program();
     // let program = create_branch_test_program();
     // let program = create_branch_test_program_2();
     // let program = create_branch_test_program_3();
@@ -48,7 +48,7 @@ fn main() -> VMResult<()> {
     // let program = create_branch_comparison_test_program();
     // let program = create_all_branch_test_program();
     // let program = create_3_branch_test_program();
-    let program= create_box_branch_test_program();
+    // let program= create_box_branch_test_program();
     // Charger le programme dans la VM
     println!("Chargement du programme...");
     vm.load_program_from_bytecode(program)?;
@@ -573,12 +573,12 @@ pub fn create_hazard_detection_test_program() -> BytecodeFile {
     // let mut jmpif_args = Vec::new();
     // jmpif_args.extend_from_slice(&offset_bytes);
     // program.add_instruction(Instruction::new(Opcode::JmpIf, jmpif_format, jmpif_args));
-    program.add_instruction(Instruction::create_jump_if(14)); // JmpIf (devrait être pris)
+    // program.add_instruction(Instruction::create_jump_if(14)); // JmpIf (devrait être pris)
     // program.add_instruction(Instruction::ccreate_jump_if_not(14)); // JmpIfNot (devrait être pris)
     // program.add_instruction(Instruction::create_jump_if_less_equal(14)); // JmpIfEqual (devrait être pris)
     // program.add_instruction(Instruction::create_jump_if_not_equal(14)); // JmpIfNotEqual (devrait être pris)
     // program.add_instruction(Instruction::create_jump(14)); // Jmp (devrait être pris)
-    // program.add_instruction(Instruction::create_jump_if_equal(14)); // JmpIfEqual (devrait être pris)
+    program.add_instruction(Instruction::create_jump_if_equal(14)); // JmpIfEqual (devrait être pris)
 
 
     // Instructions qui seront sautées si le branchement est pris
