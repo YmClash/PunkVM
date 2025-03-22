@@ -40,7 +40,7 @@ fn main() -> VMResult<()> {
     // let program = create_cmp_loop_program();
     // let program = create_pipeline_test_program();
     // let program = create_reg_reg_reg_test_program();
-    let program = create_hazard_detection_test_program();
+    // let program = create_hazard_detection_test_program();
     // let program = create_branch_test_program();
     // let program = create_branch_test_program_2();
     // let program = create_branch_test_program_3();
@@ -49,6 +49,11 @@ fn main() -> VMResult<()> {
     // let program = create_all_branch_test_program();
     // let program = create_3_branch_test_program();
     // let program= create_box_branch_test_program();
+    let program = create_branch_test_program_debug();
+
+
+
+
     // Charger le programme dans la VM
     println!("Chargement du programme...");
     vm.load_program_from_bytecode(program)?;
@@ -1336,6 +1341,43 @@ pub fn create_box_branch_test_program() -> BytecodeFile {
 
     program
 
+}
+
+
+pub fn create_branch_test_program_debug() -> BytecodeFile {
+    let mut program = BytecodeFile::new();
+    program.version = BytecodeVersion::new(0, 1, 0, 0);
+    program.add_metadata("name", "Branch Simple Test");
+    program.add_metadata("description", "Programme de test simple de branchement");
+
+    // Initialiser les registres
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 0));   // R0 = 0
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 1));   // R1 = 1
+
+    // Instruction de saut inconditionnel (sauter la prochaine instruction)
+    // Important: utiliser un grand offset pour s'assurer de sauter l'instruction de mov R2,0xFF
+    program.add_instruction(Instruction::create_jump(16));
+
+    // Cette instruction ne devrait pas être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 0xFF)); // R2 = 0xFF
+
+    // Cette instruction devrait être exécutée après le saut
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 0xAA)); // R2 = 0xAA
+
+    // Fin du programme
+    program.add_instruction(Instruction::create_no_args(Opcode::Halt));
+
+    // Calculer la taille totale du code et créer le segment
+    let total_size: u32 = program.code.iter().map(|instr| instr.total_size() as u32).sum();
+    program.segments = vec![SegmentMetadata::new(SegmentType::Code, 0, total_size, 0)];
+
+    // Créer un segment de données vide
+    let data_size = 256;
+    let data_segment = SegmentMetadata::new(SegmentType::Data, 0, data_size, 0x1000);
+    program.segments.push(data_segment);
+    program.data = vec![0; data_size as usize];
+
+    program
 }
 
 
