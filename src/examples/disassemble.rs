@@ -1,11 +1,14 @@
 // examples/disassemble.rs
 
-use punk_vm::bytecode::{BytecodeFile, ArgValue};
+// use punk_vm::bytecode::{BytecodeFile, ArgValue};
 use std::env;
 use std::path::Path;
 use std::collections::HashMap;
+use crate::bytecode::instructions::ArgValue;
+use crate::BytecodeFile;
+use crate::pvm::vm_errors::VMResult;
 
-fn main() -> std::io::Result<()> {
+fn main() -> VMResult<()> {
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 2 {
