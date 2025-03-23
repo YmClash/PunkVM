@@ -6,7 +6,7 @@ use std::io;
 
 use crate::pvm::caches::{DEFAULT_LINE_SIZE, L1Cache};
 use crate::pvm::buffers::StoreBuffer;
-use crate::pvm::vm_errors::VMError;
+
 
 /// Configuration du systeme memoire
 #[derive(Debug, Clone, Copy)]
