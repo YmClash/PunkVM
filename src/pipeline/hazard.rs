@@ -238,6 +238,35 @@ impl HazardDetectionUnit {
     /// Détecte les hazards de contrôle (branchements)
     /// Vérifie control hazard
     fn is_control_hazard(&self, state: &PipelineState) -> bool {
+
+        // Vérifier chaque étage pour les instructions de branchement
+        //
+        // // Décodage d'un branchement
+        // if let Some(decode_reg) = &state.decode_execute {
+        //     if decode_reg.instruction.opcode.is_branch() {
+        //         // Un branchement en cours de décodage est un hazard potentiel
+        //         return Some(true);
+        //     }
+        // }
+        //
+        // // Exécution d'un branchement
+        // if let Some(execute_reg) = &state.execute_memory {
+        //     if execute_reg.instruction.opcode.is_branch() {
+        //         // Hazard de contrôle: le résultat du branchement n'est pas encore connu
+        //         return Some(true);
+        //     }
+        // }
+        //
+        // None
+
+        // // Décodage d'un branchement
+        // if let Some(decode_reg) = &state.decode_execute {
+        //     if decode_reg.instruction.opcode.is_branch() {
+        //         // Un branchement en cours de décodage est un hazard potentiel
+        //         return true;
+        //     }
+        // }
+
         let ex_reg = match &state.execute_memory {
             Some(r) => r,
             None => return false,
