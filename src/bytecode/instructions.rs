@@ -5,6 +5,7 @@ use crate::bytecode::decode_errors::DecodeError;
 use crate::bytecode::format::{ArgType, InstructionFormat};
 use crate::bytecode::opcodes::Opcode;
 
+
 /// Represente le type de taille d'instruction
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SizeType{
@@ -611,6 +612,27 @@ impl Instruction{
         Self::new(Opcode::JmpIfNegative,fmt,args)
     }
 
+
+    // methode pour cree  un saut relative
+    // Dans bytecode/instruction.rs
+    // Ajouter une méthode utilitaire pour créer facilement des sauts relatifs
+    pub fn create_relative_jump(opcode: Opcode, from_addr: u32, to_addr: u32) -> Self {
+        let instr = Self::new(
+            opcode,
+            InstructionFormat::new(ArgType::None, ArgType::RelativeAddr,ArgType::None),
+            vec![] // Temporaire
+        );
+
+        let instr_size = instr.total_size() as u32;
+        let offset = crate::bytecode::calculate_branch_offset(from_addr, to_addr, instr_size);
+
+        Self::new(
+            opcode,
+            InstructionFormat::new(ArgType::None, ArgType::RelativeAddr,ArgType::None),
+            offset.to_le_bytes()[0..4].to_vec()
+        )
+    }
+
 }
 
 
@@ -1030,7 +1052,7 @@ mod tests {
     fn test_jump_above() {
         // Test de création d'instruction de saut conditionnel
         let offset = 42;
-        let jump_above_instr = Instruction::create_jump_above(offset);
+        let jump_above_instr = Instruction::create_jump_if_above(offset);
         assert_eq!(jump_above_instr.opcode, Opcode::JmpIfAbove);
         assert_eq!(jump_above_instr.args.len(), 4); // 4 octets pour l'offset
     }
@@ -1038,7 +1060,7 @@ mod tests {
     fn test_jump_above_equal() {
         // Test de création d'instruction de saut conditionnel
         let offset = 42;
-        let jump_above_equal_instr = Instruction::create_jump_above_equal(offset);
+        let jump_above_equal_instr = Instruction::create_jump_if_above_equal(offset);
         assert_eq!(jump_above_equal_instr.opcode, Opcode::JmpIfAboveEqual);
         assert_eq!(jump_above_equal_instr.args.len(), 4); // 4 octets pour l'offset
     }
@@ -1056,7 +1078,7 @@ mod tests {
     fn test_jump_below_equal() {
         // Test de création d'instruction de saut conditionnel
         let offset = 42;
-        let jump_below_equal_instr = Instruction::create_jump_below_equal(offset);
+        let jump_below_equal_instr = Instruction::create_jump_if_below_equal(offset);
         assert_eq!(jump_below_equal_instr.opcode, Opcode::JmpIfBelowEqual);
         assert_eq!(jump_below_equal_instr.args.len(), 4); // 4 octets pour l'offset
     }
@@ -1074,7 +1096,7 @@ mod tests {
     fn test_jump_not_zero() {
         // Test de création d'instruction de saut conditionnel
         let offset = 42;
-        let jump_not_zero_instr = Instruction::create_jump_not_zero(offset);
+        let jump_not_zero_instr = Instruction::create_jump_if_not_zero(offset);
         assert_eq!(jump_not_zero_instr.opcode, Opcode::JmpIfNotZero);
         assert_eq!(jump_not_zero_instr.args.len(), 4); // 4 octets pour l'offset
     }
