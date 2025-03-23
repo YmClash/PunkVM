@@ -8,8 +8,10 @@ use crate::pipeline::{Pipeline};
 use crate::alu::alu::ALU;
 use crate::bytecode::files::SegmentType::{Code, Data, ReadOnlyData};
 use crate::BytecodeFile;
+use crate::debug::{PipelineTracer, TracerConfig};
 use crate::pvm::memorys::{Memory, MemoryConfig};
- use crate::pvm::vm_errors::{VMError, VMResult};
+use crate::pvm::vm_errors::{VMError, VMResult};
+
 
  /// Configuration de la machine virtuelle
 #[derive(Debug, Clone, Copy)]
@@ -24,6 +26,7 @@ pub struct VMConfig {
     pub ras_size: usize,    // Taaille du RAS (Return Address Stack)
     pub enable_forwarding: bool,    // Active ou désactive le forwarding
     pub enable_hazard_detection: bool, // Active ou désactive la détection de hazards
+    pub enable_tracing: bool, // Active ou désactive le traçage
 }
 
 impl Default for VMConfig{
@@ -39,6 +42,7 @@ impl Default for VMConfig{
             ras_size: 8,
             enable_forwarding: true,
             enable_hazard_detection: true,
+            enable_tracing: true,
         }
     }
 }
@@ -62,6 +66,7 @@ pub struct VMStats {
     pub forwards: u64,      // Nombre de forwards effectués
     pub memory_hits: u64,   // Nombre de hits dans le cache mémoire
     pub memory_misses: u64, // Nombre de misses dans le cache mémoire
+    pub branch_flush: u64,  // Nombre de flushes de branchements
 }
 
 /// Machine virtuelle PunkVM
@@ -76,42 +81,31 @@ pub struct PunkVM{
     pub program: Option<BytecodeFile>, // Programme
     cycles: u64, // Nombre de cycles
     instructions_executed: u64, // Nombre d'instructions exécutées
+    tracer: Option<PipelineTracer>, // Tracer pour le débogage
 
 }
 
+ // impl PunkVM {
+ //     pub fn enable_tracing(&self, p0: TracerConfig) {
+ //         if PunkVM::tracing = true {
+ //             Self.enable_tracing(p0);
+ //         } else {
+ //             println!("Tracing is disabled");
+ //         }
+ //
+ //
+ //
+ //     }
+ // }
 
-impl PunkVM {
+ impl PunkVM {
     /// Crée une nouvelle instance de PunkVM avec la configuration par défaut
     pub fn new() -> Self {
         Self::with_config(VMConfig::default())
     }
 
-    // Crée une nouvelle instance de PunkVM avec une configuration personnalisée
-    // pub fn with_config(config: VMConfig) -> Self {
-    //     let memory_config = MemoryConfig {
-    //         size: config.memory_size,
-    //         l1_cache_size: config.l1_cache_size,
-    //         store_buffer_size: config.store_buffer_size,
-    //     };
-    //
-    //     Self {
-    //         config: config.clone(),
-    //         state: VMState::Ready,
-    //         pipeline: Pipeline::new(
-    //             config.fetch_buffer_size,
-    //             config.enable_forwarding,
-    //             config.enable_hazard_detection,
-    //         ),
-    //         alu: ALU::new(),
-    //         memory: Memory::new(memory_config),
-    //         pc: 0,
-    //         registers: vec![0; config.num_registers],
-    //         program: None,
-    //         cycles: 0,
-    //         instructions_executed: 0,
-    //     }
-    // }
 
+    // Crée une nouvelle instance de PunkVM avec une configuration personnalisée
     pub fn with_config(config: VMConfig) -> Self {
         let memory_config = MemoryConfig {
             size: config.memory_size,
@@ -134,8 +128,21 @@ impl PunkVM {
             program: None,
             cycles: 0,
             instructions_executed: 0,
+
+            tracer: Option::from(PipelineTracer::new(Default::default()))
+
         }
     }
+
+
+     // Active le traçage
+     pub fn enable_tracing(&mut self,config:TracerConfig) {
+         if self.config.enable_tracing{
+             self.tracer = Some(PipelineTracer::new(config))
+         }else {
+             println!("Tracing is disabled");
+         }
+     }
 
     /// Charge un programme depuis un fichier bytecode
     pub fn load_program<P: AsRef<Path>>(&mut self, path: P) -> VMResult<()>/*io::Result<()>*/ {
@@ -233,6 +240,14 @@ impl PunkVM {
             ));
         }
 
+        // Incrementer le compteur de cycles
+        self.cycles +=1;
+
+        //mise a jour du cycle du traceur
+        if let Some(tracer) = &mut self.tracer{
+            tracer.start_cycle(self.cycles)
+        }
+
         // Exécution d'un cycle pipeline
         let program_code = &self.program.as_ref().unwrap().code;
         let pipeline_state = self.pipeline.cycle(
@@ -246,6 +261,13 @@ impl PunkVM {
             pipe_err
         )))?;
 
+
+        // Tracage de l'état du pipeline
+        if let Some(tracer) =  &mut self.tracer{
+            tracer.trace_pipeline_state(&pipeline_state, &self.registers);
+        }
+
+
         // Mise à jour du PC
         self.pc = pipeline_state.next_pc as usize;
 
@@ -256,6 +278,11 @@ impl PunkVM {
         // Vérifier s'il y a un halt
         if pipeline_state.halted {
             self.state = VMState::Halted;
+
+            //genere un rapport de synthese si le trace est active
+            if let Some(tracer) = &self.tracer{
+                println!("\n{}", tracer.generate_summary())
+            }
         }
 
         Ok(())
@@ -292,6 +319,7 @@ impl PunkVM {
             forwards: self.pipeline.forwarding.get_forwards_count(),
             memory_hits: self.memory.stats().hits,
             memory_misses: self.memory.stats().misses,
+            branch_flush: self.pipeline.stats().branch_flush,
         }
     }
 
@@ -351,6 +379,18 @@ impl PunkVM {
 
         Ok(())
     }
+
+
+     // Exporter les traces dans un  fichier CSV
+     pub fn export_traces_to_csv(&self, file_path: &str) -> VMResult<()> {
+         if let Some(tracer) = &self.tracer {
+             tracer.export_to_csv(file_path)
+         } else {
+             Err(VMError::execution_error("Le traçage n'est pas activé"))
+         }
+     }
+
+
 }
 
 

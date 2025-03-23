@@ -59,6 +59,7 @@ pub struct PipelineState {
     pub halted: bool,
     /// Nombre d'instructions complétées ce cycle
     pub instructions_completed: usize,
+
 }
 
 impl Default for PipelineState {
@@ -163,6 +164,9 @@ pub struct PipelineStats {
     pub branch_hits: u64,
     /// Nombre de prédictions incorrectes
     pub branch_misses: u64,
+    /// Nombre de brance flush
+    pub branch_flush: u64,
+
 }
 
 impl Pipeline {
@@ -271,8 +275,14 @@ impl Pipeline {
             if mem_reg.branch_taken {
                 if let Some(target) = mem_reg.branch_target {
                     state.next_pc = target;
+
+                    //  vide la pipeline
                     state.fetch_decode = None;
                     state.decode_execute = None;
+                    state.execute_memory = None;    //Optionnel
+
+                    self.stats.branch_flush += 1;
+
                 }
             }
             state.execute_memory = Some(mem_reg);
@@ -312,6 +322,7 @@ impl Pipeline {
             // On considère qu’une instruction est finalisée ici
             state.instructions_completed += 1;
             // self.stats.instructions += 1;
+
         }
         state.memory_writeback = None;
 
