@@ -10,6 +10,7 @@ use PunkVM::bytecode::instructions::Instruction;
 use PunkVM::bytecode::opcodes::Opcode;
 use PunkVM::pvm::vm::{VMConfig, VMState, PunkVM as VM};
 use PunkVM::pvm::vm_errors::VMResult;
+// use PunkVM::pvm::vm::PunkVM;
 
 fn main() -> VMResult<()> {
 
@@ -27,6 +28,7 @@ fn main() -> VMResult<()> {
         ras_size: 4,                  // 4 entrées dans le RAS
         enable_forwarding: true,      // Activer le forwarding
         enable_hazard_detection: true, // Activer la détection de hazards
+        enable_tracing: true,         // Activer le traçage
     };
 
     // Créer une VM avec la configuration spécifiée
@@ -40,7 +42,7 @@ fn main() -> VMResult<()> {
     // let program = create_cmp_loop_program();
     // let program = create_pipeline_test_program();
     // let program = create_reg_reg_reg_test_program();
-    // let program = create_hazard_detection_test_program();
+    let program = create_hazard_detection_test_program();
     // let program = create_branch_test_program();
     // let program = create_branch_test_program_2();
     // let program = create_branch_test_program_3();
@@ -49,9 +51,39 @@ fn main() -> VMResult<()> {
     // let program = create_all_branch_test_program();
     // let program = create_3_branch_test_program();
     // let program= create_box_branch_test_program();
-    let program = create_branch_test_program_debug();
+    // let program = create_branch_test_program_debug();
+    // let program = create_forward_jump_test();
+    // let program = create_conditional_jump_taken_test();
+    // let program = create_conditional_jump_not_taken_test();
+    // let program = create_simple_loop_test();
+
+/////////////////////////////////////////////////////////////////////////////
+    // Test 1: Saut inconditionnel simple (vers l'avant)
+    // println!("Test 1: Saut inconditionnel simple (vers l'avant)");
+    // let bytecode1 = create_forward_jump_test();
+    // run_test(&mut vm, bytecode1, "forward_jump.punk")?;
+    // // vm.load_program_from_bytecode(bytecode1)?;
+    //
+    // // Test 2: Saut conditionnel simple (pris)
+    // println!("\nTest 2: Saut conditionnel simple (pris)");
+    // let bytecode2 = create_conditional_jump_taken_test();
+    // run_test(&mut vm, bytecode2, "cond_jump_taken.punk")?;
+    // // vm.load_program_from_bytecode(bytecode2)?;
+    //
+    // // Test 3: Saut conditionnel simple (non pris)
+    // println!("\nTest 3: Saut conditionnel simple (non pris)");
+    // let bytecode3 = create_conditional_jump_not_taken_test();
+    // run_test(&mut vm, bytecode3, "cond_jump_not_taken.punk")?;
+    // // vm.load_program_from_bytecode(bytecode3)?;
+    //
+    // // Test 4: Boucle simple (saut arrière)
+    // println!("\nTest 4: Boucle simple (saut arrière)");
+    // let bytecode4 = create_simple_loop_test();
+    // run_test(&mut vm, bytecode4, "simple_loop.punk")?;
+    // // vm.load_program_from_bytecode(bytecode4)?;
 
 
+////////////////////////////////////////////////////////////////////////////////
 
 
     // Charger le programme dans la VM
@@ -80,6 +112,376 @@ fn main() -> VMResult<()> {
     Ok(())
 
 }
+
+
+//
+// /// Exécute un test avec instrumentation et mesure des performances
+// fn run_test(vm: &mut PunkVM, bytecode: BytecodeFile, filename: &str) -> VMResult<()> {
+//     // Écrire le fichier bytecode sur disque pour référence
+//     bytecode.write_to_file(filename)?;
+//
+//     // Charger le programme
+//     vm.load_program_from_bytecode(bytecode)?;
+//
+//     // Exécuter avec mesure de temps
+//     let start = Instant::now();
+//     match vm.run() {
+//         Ok(_) => {
+//             let duration = start.elapsed();
+//             println!("  ✅ Exécution réussie en {:?}", duration);
+//
+//             // Afficher l'état des registres
+//             println!("  Registres après exécution:");
+//             for (i, value) in vm.registers.iter().enumerate().take(8) {
+//                 println!("    R{}: {}", i, value);
+//             }
+//
+//             // Afficher les statistiques
+//             let stats = vm.stats();
+//             println!("  Statistiques:");
+//             println!("    Cycles: {}", stats.cycles);
+//             println!("    Instructions: {}", stats.instructions_executed);
+//             println!("    IPC: {:.2}", stats.ipc);
+//             println!("    Stalls: {}", stats.stalls);
+//             println!("    Hazards: {}", stats.hazards);
+//             println!("    Forwards: {}", stats.forwards);
+//         },
+//         Err(e) => {
+//             println!("  ❌ Erreur d'exécution: {}", e);
+//         }
+//     }
+//
+//     Ok(())
+// }
+
+
+
+/// Test 1: Saut inconditionnel simple (vers l'avant)
+fn create_forward_jump_test() -> BytecodeFile {
+    let mut bytecode = BytecodeFile::new();
+    bytecode.version = BytecodeVersion::new(0, 1, 0, 0);
+    bytecode.add_metadata("name", "Forward Jump Test");
+
+    println!("  Programme: Saut inconditionnel par-dessus des instructions");
+
+    // LOAD R0, 1     ; R0 = 1
+    println!("  0: LOAD R0, 1");
+    bytecode.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 1));
+
+    // LOAD R1, 2     ; R1 = 2
+    println!("  1: LOAD R1, 2");
+    bytecode.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 2));
+
+    // JMP +3         ; Sauter à l'instruction 5
+    println!("  2: JMP +3 (vers instruction 5)");
+    let jump_offset: i32 = 3 * 3; // 3 instructions * ~3 bytes par instruction (approximatif)
+    let jmp = Instruction::new(
+        Opcode::Jmp,
+        InstructionFormat::new(ArgType::None, ArgType::RelativeAddr,ArgType::None),
+        jump_offset.to_le_bytes()[0..4].to_vec()
+    );
+    bytecode.add_instruction(jmp);
+
+    // LOAD R2, 3     ; R2 = 3 (devrait être sauté)
+    println!("  3: LOAD R2, 3 (devrait être sauté)");
+    bytecode.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 3));
+
+    // LOAD R3, 4     ; R3 = 4 (devrait être sauté)
+    println!("  4: LOAD R3, 4 (devrait être sauté)");
+    bytecode.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 4));
+
+    // LOAD R4, 5     ; R4 = 5 (destination du saut)
+    println!("  5: LOAD R4, 5 (destination du saut)");
+    bytecode.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 5));
+
+    // HALT           ; Fin du programme
+    println!("  6: HALT");
+    bytecode.add_instruction(Instruction::create_no_args(Opcode::Halt));
+
+    // Vérifications attendues:
+    // - R0 = 1, R1 = 2, R2 = 0, R3 = 0, R4 = 5
+    println!("  Résultat attendu: R0=1, R1=2, R2=0, R3=0, R4=5");
+
+
+    let total_size: u32 = bytecode.code.iter()
+        .map(|instr| instr.total_size() as u32)
+        .sum();
+
+    // Créer le segment de code
+    bytecode.segments = vec![
+        SegmentMetadata::new(SegmentType::Code, 0, total_size, 0)
+    ];
+
+    // Créer un segment de données
+    let data_size = 256; // Allouer 256 bytes pour les données
+    let data_segment = SegmentMetadata::new(SegmentType::Data, 0, data_size, 0x1000);
+    bytecode.segments.push(data_segment);
+    bytecode.data = vec![0; data_size as usize];
+
+    println!("Programme simplifié créé avec {} instructions", bytecode.code.len());
+
+    bytecode
+}
+
+/// Test 2: Saut conditionnel simple (pris)
+fn create_conditional_jump_taken_test() -> BytecodeFile {
+    let mut bytecode = BytecodeFile::new();
+    bytecode.version = BytecodeVersion::new(0, 1, 0, 0);
+    bytecode.add_metadata("name", "Conditional Jump Taken Test");
+
+    println!("  Programme: Saut conditionnel qui doit être pris");
+
+    // LOAD R0, 10    ; R0 = 10
+    println!("  0: LOAD R0, 10");
+    bytecode.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 10));
+
+    // LOAD R1, 10    ; R1 = 10
+    println!("  1: LOAD R1, 10");
+    bytecode.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 10));
+
+    // CMP R0, R1     ; Comparer R0 et R1 (égaux)
+    println!("  2: CMP R0, R1");
+    bytecode.add_instruction(Instruction::create_reg_reg(Opcode::Mov, 0, 1));
+
+    // JmpIf eq, +3   ; Sauter si égal (devrait être pris)
+    println!("  3: JmpIf eq, +3 (vers instruction 6)");
+    let jump_offset: i32 = 3 * 3; // 3 instructions * ~3 bytes par instruction (approximatif)
+    let jmpif = Instruction::new(
+        Opcode::JmpIf,
+        InstructionFormat::new(ArgType::None, ArgType::RelativeAddr,ArgType::None),
+        jump_offset.to_le_bytes()[0..4].to_vec()
+    );
+    bytecode.add_instruction(jmpif);
+
+    // LOAD R2, 20    ; R2 = 20 (devrait être sauté)
+    println!("  4: LOAD R2, 20 (devrait être sauté)");
+    bytecode.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 20));
+
+    // LOAD R3, 30    ; R3 = 30 (devrait être sauté)
+    println!("  5: LOAD R3, 30 (devrait être sauté)");
+    bytecode.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 30));
+
+    // LOAD R4, 40    ; R4 = 40 (destination du saut)
+    println!("  6: LOAD R4, 40 (destination du saut)");
+    bytecode.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 40));
+
+    // HALT           ; Fin du programme
+    println!("  7: HALT");
+    bytecode.add_instruction(Instruction::create_no_args(Opcode::Halt));
+
+    // Vérifications attendues:
+    // - R0 = 10, R1 = 10, R2 = 0, R3 = 0, R4 = 40
+    println!("  Résultat attendu: R0=10, R1=10, R2=0, R3=0, R4=40");
+
+
+    let total_size: u32 = bytecode.code.iter()
+        .map(|instr| instr.total_size() as u32)
+        .sum();
+
+    // Créer le segment de code
+    bytecode.segments = vec![
+        SegmentMetadata::new(SegmentType::Code, 0, total_size, 0)
+    ];
+
+    // Créer un segment de données
+    let data_size = 256; // Allouer 256 bytes pour les données
+    let data_segment = SegmentMetadata::new(SegmentType::Data, 0, data_size, 0x1000);
+    bytecode.segments.push(data_segment);
+    bytecode.data = vec![0; data_size as usize];
+
+    println!("Programme simplifié créé avec {} instructions", bytecode.code.len());
+
+    bytecode
+}
+
+/// Test 3: Saut conditionnel simple (non pris)
+fn create_conditional_jump_not_taken_test() -> BytecodeFile {
+    let mut bytecode = BytecodeFile::new();
+    bytecode.version = BytecodeVersion::new(0, 1, 0, 0);
+    bytecode.add_metadata("name", "Conditional Jump Not Taken Test");
+
+    println!("  Programme: Saut conditionnel qui ne doit pas être pris");
+
+    // LOAD R0, 10    ; R0 = 10
+    println!("  0: LOAD R0, 10");
+    bytecode.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 10));
+
+    // LOAD R1, 20    ; R1 = 20
+    println!("  1: LOAD R1, 20");
+    bytecode.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 20));
+
+    // CMP R0, R1     ; Comparer R0 et R1 (pas égaux)
+    println!("  2: CMP R0, R1");
+    bytecode.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+
+    // JmpIf eq, +3   ; Sauter si égal (ne devrait pas être pris)
+    println!("  3: JmpIf eq, +3 (vers instruction 6, ne devrait pas être pris)");
+    let jump_offset: i32 = 3 * 3; // 3 instructions * ~3 bytes par instruction (approximatif)
+    let jmpif = Instruction::new(
+        Opcode::JmpIf,
+        InstructionFormat::new(ArgType::None, ArgType::RelativeAddr,ArgType::None),
+        jump_offset.to_le_bytes()[0..4].to_vec()
+    );
+    bytecode.add_instruction(jmpif);
+
+    // LOAD R2, 30    ; R2 = 30 (devrait être exécuté)
+    println!("  4: LOAD R2, 30 (devrait être exécuté)");
+    bytecode.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 30));
+
+    // LOAD R3, 40    ; R3 = 40 (devrait être exécuté)
+    println!("  5: LOAD R3, 40 (devrait être exécuté)");
+    bytecode.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 40));
+
+    // LOAD R4, 50    ; R4 = 50
+    println!("  6: LOAD R4, 50");
+    bytecode.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 50));
+
+    // HALT           ; Fin du programme
+    println!("  7: HALT");
+    bytecode.add_instruction(Instruction::create_no_args(Opcode::Halt));
+
+    // Vérifications attendues:
+    // - R0 = 10, R1 = 20, R2 = 30, R3 = 40, R4 = 50
+    println!("  Résultat attendu: R0=10, R1=20, R2=30, R3=40, R4=50");
+
+
+    let total_size: u32 = bytecode.code.iter()
+        .map(|instr| instr.total_size() as u32)
+        .sum();
+
+    // Créer le segment de code
+    bytecode.segments = vec![
+        SegmentMetadata::new(SegmentType::Code, 0, total_size, 0)
+    ];
+
+    // Créer un segment de données
+    let data_size = 256; // Allouer 256 bytes pour les données
+    let data_segment = SegmentMetadata::new(SegmentType::Data, 0, data_size, 0x1000);
+    bytecode.segments.push(data_segment);
+    bytecode.data = vec![0; data_size as usize];
+
+    println!("Programme simplifié créé avec {} instructions", bytecode.code.len());
+
+    bytecode
+}
+
+/// Test 4: Boucle simple (saut arrière)
+fn create_simple_loop_test() -> BytecodeFile {
+    let mut bytecode = BytecodeFile::new();
+    bytecode.version = BytecodeVersion::new(0, 1, 0, 0);
+    bytecode.add_metadata("name", "Simple Loop Test");
+
+    println!("  Programme: Boucle simple avec compteur");
+
+    // LOAD R0, 0     ; R0 = 0 (compteur)
+    println!("  0: LOAD R0, 0 (compteur = 0)");
+    bytecode.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 0));
+
+    // LOAD R1, 5     ; R1 = 5 (limite)
+    println!("  1: LOAD R1, 5 (limite = 5)");
+    bytecode.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 5));
+
+    // LOAD R2, 1     ; R2 = 1 (incrément)
+    println!("  2: LOAD R2, 1 (incrément = 1)");
+    bytecode.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 1));
+
+    // LOAD R3, 0     ; R3 = 0 (somme)
+    println!("  3: LOAD R3, 0 (somme = 0)");
+    bytecode.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 0));
+
+    // Début de la boucle (instruction 4)
+    println!("  4: (début de boucle) ADD R3, R3, R0");
+    bytecode.add_instruction(Instruction::create_reg_reg(Opcode::Add, 3, 0));
+
+    // ADD R0, R0, R2 ; Incrémenter compteur: R0 += R2
+    println!("  5: ADD R0, R0, R2 (compteur += 1)");
+    bytecode.add_instruction(Instruction::create_reg_reg(Opcode::Add, 0, 2));
+
+    // CMP R0, R1     ; Comparer compteur avec limite
+    println!("  6: CMP R0, R1 (compteur == limite?)");
+    bytecode.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+
+    // JmpIfNot eq, -4 ; Sauter si pas égal (retour au début de la boucle)
+    println!("  7: JmpIfNot eq, -4 (retour à l'instruction 4 si compteur != limite)");
+    // Le calcul de -4 ici est critique et doit tenir compte de la taille exacte des instructions
+    // -4 est une approximation, la taille réelle dépend du format des instructions
+    let jump_offset: i32 = -12; // -4 instructions * ~3 bytes par instruction (approximativement)
+    let jmpifnot = Instruction::new(
+        Opcode::JmpIfNot,
+        InstructionFormat::new(ArgType::None, ArgType::RelativeAddr,ArgType::None),
+        jump_offset.to_le_bytes()[0..4].to_vec()
+    );
+    bytecode.add_instruction(jmpifnot);
+
+    // HALT           ; Fin du programme
+    println!("  8: HALT");
+    bytecode.add_instruction(Instruction::create_no_args(Opcode::Halt));
+
+    // Vérifications attendues:
+    // - R0 = 5, R1 = 5, R2 = 1, R3 = 10 (somme de 0 à 4 = 10)
+    println!("  Résultat attendu: R0=5, R1=5, R2=1, R3=10 (somme de 0 à 4 = 10)");
+
+
+    let total_size: u32 = bytecode.code.iter()
+        .map(|instr| instr.total_size() as u32)
+        .sum();
+
+    // Créer le segment de code
+    bytecode.segments = vec![
+        SegmentMetadata::new(SegmentType::Code, 0, total_size, 0)
+    ];
+
+    // Créer un segment de données
+    let data_size = 256; // Allouer 256 bytes pour les données
+    let data_segment = SegmentMetadata::new(SegmentType::Data, 0, data_size, 0x1000);
+    bytecode.segments.push(data_segment);
+    bytecode.data = vec![0; data_size as usize];
+
+    println!("Programme simplifié créé avec {} instructions", bytecode.code.len());
+
+    bytecode
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 fn create_simple_complex_program() -> BytecodeFile {
@@ -1404,6 +1806,7 @@ fn print_stats(vm: &VM) {
     println!("  Forwards: {}", stats.forwards);
     println!("  Cache hits: {}", stats.memory_hits);
     println!("  Cache misses: {}", stats.memory_misses);
+    println!("  Branches flush: {}", stats.branch_flush);
 
     // Calcul de quelques métriques supplémentaires
     if stats.cycles > 0 {
