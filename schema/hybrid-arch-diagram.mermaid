@@ -1,0 +1,34 @@
+flowchart TD
+    subgraph "CPU"
+        R["Registres Généraux<br/>(R0-R7)"]
+        PC["Program Counter"]
+        SP["Stack Pointer"]
+        FP["Frame Pointer"]
+    end
+
+    subgraph "Mémoire"
+        CACHE["Cache<br/>Instructions fréquentes"]
+        STACK["Stack<br/>Expressions complexes<br/>Appels de fonctions"]
+        HEAP["Heap<br/>Données dynamiques"]
+        CODE["Code<br/>Instructions"]
+    end
+
+    subgraph "Bus"
+        ALU["ALU<br/>Opérations arithmétiques"]
+        CTRL["Contrôleur<br/>Décodage instructions"]
+    end
+
+    R <--> ALU
+    R <--> CACHE
+    STACK <--> R
+    HEAP <--> R
+    CODE --> CTRL
+    CTRL --> R
+    CTRL --> PC
+    CTRL --> SP
+    ALU --> R
+    
+    style R fill:#f9f,stroke:#333
+    style CACHE fill:#bbf,stroke:#333
+    style STACK fill:#bfb,stroke:#333
+    style ALU fill:#ffb,stroke:#333
