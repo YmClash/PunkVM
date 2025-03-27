@@ -11,18 +11,18 @@ help:
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-15s\033[0m %s\n", $$1, $$2}'
 
 format:
-	cargo fmt --quit
+	cargo fmt
 
 lint:
-	cargo clippy --quiet
+	cargo clippy
 
 test:
-	cargp test  --quiet
+	cargo test
 
 run:
-	cargo run --queit
+	cargo run
 
 release:
-	cargo build --release
+	cargo build
 
 all: format lint test run
