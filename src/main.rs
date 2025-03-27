@@ -79,8 +79,8 @@ fn main() -> VMResult<()> {
 
 
     // // let mut vm_summary = vm.tracer.unwrap().generate_summary();
-    // let trace_sum = tracer.generate_summary();
-    // println!("Trace exportée: {:?}", trace_sum);
+    let trace_sum = tracer.generate_summary();
+    println!("Trace exportée: {:?}", trace_sum);
     //
     // tracer.export_to_csv("trace.csv")?;
 
