@@ -1,19 +1,21 @@
 //src/debug/mod.rs
 
 use std::fmt;
-use std::fmt::{Display, Formatter,};
+use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 
-use std::time::{SystemTime,UNIX_EPOCH,};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::bytecode::instructions::Instruction;
-use crate::pipeline::{PipelineState};
+use crate::pipeline::PipelineState;
 use crate::pvm::vm_errors::VMResult;
 
+use std::time::Instant;
+
 //configuration du traceur
-pub struct TracerConfig{
+pub struct TracerConfig {
     pub enabled: bool,
     pub log_to_console: bool,
     pub log_to_file: bool,
@@ -28,7 +30,7 @@ pub struct TracerConfig{
     pub trace_registers: bool,
 }
 
-impl Default for TracerConfig{
+impl Default for TracerConfig {
     fn default() -> Self {
         Self {
             enabled: false,
@@ -47,7 +49,6 @@ impl Default for TracerConfig{
     }
 }
 
-
 // Evenement de la pipeline a tracer
 
 #[derive(Debug, Clone)]
@@ -63,15 +64,15 @@ pub enum TraceEvent {
         cycle: u64,
         pc: u32,
         instruction: Option<Instruction>,
-        rs1:Option<usize>,
-        rs2:Option<usize>,
-        rd:Option<usize>,
+        rs1: Option<usize>,
+        rs2: Option<usize>,
+        rd: Option<usize>,
     },
 
-    Execute{
+    Execute {
         cycle: u64,
-        pc:u32,
-        target_pc:u32,
+        pc: u32,
+        target_pc: u32,
         branch_type: String,
         taken: bool,
         condition: String,
@@ -79,27 +80,26 @@ pub enum TraceEvent {
 
     Memory {
         cycle: u64,
-        pc:u32,
+        pc: u32,
         instruction: Option<Instruction>,
         address: Option<u32>,
         value: Option<u32>,
-        is_read:bool,
+        is_read: bool,
     },
 
-    Writeback{
+    Writeback {
         cycle: u64,
-        pc:u32,
-        rd:Option<usize>,
-        value:u64,
+        pc: u32,
+        rd: Option<usize>,
+        value: u64,
     },
 
     // Evenement special
-
-    Hazard{
-        cycle:u64,
-        hazard_type:String,
-        stall_cycles:u64,
-        description:String,
+    Hazard {
+        cycle: u64,
+        hazard_type: String,
+        stall_cycles: u64,
+        description: String,
     },
 
     Branch {
@@ -111,38 +111,48 @@ pub enum TraceEvent {
         condition: String,
     },
 
-    RegisterUpdate{
-        cycle:u64,
-        pc:u32,
-        register:usize,
-        old_value:u64,
-        new_value:u64,
-        source: String,     // "EXEC", "MEM", "WB"
+    RegisterUpdate {
+        cycle: u64,
+        pc: u32,
+        register: usize,
+        old_value: u64,
+        new_value: u64,
+        source: String, // "EXEC", "MEM", "WB"
     },
 
-    PipelineStall{
-        cycle:u64,
-        reason:String,
+    PipelineStall {
+        cycle: u64,
+        reason: String,
     },
 
-    PipelineFlush{
-        cycle:u64,
-        reason:String,
-    }
+    PipelineFlush {
+        cycle: u64,
+        reason: String,
+    },
 }
-
 
 impl Display for TraceEvent {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            TraceEvent::Fetch { cycle, pc, instruction } => {
+            TraceEvent::Fetch {
+                cycle,
+                pc,
+                instruction,
+            } => {
                 write!(f, "[{:04}] FETCH: PC=0x{:08X}", cycle, pc)?;
                 if let Some(instr) = instruction {
                     write!(f, " INSTR={:?}", instr.opcode)?;
                 }
                 Ok(())
-            },
-            TraceEvent::Decode { cycle, pc, instruction, rs1, rs2, rd } => {
+            }
+            TraceEvent::Decode {
+                cycle,
+                pc,
+                instruction,
+                rs1,
+                rs2,
+                rd,
+            } => {
                 write!(f, "[{:04}] DECODE: PC=0x{:08X}", cycle, pc)?;
                 if let Some(instr) = instruction {
                     write!(f, " INSTR={:?}", instr.opcode)?;
@@ -151,7 +161,7 @@ impl Display for TraceEvent {
                 let rs2_str = rs2.map_or("NONE".to_string(), |r| format!("R{}", r));
                 let rd_str = rd.map_or("NONE".to_string(), |r| format!("R{}", r));
                 write!(f, " RS1={} RS2={} RD={}", rs1_str, rs2_str, rd_str)
-            },
+            }
             // TraceEvent::Execute { cycle,pc,target_pc,branch_type,taken,condition} => {
             //     write!(f, "[{:04}] EXECUTE: PC=0x{:08X}", cycle, pc)?;
             //     if let Some(instr) = instruction {
@@ -161,13 +171,29 @@ impl Display for TraceEvent {
             //            alu_result, flags.zero as u8, flags.negative as u8,
             //            flags.overflow as u8, flags.carry as u8)
             // },
+            TraceEvent::Execute {
+                cycle,
+                pc,
+                target_pc,
+                branch_type,
+                taken,
+                condition,
+            } => {
+                write!(
+                    f,
+                    "[{:04}] EXECUTE: PC=0x{:08X} TARGET=0x{:08X} TYPE={} TAKEN={} COND={}",
+                    cycle, pc, target_pc, branch_type, taken, condition
+                )
+            }
 
-            TraceEvent::Execute { cycle, pc, target_pc, branch_type, taken, condition } => {
-                write!(f, "[{:04}] EXECUTE: PC=0x{:08X} TARGET=0x{:08X} TYPE={} TAKEN={} COND={}",
-                       cycle, pc, target_pc, branch_type, taken, condition)
-            },
-
-            TraceEvent::Memory { cycle, pc, instruction, address, value, is_read } => {
+            TraceEvent::Memory {
+                cycle,
+                pc,
+                instruction,
+                address,
+                value,
+                is_read,
+            } => {
                 write!(f, "[{:04}] MEMORY: PC=0x{:08X}", cycle, pc)?;
                 if let Some(instr) = instruction {
                     write!(f, " INSTR={:?}", instr.opcode)?;
@@ -183,40 +209,72 @@ impl Display for TraceEvent {
                     }
                 }
                 Ok(())
-            },
-            TraceEvent::Writeback { cycle, pc, rd, value } => {
+            }
+            TraceEvent::Writeback {
+                cycle,
+                pc,
+                rd,
+                value,
+            } => {
                 write!(f, "[{:04}] WRITEBACK: PC=0x{:08X}", cycle, pc)?;
                 if let Some(reg) = rd {
                     write!(f, " RD=R{} VALUE=0x{:016X}", reg, value)?;
                 }
                 Ok(())
-            },
-            TraceEvent::Hazard { cycle, hazard_type, stall_cycles, description } => {
-                write!(f, "[{:04}] HAZARD: Type={} Stalls={} {}",
-                       cycle, hazard_type, stall_cycles, description)
-            },
-            TraceEvent::Branch { cycle, pc, target_pc, branch_type, taken, condition } => {
-                write!(f, "[{:04}] BRANCH: PC=0x{:08X} TARGET=0x{:08X} TYPE={} TAKEN={} COND={}",
-                       cycle, pc, target_pc, branch_type, taken, condition)
-            },
+            }
+            TraceEvent::Hazard {
+                cycle,
+                hazard_type,
+                stall_cycles,
+                description,
+            } => {
+                write!(
+                    f,
+                    "[{:04}] HAZARD: Type={} Stalls={} {}",
+                    cycle, hazard_type, stall_cycles, description
+                )
+            }
+            TraceEvent::Branch {
+                cycle,
+                pc,
+                target_pc,
+                branch_type,
+                taken,
+                condition,
+            } => {
+                write!(
+                    f,
+                    "[{:04}] BRANCH: PC=0x{:08X} TARGET=0x{:08X} TYPE={} TAKEN={} COND={}",
+                    cycle, pc, target_pc, branch_type, taken, condition
+                )
+            }
 
-            TraceEvent::RegisterUpdate { cycle, pc, register, old_value, new_value, source } => {
-                write!(f, "[{:04}] REG_UPDATE: R{}=0x{:016X} (was 0x{:016X}) SRC={}",
-                       cycle, register, new_value, old_value, source)
-            },
+            TraceEvent::RegisterUpdate {
+                cycle,
+                pc,
+                register,
+                old_value,
+                new_value,
+                source,
+            } => {
+                write!(
+                    f,
+                    "[{:04}] REG_UPDATE: R{}=0x{:016X} (was 0x{:016X}) SRC={}",
+                    cycle, register, new_value, old_value, source
+                )
+            }
             TraceEvent::PipelineStall { cycle, reason } => {
                 write!(f, "[{:04}] STALL: {}", cycle, reason)
-            },
+            }
             TraceEvent::PipelineFlush { cycle, reason } => {
                 write!(f, "[{:04}] FLUSH: {}", cycle, reason)
-            },
+            }
         }
     }
 }
 
-
 //Gestion de tracage
-pub struct PipelineTracer{
+pub struct PipelineTracer {
     config: TracerConfig,
     // tracer_events: Arc<Mutex<Vec<TraceEvent>>>,
     trace_events: Vec<TraceEvent>,
@@ -233,14 +291,16 @@ impl PipelineTracer {
                 .unwrap()
                 .as_secs();
 
-            let path = config.log_file_path.clone()
+            let path = config
+                .log_file_path
+                .clone()
                 .unwrap_or_else(|| format!("punkvm_trace_{}.log", timestamp));
 
             match File::create(&path) {
                 Ok(file) => {
                     println!("Traçage activé: écriture dans le fichier {}", path);
                     Some(file)
-                },
+                }
                 Err(e) => {
                     eprintln!("Erreur lors de la création du fichier de traçage: {}", e);
                     None
@@ -348,9 +408,9 @@ impl PipelineTracer {
                 taken: em_reg.branch_taken,
                 condition: "".to_string(), // Condition non disponible directement
 
-                // instruction: Some(em_reg.instruction.clone()),
-                // alu_result: em_reg.alu_result,
-                // flags: ALUFlags::default(), // Flags non disponibles directement
+                                           // instruction: Some(em_reg.instruction.clone()),
+                                           // alu_result: em_reg.alu_result,
+                                           // flags: ALUFlags::default(), // Flags non disponibles directement
             });
 
             // Tracer les branches
@@ -384,7 +444,13 @@ impl PipelineTracer {
     }
 
     // Trace une modification de registre
-    pub fn trace_register_update(&mut self, register: usize, old_value: u64, new_value: u64, source: &str) {
+    pub fn trace_register_update(
+        &mut self,
+        register: usize,
+        old_value: u64,
+        new_value: u64,
+        source: &str,
+    ) {
         if !self.config.enabled || !self.config.trace_registers {
             return;
         }
@@ -409,20 +475,38 @@ impl PipelineTracer {
         // Écrire les événements
         for event in &self.trace_events {
             match event {
-                TraceEvent::Fetch { cycle, pc, instruction } => {
-                    let instr_str = instruction.as_ref().map_or("None".to_string(), |i| format!("{:?}", i.opcode));
+                TraceEvent::Fetch {
+                    cycle,
+                    pc,
+                    instruction,
+                } => {
+                    let instr_str = instruction
+                        .as_ref()
+                        .map_or("None".to_string(), |i| format!("{:?}", i.opcode));
                     writeln!(file, "{},FETCH,0x{:08X},{},", cycle, pc, instr_str)?;
-                },
-                TraceEvent::Decode { cycle, pc, instruction, rs1, rs2, rd } => {
-                    let instr_str = instruction.as_ref().map_or("None".to_string(), |i| format!("{:?}", i.opcode));
+                }
+                TraceEvent::Decode {
+                    cycle,
+                    pc,
+                    instruction,
+                    rs1,
+                    rs2,
+                    rd,
+                } => {
+                    let instr_str = instruction
+                        .as_ref()
+                        .map_or("None".to_string(), |i| format!("{:?}", i.opcode));
                     let rs1_str = rs1.map_or("None".to_string(), |r| format!("R{}", r));
                     let rs2_str = rs2.map_or("None".to_string(), |r| format!("R{}", r));
                     let rd_str = rd.map_or("None".to_string(), |r| format!("R{}", r));
-                    writeln!(file, "{},DECODE,0x{:08X},{},\"RS1={} RS2={} RD={}\"",
-                             cycle, pc, instr_str, rs1_str, rs2_str, rd_str)?;
-                },
+                    writeln!(
+                        file,
+                        "{},DECODE,0x{:08X},{},\"RS1={} RS2={} RD={}\"",
+                        cycle, pc, instr_str, rs1_str, rs2_str, rd_str
+                    )?;
+                }
                 // Ajouter les autres types d'événements...
-                _ => writeln!(file, "{},{}", event.to_string(), "")?
+                _ => writeln!(file, "{},{}", event.to_string(), "")?,
             }
         }
 
@@ -431,21 +515,30 @@ impl PipelineTracer {
 
     // Génère un rapport de synthèse des événements de traçage
     pub fn generate_summary(&self) -> String {
+        println!("Génération du rapport de synthèse...");
         let mut summary = String::new();
         summary.push_str("=== Rapport de synthèse du traçage PunkVM ===\n\n");
 
         // Statistiques globales
         let total_cycles = self.current_cycle;
-        let hazard_count = self.trace_events.iter()
+        let hazard_count = self
+            .trace_events
+            .iter()
             .filter(|e| matches!(e, TraceEvent::Hazard { .. }))
             .count();
-        let branch_count = self.trace_events.iter()
+        let branch_count = self
+            .trace_events
+            .iter()
             .filter(|e| matches!(e, TraceEvent::Branch { .. }))
             .count();
-        let stall_count = self.trace_events.iter()
+        let stall_count = self
+            .trace_events
+            .iter()
             .filter(|e| matches!(e, TraceEvent::PipelineStall { .. }))
             .count();
-        let flush_count = self.trace_events.iter()
+        let flush_count = self
+            .trace_events
+            .iter()
             .filter(|e| matches!(e, TraceEvent::PipelineFlush { .. }))
             .count();
 
@@ -457,9 +550,14 @@ impl PipelineTracer {
 
         // Statistiques des branchements
         if branch_count > 0 {
-            let branches: Vec<_> = self.trace_events.iter()
+            let branches: Vec<_> = self
+                .trace_events
+                .iter()
                 .filter_map(|e| {
-                    if let TraceEvent::Branch { branch_type, taken, .. } = e {
+                    if let TraceEvent::Branch {
+                        branch_type, taken, ..
+                    } = e
+                    {
                         Some((branch_type.as_str(), *taken))
                     } else {
                         None
@@ -472,19 +570,30 @@ impl PipelineTracer {
 
             summary.push_str("\nStatistiques de branchement:\n");
             summary.push_str(&format!("  Total: {}\n", branches.len()));
-            summary.push_str(&format!("  Pris: {} ({:.1}%)\n",
-                                      taken_count,
-                                      (taken_count as f64 / branches.len() as f64) * 100.0));
-            summary.push_str(&format!("  Non pris: {} ({:.1}%)\n",
-                                      not_taken_count,
-                                      (not_taken_count as f64 / branches.len() as f64) * 100.0));
+            summary.push_str(&format!(
+                "  Pris: {} ({:.1}%)\n",
+                taken_count,
+                (taken_count as f64 / branches.len() as f64) * 100.0
+            ));
+            summary.push_str(&format!(
+                "  Non pris: {} ({:.1}%)\n",
+                not_taken_count,
+                (not_taken_count as f64 / branches.len() as f64) * 100.0
+            ));
         }
 
         // Statistiques des hazards
         if hazard_count > 0 {
-            let hazards: Vec<_> = self.trace_events.iter()
+            let hazards: Vec<_> = self
+                .trace_events
+                .iter()
                 .filter_map(|e| {
-                    if let TraceEvent::Hazard { hazard_type, stall_cycles, .. } = e {
+                    if let TraceEvent::Hazard {
+                        hazard_type,
+                        stall_cycles,
+                        ..
+                    } = e
+                    {
                         Some((hazard_type.as_str(), *stall_cycles))
                     } else {
                         None
@@ -503,38 +612,23 @@ impl PipelineTracer {
 
             summary.push_str("\nStatistiques des hazards:\n");
             for (htype, count) in hazard_types.iter() {
-                summary.push_str(&format!("  {}: {} ({:.1}%)\n",
-                                          htype, *count,
-                                          (*count as f64 / hazards.len() as f64) * 100.0));
+                summary.push_str(&format!(
+                    "  {}: {} ({:.1}%)\n",
+                    htype,
+                    *count,
+                    (*count as f64 / hazards.len() as f64) * 100.0
+                ));
             }
-            summary.push_str(&format!("  Cycles de stall totaux: {}\n", total_stall_cycles));
-            summary.push_str(&format!("  Moyenne stalls/hazard: {:.2}\n",
-                                      total_stall_cycles as f64 / hazards.len() as f64));
+            summary.push_str(&format!(
+                "  Cycles de stall totaux: {}\n",
+                total_stall_cycles
+            ));
+            summary.push_str(&format!(
+                "  Moyenne stalls/hazard: {:.2}\n",
+                total_stall_cycles as f64 / hazards.len() as f64
+            ));
         }
-
+        println!("Rapport de synthèse généré avec succès.");
         summary
     }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

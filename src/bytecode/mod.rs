@@ -1,11 +1,10 @@
 //src/
 
-pub mod opcodes;
-pub mod instructions;
-pub mod format;
 pub mod decode_errors;
 pub mod files;
-
+pub mod format;
+pub mod instructions;
+pub mod opcodes;
 
 // Dans bytecode/mod.rs
 pub fn calculate_branch_offset(from_addr: u32, to_addr: u32, instr_size: u32) -> i32 {

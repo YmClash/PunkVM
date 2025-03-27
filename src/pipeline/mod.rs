@@ -1,18 +1,17 @@
 //src/pipeline/mod.rs
-pub mod fetch;
 pub mod decode;
 pub mod execute;
+pub mod fetch;
+pub mod forward;
+pub mod hazard;
 pub mod memory;
 pub mod writeback;
-pub mod hazard;
-pub mod forward;
-
-
 
 use crate::alu::alu::ALU;
 use crate::bytecode::opcodes::Opcode;
 
 use crate::bytecode::instructions::Instruction;
+use crate::pvm::branch_predictor::{BranchPrediction, BranchPredictor};
 use crate::pvm::memorys::Memory;
 
 /// Structure représentant le pipeline à 5 étages
@@ -59,7 +58,8 @@ pub struct PipelineState {
     pub halted: bool,
     /// Nombre d'instructions complétées ce cycle
     pub instructions_completed: usize,
-
+    /// Indique si la branche a été traitée
+    branch_processed: bool,
 }
 
 impl Default for PipelineState {
@@ -73,10 +73,10 @@ impl Default for PipelineState {
             stalled: false,
             halted: false,
             instructions_completed: 0,
+            branch_processed: false,
         }
     }
 }
-
 
 /// Registre intermédiaire entre les étages Fetch et Decode
 #[derive(Debug, Clone)]
@@ -111,6 +111,8 @@ pub struct DecodeExecuteRegister {
     pub branch_addr: Option<u32>,
     /// Adresse mémoire (si instruction mémoire)
     pub mem_addr: Option<u32>,
+    ///Prediction de branchement (si instruction de branchement)
+    pub branch_prediction: Option<BranchPrediction>,
 }
 
 /// Registre intermédiaire entre les étages Execute et Memory
@@ -131,6 +133,9 @@ pub struct ExecuteMemoryRegister {
     /// Branchement pris ou non
     pub branch_taken: bool,
 
+    pub branch_prediction_correct: Option<bool>,
+
+    /// Halt
     pub halted: bool,
 }
 
@@ -166,7 +171,18 @@ pub struct PipelineStats {
     pub branch_misses: u64,
     /// Nombre de brance flush
     pub branch_flush: u64,
+    /// Taux de prédiction de branchement (calculé lors de l'accès)
+    pub branch_predictor_rate: f64,
+}
 
+impl PipelineStats {
+    pub fn branch_prediction_rate(&self) -> f64 {
+        if self.branch_predictions == 0 {
+            0.0
+        } else {
+            self.branch_hits as f64 / self.branch_predictions as f64
+        }
+    }
 }
 
 impl Pipeline {
@@ -215,11 +231,33 @@ impl Pipeline {
     ) -> Result<PipelineState, String> {
         // 0) Incrément du compteur de cycles pipeline
         self.stats.cycles += 1;
+        println!("DEBUG: Debut du cycle - PC = {}", pc);
 
         // 1) Clone de l’état local
         let mut state = self.state.clone();
         state.stalled = false;
         state.instructions_completed = 0;
+
+        //Gestion de l'etai des branchement en cours
+        if state.execute_memory.is_some()
+            && state
+                .execute_memory
+                .as_ref()
+                .unwrap()
+                .instruction
+                .opcode
+                .is_branch()
+        {
+            if state.stalled {
+                // Si on est stalled, on ne traite pas le branchement
+                println!("DEBUG: Branchement en cours, mais pipeline est stalled");
+                state.branch_processed = true;
+            } else {
+                // Si on n'est pas stalled, on traite le branchement
+                println!("DEBUG: Branchement en cours, mais pipeline n'est pas stalled");
+                state.branch_processed = false
+            }
+        }
 
         // 2) Détection de hazards
         if self.enable_hazard_detection {
@@ -258,6 +296,43 @@ impl Pipeline {
         }
 
         // ----- (3ᵉ étape) EXECUTE -----
+        // ----- (3ᵉ étape) EXECUTE -----
+        // if let Some(de_reg) = &state.decode_execute {
+        //     // Forwarding si activé
+        //     let mut de_reg_mut = de_reg.clone();
+        //     if self.enable_forwarding {
+        //         self.forwarding.forward(
+        //             &mut de_reg_mut,
+        //             &state.execute_memory,
+        //             &state.memory_writeback,
+        //         );
+        //     }
+        //
+        //     let mem_reg = self.execute.process_direct(&de_reg_mut, alu)?;
+        //
+        //     // Si un branch est pris => flush fetch/decode
+        //     if mem_reg.branch_taken {
+        //         if let Some(target) = mem_reg.branch_target {
+        //             state.next_pc = target;
+        //             println!("Branchement pris vers l'adresse: 0x{:08X}", target);
+        //             state.fetch_decode = None;
+        //             state.decode_execute = None;
+        //         }
+        //     } else if mem_reg.instruction.opcode.is_branch() {
+        //         // IMPORTANT: Si branchement non pris, assurez-vous que next_pc avance
+        //         // au-delà de l'instruction de branchement
+        //         if state.next_pc == pc { // Si next_pc n'a pas déjà été mis à jour
+        //             state.next_pc = pc + mem_reg.instruction.total_size() as u32;
+        //             println!("Branchement non pris, avancement à PC = 0x{:08X}", state.next_pc);
+        //         }
+        //     }
+        //
+        //     state.execute_memory = Some(mem_reg);
+        // } else {
+        //     state.execute_memory = None;
+        // }
+
+        // ----- (3ᵉ étape) EXECUTE -----
         if let Some(de_reg) = &state.decode_execute {
             // Forwarding si activé
             let mut de_reg_mut = de_reg.clone();
@@ -271,20 +346,56 @@ impl Pipeline {
 
             let mem_reg = self.execute.process_direct(&de_reg_mut, alu)?;
 
-            // Si un branch est pris => flush fetch/decode
-            if mem_reg.branch_taken {
-                if let Some(target) = mem_reg.branch_target {
-                    state.next_pc = target;
+            // Extraire les valeurs dont nous aurons besoin plus tard
+            let branch_pc = de_reg.pc;
+            let branch_prediction = de_reg.branch_prediction;
 
-                    //  vide la pipeline
-                    state.fetch_decode = None;
-                    state.decode_execute = None;
-                    state.execute_memory = None;    //Optionnel
+            // Gérer les prédictions de branchement
+            if let Some(prediction_correct) = mem_reg.branch_prediction_correct {
+                if prediction_correct {
+                    // Prédiction correcte - mise à jour des statistiques
+                    self.stats.branch_hits += 1;
+                } else {
+                    // Prédiction incorrecte - flush du pipeline et mise à jour du PC
+                    self.stats.branch_misses += 1;
 
-                    self.stats.branch_flush += 1;
-
+                    if mem_reg.branch_taken {
+                        if let Some(target) = mem_reg.branch_target {
+                            // Branchement pris mais prédit non pris
+                            state.next_pc = target;
+                            println!("Branchement pris vers l'adresse: 0x{:08X}", target);
+                            state.fetch_decode = None;
+                            state.decode_execute = None;
+                            self.stats.branch_flush += 1;
+                        }
+                    }
                 }
+
+                // Mise à jour du prédicteur
+                let pc = branch_pc as u64;
+                let taken = mem_reg.branch_taken;
+                let prediction = branch_prediction.unwrap_or(BranchPrediction::NotTaken);
+                self.decode.branch_predictor.update(pc, taken, prediction);
+
+                self.stats.branch_predictions += 1;
             }
+
+            // CORRECTION IMPORTANTE:
+            // Si c'est un branchement non pris, assurez-vous que le PC avance
+            if !mem_reg.branch_taken && mem_reg.instruction.opcode.is_branch() {
+                if state.next_pc == pc {
+                    state.next_pc = pc + mem_reg.instruction.total_size() as u32;
+                    println!(
+                        "Branchement non pris, avancement à PC = 0x{:08X}",
+                        state.next_pc
+                    );
+                }
+                // let branch_addr = de_reg.pc;
+                // let branch_size = mem_reg.instruction.total_size() as u32;
+                // state.next_pc = branch_addr + branch_size;
+                // println!("Branchement non pris, avancement à PC = 0x{:08X}", state.next_pc);
+            }
+
             state.execute_memory = Some(mem_reg);
         } else {
             state.execute_memory = None;
@@ -297,16 +408,13 @@ impl Pipeline {
             // Si c’est un HALT => on arrête tout de suite
             if ex_mem.instruction.opcode == Opcode::Halt {
                 state.halted = true;
-                // Flush
+                // Flush le pipeline
                 state.fetch_decode = None;
                 state.decode_execute = None;
                 state.execute_memory = None;
-                state.memory_writeback = None;
-
-                // Optionnellement, on peut stocker wb_reg si besoin
+                // Optionnellement, on peut stocker wb_reg pour un dernier writeback
                 state.memory_writeback = Some(wb_reg);
-
-                // On quitte aussitôt ce cycle => pas de Writeback
+                // On arrête le cycle ici, sans traiter les étages suivants
                 self.state = state.clone();
                 return Ok(state);
             }
@@ -322,7 +430,6 @@ impl Pipeline {
             // On considère qu’une instruction est finalisée ici
             state.instructions_completed += 1;
             // self.stats.instructions += 1;
-
         }
         state.memory_writeback = None;
 
@@ -332,13 +439,180 @@ impl Pipeline {
         //     self.stats.stalls += 1;
         // }
 
+        // Mise à jour des statistiques
+        self.stats.hazards = self.hazard_detection.get_hazards_count();
+        self.stats.forwards = self.forwarding.get_forwards_count();
 
         // 9) Mise à jour de self.state
         self.state = state.clone();
+
+        println!("DEBUG: Fin du cycle - PC = {}", pc);
+
         Ok(state)
     }
 
+    // pub fn cycle(
+    //     &mut self,
+    //     pc: u32,
+    //     registers: &mut [u64],
+    //     memory: &mut Memory,
+    //     alu: &mut ALU,
+    //     instructions: &[Instruction],
+    // ) -> Result<PipelineState, String> {
+    //     // 0) Incrément du compteur de cycles pipeline
+    //     self.stats.cycles += 1;
+    //
+    //     // 1) Clone de l'état local
+    //     let mut state = self.state.clone();
+    //     state.stalled = false;
+    //     state.instructions_completed = 0;
+    //
+    //     // 2) Détection de hazards
+    //     if self.enable_hazard_detection {
+    //         let any_hazard = self.hazard_detection.detect_hazards(&state);
+    //         if any_hazard {
+    //             self.stats.stalls += 1;
+    //             self.stats.hazards += 1;
+    //             state.stalled = true;
+    //         }
+    //     }
+    //
+    //     // ----- (5ᵉ étape) WRITEBACK -----
+    //     if let Some(mw_reg) = &state.memory_writeback {
+    //         self.writeback.process_direct(mw_reg, registers)?;
+    //         // On considère qu'une instruction est finalisée ici
+    //         state.instructions_completed += 1;
+    //     }
+    //
+    //     // ----- (4ᵉ étape) MEMORY -----
+    //     let mut new_memory_writeback = None;
+    //     if let Some(ex_mem) = &state.execute_memory {
+    //         let wb_reg = self.memory.process_direct(ex_mem, memory)?;
+    //
+    //         // Si c'est un HALT => on arrête tout de suite
+    //         if ex_mem.instruction.opcode == Opcode::Halt {
+    //             state.halted = true;
+    //             println!("Instruction HALT détectée");
+    //             // On quitte aussitôt ce cycle => pas de Writeback pour les instructions en cours
+    //             self.state = state.clone();
+    //             return Ok(state);
+    //         }
+    //
+    //         new_memory_writeback = Some(wb_reg);
+    //     }
+    //
+    //     // ----- (3ᵉ étape) EXECUTE -----
+    //     let mut new_execute_memory = None;
+    //     let mut flush_pipeline = false;
+    //     let mut new_next_pc = state.next_pc;
+    //
+    //     // Copier les informations nécessaires avant de modifier state
+    //     let branch_pc;
+    //     let branch_prediction;
+    //
+    //     if let Some(de_reg) = &state.decode_execute {
+    //         // Forwarding si activé
+    //         let mut de_reg_mut = de_reg.clone();
+    //         if self.enable_forwarding {
+    //             self.forwarding.forward(
+    //                 &mut de_reg_mut,
+    //                 &state.execute_memory,
+    //                 &state.memory_writeback,
+    //             );
+    //         }
+    //         let mem_reg = self.execute.process_direct(&de_reg_mut, alu)?;
+    //
+    //         // Sauvegarder ces valeurs avant qu'elles ne soient perdues
+    //         branch_pc = de_reg.pc;
+    //         branch_prediction = de_reg.branch_prediction;
+    //
+    //         // Gérer les prédictions de branchement
+    //         if let Some(prediction_correct) = mem_reg.branch_prediction_correct {
+    //             if prediction_correct {
+    //                 // Prédiction correcte - mise à jour des statistiques
+    //                 self.stats.branch_hits += 1;
+    //             } else {
+    //                 // Prédiction incorrecte - flush du pipeline et mise à jour du PC
+    //                 self.stats.branch_misses += 1;
+    //
+    //                 if mem_reg.branch_taken {
+    //                     if let Some(target) = mem_reg.branch_target {
+    //                         new_next_pc = target;
+    //                         println!("Branchement pris vers l'adresse: 0x{:08X}", target);
+    //                     }
+    //                 }
+    //
+    //                 // Marquer pour flush plus tard
+    //                 flush_pipeline = true;
+    //
+    //                 self.stats.branch_flush += 1;
+    //
+    //                 // Mise à jour du prédicteur
+    //                 let pc = branch_pc as u64;
+    //                 let taken = mem_reg.branch_taken;
+    //                 let prediction = branch_prediction.unwrap_or(BranchPrediction::NotTaken);
+    //                 self.decode.branch_predictor.update(pc, taken, prediction);
+    //             }
+    //             self.stats.branch_predictions += 1;
+    //         }
+    //
+    //         new_execute_memory = Some(mem_reg);
+    //     }
+    //
+    //     // ----- (2ᵉ étape) DECODE -----
+    //     let mut new_decode_execute = None;
+    //     if !state.stalled {
+    //         if let Some(fd_reg) = &state.fetch_decode {
+    //             let ex_reg = self.decode.process_direct(fd_reg, registers)?;
+    //             new_decode_execute = Some(ex_reg);
+    //         }
+    //     }
+    //
+    //     // ----- (1ᵉʳᵉ étape) FETCH -----
+    //     let mut new_fetch_decode = None;
+    //     if !state.stalled {
+    //         // On fetch
+    //         let fd_reg = self.fetch.process_direct(pc, instructions)?;
+    //         new_fetch_decode = Some(fd_reg);
+    //
+    //         // Mise à jour du next_pc s'il n'est pas déjà modifié par un branch
+    //         if !state.halted && state.next_pc == pc {
+    //             if let Some(fd_reg) = &new_fetch_decode {
+    //                 let size = fd_reg.instruction.total_size() as u32;
+    //                 new_next_pc = pc.wrapping_add(size);
+    //             }
+    //         }
+    //     }
+    //
+    //     // Mise à jour des registres de pipeline
+    //     state.memory_writeback = new_memory_writeback;
+    //     state.execute_memory = new_execute_memory;
+    //
+    //     // Appliquer le flush si nécessaire
+    //     if flush_pipeline {
+    //         state.fetch_decode = None;
+    //         state.decode_execute = None;
+    //     } else if !state.stalled {
+    //         // Si pas stalled et pas de flush, avancer normalement
+    //         state.decode_execute = new_decode_execute;
+    //         state.fetch_decode = new_fetch_decode;
+    //     }
+    //
+    //     // Mettre à jour le PC
+    //     state.next_pc = new_next_pc;
+    //
+    //     // Mise à jour des statistiques
+    //     self.stats.hazards = self.hazard_detection.get_hazards_count();
+    //     self.stats.forwards = self.forwarding.get_forwards_count();
+    //
+    //     // Mise à jour de self.state
+    //     self.state = state.clone();
+    //     Ok(state)
+    // }
 
+    pub fn update_branch_predictor(&mut self, pc: u64, taken: bool, prediction: BranchPredictor) {
+        // Met à jour le prédicteur de branchement
+    }
 
     /// Retourne les statistiques du pipeline
     pub fn stats(&self) -> PipelineStats {
@@ -346,19 +620,18 @@ impl Pipeline {
     }
 }
 
-
 // Test unitaire pour les fichiers de bytecode
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
     use super::*;
-    use crate::bytecode::opcodes::Opcode;
+    use crate::bytecode::files::{BytecodeVersion, SegmentMetadata, SegmentType};
     use crate::bytecode::format::{ArgType, InstructionFormat};
     use crate::bytecode::instructions::Instruction;
+    use crate::bytecode::opcodes::Opcode;
+    use crate::BytecodeFile;
+    use std::collections::HashMap;
     use std::io::ErrorKind;
     use tempfile::tempdir;
-    use crate::bytecode::files::{BytecodeVersion, SegmentMetadata, SegmentType};
-    use crate::BytecodeFile;
 
     #[test]
     fn test_bytecode_version() {
@@ -459,9 +732,9 @@ mod tests {
         let mut bytecode = BytecodeFile::new();
 
         // Ajouter des instructions arithmétiques avec le nouveau format à 3 registres
-        let instr1 = Instruction::create_reg_reg_reg(Opcode::Add, 2, 0, 1);  // R2 = R0 + R1
-        let instr2 = Instruction::create_reg_reg_reg(Opcode::Sub, 3, 0, 1);  // R3 = R0 - R1
-        let instr3 = Instruction::create_reg_reg_reg(Opcode::Mul, 4, 0, 1);  // R4 = R0 * R1
+        let instr1 = Instruction::create_reg_reg_reg(Opcode::Add, 2, 0, 1); // R2 = R0 + R1
+        let instr2 = Instruction::create_reg_reg_reg(Opcode::Sub, 3, 0, 1); // R3 = R0 - R1
+        let instr3 = Instruction::create_reg_reg_reg(Opcode::Mul, 4, 0, 1); // R4 = R0 * R1
 
         bytecode.add_instruction(instr1);
         bytecode.add_instruction(instr2);
@@ -478,9 +751,9 @@ mod tests {
         assert_eq!(bytecode.code[0].format.arg3_type, ArgType::Register);
 
         // Vérifier les valeurs des registres
-        assert_eq!(bytecode.code[0].args[0], 2);  // Rd (destination)
-        assert_eq!(bytecode.code[0].args[1], 0);  // Rs1 (source 1)
-        assert_eq!(bytecode.code[0].args[2], 1);  // Rs2 (source 2)
+        assert_eq!(bytecode.code[0].args[0], 2); // Rd (destination)
+        assert_eq!(bytecode.code[0].args[1], 0); // Rs1 (source 1)
+        assert_eq!(bytecode.code[0].args[2], 1); // Rs2 (source 2)
     }
 
     #[test]
@@ -499,10 +772,13 @@ mod tests {
         bytecode.add_symbol("main", 0);
 
         // Écrire le fichier
-        bytecode.write_to_file(&file_path).expect("Impossible d'écrire le fichier bytecode");
+        bytecode
+            .write_to_file(&file_path)
+            .expect("Impossible d'écrire le fichier bytecode");
 
         // Lire le fichier
-        let loaded = BytecodeFile::read_from_file(&file_path).expect("Impossible de lire le fichier bytecode");
+        let loaded = BytecodeFile::read_from_file(&file_path)
+            .expect("Impossible de lire le fichier bytecode");
 
         // Vérifier que le contenu est identique
         assert_eq!(loaded.version.major, 1);
@@ -526,14 +802,17 @@ mod tests {
         bytecode.version = BytecodeVersion::new(1, 0, 0, 0);
 
         // Ajouter une instruction ADD avec 3 registres
-        let add_instr = Instruction::create_reg_reg_reg(Opcode::Add, 2, 0, 1);  // R2 = R0 + R1
+        let add_instr = Instruction::create_reg_reg_reg(Opcode::Add, 2, 0, 1); // R2 = R0 + R1
         bytecode.add_instruction(add_instr);
 
         // Écrire le fichier
-        bytecode.write_to_file(&file_path).expect("Impossible d'écrire le fichier bytecode");
+        bytecode
+            .write_to_file(&file_path)
+            .expect("Impossible d'écrire le fichier bytecode");
 
         // Lire le fichier
-        let loaded = BytecodeFile::read_from_file(&file_path).expect("Impossible de lire le fichier bytecode");
+        let loaded = BytecodeFile::read_from_file(&file_path)
+            .expect("Impossible de lire le fichier bytecode");
 
         // Vérifier que l'instruction est correctement chargée
         assert_eq!(loaded.code.len(), 1);
@@ -541,9 +820,9 @@ mod tests {
 
         // Vérifier les valeurs des registres
         assert_eq!(loaded.code[0].args.len(), 3);
-        assert_eq!(loaded.code[0].args[0], 2);  // Rd
-        assert_eq!(loaded.code[0].args[1], 0);  // Rs1
-        assert_eq!(loaded.code[0].args[2], 1);  // Rs2
+        assert_eq!(loaded.code[0].args[0], 2); // Rd
+        assert_eq!(loaded.code[0].args[1], 0); // Rs1
+        assert_eq!(loaded.code[0].args[2], 1); // Rs2
     }
 
     #[test]
@@ -556,20 +835,20 @@ mod tests {
         let mut bytecode = BytecodeFile::new();
 
         // Créer une instruction avec beaucoup de données pour forcer un size_type Extended
-        let large_args = vec![0; 248];  // Suffisant pour dépasser la limite de 255 octets
-        let large_instr = Instruction::new(
-            Opcode::Add,
-            InstructionFormat::double_reg(),
-            large_args
-        );
+        let large_args = vec![0; 248]; // Suffisant pour dépasser la limite de 255 octets
+        let large_instr =
+            Instruction::new(Opcode::Add, InstructionFormat::double_reg(), large_args);
 
         bytecode.add_instruction(large_instr);
 
         // Écrire le fichier
-        bytecode.write_to_file(&file_path).expect("Impossible d'écrire le fichier bytecode");
+        bytecode
+            .write_to_file(&file_path)
+            .expect("Impossible d'écrire le fichier bytecode");
 
         // Lire le fichier
-        let loaded = BytecodeFile::read_from_file(&file_path).expect("Impossible de lire le fichier bytecode");
+        let loaded = BytecodeFile::read_from_file(&file_path)
+            .expect("Impossible de lire le fichier bytecode");
 
         // Vérifier que l'instruction est correctement chargée
         assert_eq!(loaded.code.len(), 1);
@@ -588,18 +867,18 @@ mod tests {
         bytecode.add_metadata("version", "1.0.0");
 
         // Initialisation des registres
-        bytecode.add_instruction(Instruction::create_reg_imm8(Opcode::Load, 0, 10));  // R0 = 10
-        bytecode.add_instruction(Instruction::create_reg_imm8(Opcode::Load, 1, 5));   // R1 = 5
+        bytecode.add_instruction(Instruction::create_reg_imm8(Opcode::Load, 0, 10)); // R0 = 10
+        bytecode.add_instruction(Instruction::create_reg_imm8(Opcode::Load, 1, 5)); // R1 = 5
 
         // Opérations arithmétiques
-        bytecode.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 2, 0, 1));  // R2 = R0 + R1
-        bytecode.add_instruction(Instruction::create_reg_reg_reg(Opcode::Sub, 3, 0, 1));  // R3 = R0 - R1
-        bytecode.add_instruction(Instruction::create_reg_reg_reg(Opcode::Mul, 4, 0, 1));  // R4 = R0 * R1
-        bytecode.add_instruction(Instruction::create_reg_reg_reg(Opcode::Div, 5, 0, 1));  // R5 = R0 / R1
+        bytecode.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 2, 0, 1)); // R2 = R0 + R1
+        bytecode.add_instruction(Instruction::create_reg_reg_reg(Opcode::Sub, 3, 0, 1)); // R3 = R0 - R1
+        bytecode.add_instruction(Instruction::create_reg_reg_reg(Opcode::Mul, 4, 0, 1)); // R4 = R0 * R1
+        bytecode.add_instruction(Instruction::create_reg_reg_reg(Opcode::Div, 5, 0, 1)); // R5 = R0 / R1
 
         // Opérations logiques
-        bytecode.add_instruction(Instruction::create_reg_reg_reg(Opcode::And, 6, 0, 1));  // R6 = R0 & R1
-        bytecode.add_instruction(Instruction::create_reg_reg_reg(Opcode::Or, 7, 0, 1));   // R7 = R0 | R1
+        bytecode.add_instruction(Instruction::create_reg_reg_reg(Opcode::And, 6, 0, 1)); // R6 = R0 & R1
+        bytecode.add_instruction(Instruction::create_reg_reg_reg(Opcode::Or, 7, 0, 1)); // R7 = R0 | R1
 
         // Fin du programme
         bytecode.add_instruction(Instruction::create_no_args(Opcode::Halt));
@@ -612,7 +891,10 @@ mod tests {
 
         // Vérifier les métadonnées
         assert_eq!(bytecode.metadata.len(), 3);
-        assert_eq!(bytecode.metadata.get("name"), Some(&"Programme de test".to_string()));
+        assert_eq!(
+            bytecode.metadata.get("name"),
+            Some(&"Programme de test".to_string())
+        );
 
         // Vérifier les symboles
         assert_eq!(bytecode.symbols.len(), 1);
@@ -630,7 +912,8 @@ mod tests {
         let invalid_file_path = dir.path().join("invalid.punk");
 
         // Créer un fichier invalide avec juste quelques octets
-        std::fs::write(&invalid_file_path, &[0, 1, 2]).expect("Impossible d'écrire le fichier de test");
+        std::fs::write(&invalid_file_path, &[0, 1, 2])
+            .expect("Impossible d'écrire le fichier de test");
 
         let result = BytecodeFile::read_from_file(&invalid_file_path);
         assert!(result.is_err());

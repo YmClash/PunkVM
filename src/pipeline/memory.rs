@@ -5,23 +5,27 @@ use crate::pipeline::{ExecuteMemoryRegister, MemoryWritebackRegister};
 use crate::pvm::memorys::Memory;
 
 ///Implementation de l'étage Memory du pipeline
-pub struct MemoryStage{
+pub struct MemoryStage {
     //Registre de la pile
     stack_pointer: u32,
-}impl MemoryStage {
+}
+impl MemoryStage {
     /// Crée un nouvel étage Memory
     pub fn new() -> Self {
         Self {
             // La pile commence typiquement en haut de la mémoire et croît vers le bas
             stack_pointer: 0xFFFF0000, // Exemple: pile commence à 16 MB - 64 KB
-            // stack_pointer: 0x1000, // Seulement 4KB, devrait être valide dans tous les tests
+                                       // stack_pointer: 0x1000, // Seulement 4KB, devrait être valide dans tous les tests
         }
     }
 
     /// Traite l'étage Memory directement
-    pub fn process_direct(&mut self, mem_reg: &ExecuteMemoryRegister, memory: &mut Memory) -> Result<MemoryWritebackRegister, String> {
+    pub fn process_direct(
+        &mut self,
+        mem_reg: &ExecuteMemoryRegister,
+        memory: &mut Memory,
+    ) -> Result<MemoryWritebackRegister, String> {
         let mut result = mem_reg.alu_result;
-
 
         // Traitement spécifique selon l'opcode
         match mem_reg.instruction.opcode {
@@ -30,41 +34,45 @@ pub struct MemoryStage{
                 if let Some(addr) = mem_reg.mem_addr {
                     result = self.load_from_memory(memory, addr, 8)?;
                     println!("Load from address: {:#X}, result: {:#X}", addr, result);
-                    println!("MemoryStage: Instruction opcode={:?}, mem_addr={:?}, store_value={:?}",
-                             mem_reg.instruction.opcode, mem_reg.mem_addr, mem_reg.store_value
+                    println!(
+                        "MemoryStage: Instruction opcode={:?}, mem_addr={:?}, store_value={:?}",
+                        mem_reg.instruction.opcode, mem_reg.mem_addr, mem_reg.store_value
                     );
                 }
-            },
+            }
 
             Opcode::LoadB => {
                 if let Some(addr) = mem_reg.mem_addr {
                     result = self.load_from_memory(memory, addr, 1)?;
                     println!("LoadB from address: {:#X}, result: {:#X}", addr, result);
-                    println!("MemoryStage: Instruction opcode={:?}, mem_addr={:?}, store_value={:?}",
-                             mem_reg.instruction.opcode, mem_reg.mem_addr, mem_reg.store_value
+                    println!(
+                        "MemoryStage: Instruction opcode={:?}, mem_addr={:?}, store_value={:?}",
+                        mem_reg.instruction.opcode, mem_reg.mem_addr, mem_reg.store_value
                     );
                 }
-            },
+            }
 
             Opcode::LoadW => {
                 if let Some(addr) = mem_reg.mem_addr {
                     result = self.load_from_memory(memory, addr, 2)?;
                     println!("LoadW from address: {:#X}, result: {:#X}", addr, result);
-                    println!("MemoryStage: Instruction opcode={:?}, mem_addr={:?}, store_value={:?}",
-                             mem_reg.instruction.opcode, mem_reg.mem_addr, mem_reg.store_value
+                    println!(
+                        "MemoryStage: Instruction opcode={:?}, mem_addr={:?}, store_value={:?}",
+                        mem_reg.instruction.opcode, mem_reg.mem_addr, mem_reg.store_value
                     );
                 }
-            },
+            }
 
             Opcode::LoadD => {
                 if let Some(addr) = mem_reg.mem_addr {
                     result = self.load_from_memory(memory, addr, 4)?;
                     println!("LoadD from address: {:#X}, result: {:#X}", addr, result);
-                    println!("MemoryStage: Instruction opcode={:?}, mem_addr={:?}, store_value={:?}",
-                             mem_reg.instruction.opcode, mem_reg.mem_addr, mem_reg.store_value
+                    println!(
+                        "MemoryStage: Instruction opcode={:?}, mem_addr={:?}, store_value={:?}",
+                        mem_reg.instruction.opcode, mem_reg.mem_addr, mem_reg.store_value
                     );
                 }
-            },
+            }
 
             // Instructions de stockage (store)
             Opcode::Store => {
@@ -72,48 +80,52 @@ pub struct MemoryStage{
                     if let Some(value) = mem_reg.store_value {
                         self.store_to_memory(memory, addr, value, 8)?;
                         println!("Store to address: {:#X}, value: {:#X}", addr, value);
-                        println!("MemoryStage: Instruction opcode={:?}, mem_addr={:?}, store_value={:?}",
-                                 mem_reg.instruction.opcode, mem_reg.mem_addr, mem_reg.store_value
+                        println!(
+                            "MemoryStage: Instruction opcode={:?}, mem_addr={:?}, store_value={:?}",
+                            mem_reg.instruction.opcode, mem_reg.mem_addr, mem_reg.store_value
                         );
                     }
                 }
-            },
+            }
 
             Opcode::StoreB => {
                 if let Some(addr) = mem_reg.mem_addr {
                     if let Some(value) = mem_reg.store_value {
                         self.store_to_memory(memory, addr, value, 1)?;
                         println!("StoreB to address: {:#X}, value: {:#X}", addr, value);
-                        println!("MemoryStage: Instruction opcode={:?}, mem_addr={:?}, store_value={:?}",
-                                 mem_reg.instruction.opcode, mem_reg.mem_addr, mem_reg.store_value
+                        println!(
+                            "MemoryStage: Instruction opcode={:?}, mem_addr={:?}, store_value={:?}",
+                            mem_reg.instruction.opcode, mem_reg.mem_addr, mem_reg.store_value
                         );
                     }
                 }
-            },
+            }
 
             Opcode::StoreW => {
                 if let Some(addr) = mem_reg.mem_addr {
                     if let Some(value) = mem_reg.store_value {
                         self.store_to_memory(memory, addr, value, 2)?;
                         println!("StoreW to address: {:#X}, value: {:#X}", addr, value);
-                        println!("MemoryStage: Instruction opcode={:?}, mem_addr={:?}, store_value={:?}",
-                                 mem_reg.instruction.opcode, mem_reg.mem_addr, mem_reg.store_value
+                        println!(
+                            "MemoryStage: Instruction opcode={:?}, mem_addr={:?}, store_value={:?}",
+                            mem_reg.instruction.opcode, mem_reg.mem_addr, mem_reg.store_value
                         );
                     }
                 }
-            },
+            }
 
             Opcode::StoreD => {
                 if let Some(addr) = mem_reg.mem_addr {
                     if let Some(value) = mem_reg.store_value {
                         self.store_to_memory(memory, addr, value, 4)?;
                         println!("StoreD to address: {:#X}, value: {:#X}", addr, value);
-                        println!("MemoryStage: Instruction opcode={:?}, mem_addr={:?}, store_value={:?}",
-                                 mem_reg.instruction.opcode, mem_reg.mem_addr, mem_reg.store_value
+                        println!(
+                            "MemoryStage: Instruction opcode={:?}, mem_addr={:?}, store_value={:?}",
+                            mem_reg.instruction.opcode, mem_reg.mem_addr, mem_reg.store_value
                         );
                     }
                 }
-            },
+            }
 
             // Instructions de pile
             Opcode::Push => {
@@ -123,19 +135,22 @@ pub struct MemoryStage{
                         return Err("Stack overflow: cannot push more values".to_string());
                     }
                     self.stack_pointer -= 8;
-                    println!("Push to address: {:#X}, value: {:#X}", self.stack_pointer, value);
-                    println!("MemoryStage: Instruction opcode={:?}, mem_addr={:?}, store_value={:?}",
-                             mem_reg.instruction.opcode, mem_reg.mem_addr, mem_reg.store_value
+                    println!(
+                        "Push to address: {:#X}, value: {:#X}",
+                        self.stack_pointer, value
+                    );
+                    println!(
+                        "MemoryStage: Instruction opcode={:?}, mem_addr={:?}, store_value={:?}",
+                        mem_reg.instruction.opcode, mem_reg.mem_addr, mem_reg.store_value
                     );
 
                     // Essayer d'écrire et capturer l'erreur pour un meilleur message
                     match self.store_to_memory(memory, self.stack_pointer, value, 8) {
-                        Ok(_) => {},
+                        Ok(_) => {}
                         Err(e) => return Err(format!("Push failed: {}", e)),
                     }
                 }
-
-            },
+            }
 
             Opcode::Pop => {
                 // Capturer et afficher l'erreur éventuelle
@@ -143,27 +158,27 @@ pub struct MemoryStage{
                     Ok(value) => {
                         result = value;
                         self.stack_pointer += 8;
-                        println!("Pop from address: {:#X}, result: {:#X}", self.stack_pointer, result);
-                        println!("MemoryStage: Instruction opcode={:?}, mem_addr={:?}, store_value={:?}",
-                                 mem_reg.instruction.opcode, mem_reg.mem_addr, mem_reg.store_value
+                        println!(
+                            "Pop from address: {:#X}, result: {:#X}",
+                            self.stack_pointer, result
                         );
-                    },
+                        println!(
+                            "MemoryStage: Instruction opcode={:?}, mem_addr={:?}, store_value={:?}",
+                            mem_reg.instruction.opcode, mem_reg.mem_addr, mem_reg.store_value
+                        );
+                    }
                     Err(e) => return Err(format!("Pop failed: {}", e)),
                 }
-
-            },
+            }
 
             Opcode::Halt => {
                 // Si l'instruction est un halt, on ne fait rien
                 println!("Halt instruction encountered");
-                println!("MemoryStage: Instruction opcode={:?}, mem_addr={:?}, store_value={:?}",
-                         mem_reg.instruction.opcode, mem_reg.mem_addr, mem_reg.store_value
+                println!(
+                    "MemoryStage: Instruction opcode={:?}, mem_addr={:?}, store_value={:?}",
+                    mem_reg.instruction.opcode, mem_reg.mem_addr, mem_reg.store_value
                 );
-            },
-
-
-
-
+            }
 
             // Autres instructions - rien à faire dans l'étage Memory
             _ => {}
@@ -180,43 +195,52 @@ pub struct MemoryStage{
         })
     }
 
-
     /// Charge une valeur depuis la mémoire
     fn load_from_memory(&self, memory: &mut Memory, addr: u32, size: u8) -> Result<u64, String> {
         match size {
-            1 => memory.read_byte(addr)
+            1 => memory
+                .read_byte(addr)
                 .map(|b| b as u64)
                 .map_err(|e| e.to_string()),
 
-            2 => memory.read_word(addr)
+            2 => memory
+                .read_word(addr)
                 .map(|w| w as u64)
                 .map_err(|e| e.to_string()),
 
-            4 => memory.read_dword(addr)
+            4 => memory
+                .read_dword(addr)
                 .map(|d| d as u64)
                 .map_err(|e| e.to_string()),
 
-            8 => memory.read_qword(addr)
-                .map_err(|e| e.to_string()),
+            8 => memory.read_qword(addr).map_err(|e| e.to_string()),
 
             _ => Err(format!("Taille de lecture non supportée: {}", size)),
         }
     }
 
     /// Stocke une valeur en mémoire
-    fn store_to_memory(&self, memory: &mut Memory, addr: u32, value: u64, size: u8) -> Result<(), String> {
+    fn store_to_memory(
+        &self,
+        memory: &mut Memory,
+        addr: u32,
+        value: u64,
+        size: u8,
+    ) -> Result<(), String> {
         match size {
-            1 => memory.write_byte(addr, value as u8)
+            1 => memory
+                .write_byte(addr, value as u8)
                 .map_err(|e| e.to_string()),
 
-            2 => memory.write_word(addr, value as u16)
+            2 => memory
+                .write_word(addr, value as u16)
                 .map_err(|e| e.to_string()),
 
-            4 => memory.write_dword(addr, value as u32)
+            4 => memory
+                .write_dword(addr, value as u32)
                 .map_err(|e| e.to_string()),
 
-            8 => memory.write_qword(addr, value)
-                .map_err(|e| e.to_string()),
+            8 => memory.write_qword(addr, value).map_err(|e| e.to_string()),
 
             _ => Err(format!("Taille d'écriture non supportée: {}", size)),
         }
@@ -237,15 +261,13 @@ pub struct MemoryStage{
     }
 }
 
-
-
 // // Test unitaire pour l'étage Memory
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bytecode::opcodes::Opcode;
+    use crate::bytecode::format::{ArgType, InstructionFormat};
     use crate::bytecode::instructions::Instruction;
-    use crate::bytecode::format::{InstructionFormat, ArgType};
+    use crate::bytecode::opcodes::Opcode;
     use crate::pipeline::{ExecuteMemoryRegister, MemoryWritebackRegister};
     use crate::pvm::memorys::{Memory, MemoryConfig};
 
@@ -274,20 +296,22 @@ mod tests {
         // Créer une instruction LOAD R2, [R0+R1] (format à trois registres)
         let load_instruction = Instruction::create_reg_reg_reg(
             Opcode::Load,
-            2,  // Rd  (destination)
-            0,  // Rs1 (base)
-            1   // Rs2 (offset)
+            2, // Rd  (destination)
+            0, // Rs1 (base)
+            1, // Rs2 (offset)
         );
 
         // Dans l'étage Execute, les adresses sont calculées et transmises à l'étage Memory
         let em_reg = ExecuteMemoryRegister {
             instruction: load_instruction,
-            alu_result: 0,  // Non utilisé pour LOAD
-            rd: Some(2),    // Registre destination R2
+            alu_result: 0, // Non utilisé pour LOAD
+            rd: Some(2),   // Registre destination R2
             store_value: None,
-            mem_addr: Some(0x2000),  // Adresse calculée (R0+R1)
+            mem_addr: Some(0x2000), // Adresse calculée (R0+R1)
             branch_target: None,
             branch_taken: false,
+            branch_prediction_correct: Option::from(false),
+
             halted: false,
         };
 
@@ -297,8 +321,8 @@ mod tests {
 
         // Vérifier le résultat
         let mw_reg = result.unwrap();
-        assert_eq!(mw_reg.result, 0x0123456789ABCDEF);  // Valeur chargée depuis la mémoire
-        assert_eq!(mw_reg.rd, Some(2));  // Destination R2
+        assert_eq!(mw_reg.result, 0x0123456789ABCDEF); // Valeur chargée depuis la mémoire
+        assert_eq!(mw_reg.rd, Some(2)); // Destination R2
     }
 
     #[test]
@@ -309,20 +333,22 @@ mod tests {
         // Créer une instruction STORE R0, [R1+R2] (format à trois registres)
         let store_instruction = Instruction::create_reg_reg_reg(
             Opcode::Store,
-            0,  // Rs (source de la valeur)
-            1,  // Rd (base de l'adresse)
-            2   // Rt (offset de l'adresse)
+            0, // Rs (source de la valeur)
+            1, // Rd (base de l'adresse)
+            2, // Rt (offset de l'adresse)
         );
 
         // Dans l'étage Execute, les adresses sont calculées et la valeur à stocker est préparée
         let em_reg = ExecuteMemoryRegister {
             instruction: store_instruction,
-            alu_result: 0,  // Non utilisé pour STORE
-            rd: None,  // Pas de registre destination pour STORE
-            store_value: Some(0xFEDCBA9876543210),  // Valeur de R0 à stocker
-            mem_addr: Some(0x3000),  // Adresse calculée (R1+R2)
+            alu_result: 0,                         // Non utilisé pour STORE
+            rd: None,                              // Pas de registre destination pour STORE
+            store_value: Some(0xFEDCBA9876543210), // Valeur de R0 à stocker
+            mem_addr: Some(0x3000),                // Adresse calculée (R1+R2)
             branch_target: None,
             branch_taken: false,
+            branch_prediction_correct: Option::from(false),
+
             halted: false,
         };
 
@@ -353,9 +379,10 @@ mod tests {
             alu_result: 0,
             rd: None,
             store_value: Some(0xAABBCCDDEEFF0011),
-            mem_addr: Some(0x4000),  // Adresse calculée (R1+R2)
+            mem_addr: Some(0x4000), // Adresse calculée (R1+R2)
             branch_target: None,
             branch_taken: false,
+            branch_prediction_correct: Option::from(false),
             halted: false,
         };
 
@@ -371,9 +398,10 @@ mod tests {
             alu_result: 0,
             rd: Some(3),
             store_value: None,
-            mem_addr: Some(0x4000),  // Même adresse (R1+R2)
+            mem_addr: Some(0x4000), // Même adresse (R1+R2)
             branch_target: None,
             branch_taken: false,
+            branch_prediction_correct: Option::from(false),
             halted: false,
         };
 
@@ -405,9 +433,10 @@ mod tests {
             alu_result: 0,
             rd: Some(3),
             store_value: None,
-            mem_addr: Some(0x5000),  // Adresse calculée
+            mem_addr: Some(0x5000), // Adresse calculée
             branch_target: None,
             branch_taken: false,
+            branch_prediction_correct: Option::from(false),
             halted: false,
         };
 
@@ -423,9 +452,10 @@ mod tests {
             alu_result: 0,
             rd: Some(4),
             store_value: None,
-            mem_addr: Some(0x5100),  // Adresse calculée
+            mem_addr: Some(0x5100), // Adresse calculée
             branch_target: None,
             branch_taken: false,
+            branch_prediction_correct: Option::from(false),
             halted: false,
         };
 
@@ -441,9 +471,10 @@ mod tests {
             alu_result: 0,
             rd: Some(5),
             store_value: None,
-            mem_addr: Some(0x5200),  // Adresse calculée
+            mem_addr: Some(0x5200), // Adresse calculée
             branch_target: None,
             branch_taken: false,
+            branch_prediction_correct: Option::from(false),
             halted: false,
         };
 
@@ -464,10 +495,11 @@ mod tests {
             instruction: storeb_instruction,
             alu_result: 0,
             rd: None,
-            store_value: Some(0xEF),  // Seul l'octet de poids faible sera stocké
+            store_value: Some(0xEF), // Seul l'octet de poids faible sera stocké
             mem_addr: Some(0x6000),  // Adresse calculée
             branch_target: None,
             branch_taken: false,
+            branch_prediction_correct: Option::from(false),
             halted: false,
         };
 
@@ -486,10 +518,11 @@ mod tests {
             instruction: storew_instruction,
             alu_result: 0,
             rd: None,
-            store_value: Some(0xABCD),  // Seuls les 16 bits de poids faible seront stockés
-            mem_addr: Some(0x6100),  // Adresse calculée
+            store_value: Some(0xABCD), // Seuls les 16 bits de poids faible seront stockés
+            mem_addr: Some(0x6100),    // Adresse calculée
             branch_target: None,
             branch_taken: false,
+            branch_prediction_correct: Option::from(false),
             halted: false,
         };
 
@@ -518,10 +551,11 @@ mod tests {
             instruction: push_instruction,
             alu_result: 0,
             rd: None,
-            store_value: Some(0x1122334455667788),  // Valeur de R0
+            store_value: Some(0x1122334455667788), // Valeur de R0
             mem_addr: None,
             branch_target: None,
             branch_taken: false,
+            branch_prediction_correct: Option::from(false),
             halted: false,
         };
 
@@ -541,11 +575,12 @@ mod tests {
         let em_reg_pop = ExecuteMemoryRegister {
             instruction: pop_instruction,
             alu_result: 0,
-            rd: Some(1),  // Registre destination R1
+            rd: Some(1), // Registre destination R1
             store_value: None,
             mem_addr: None,
             branch_target: None,
             branch_taken: false,
+            branch_prediction_correct: Option::from(false),
             halted: false,
         };
 
@@ -575,10 +610,10 @@ mod tests {
         // 5. LOAD R5, [R4]      // Charger la valeur depuis la nouvelle adresse
 
         // Préparation: Écrire quelques valeurs dans les registres fictifs
-        let r0_value = 0x1000000000000000;  // Valeur à stocker
-        let r3_incremented = 0x1000000000000001;  // R0_value + 1
-        let addr1 = 0x7000;  // [R1+R2]
-        let addr2 = 0x8000;  // [R4]
+        let r0_value = 0x1000000000000000; // Valeur à stocker
+        let r3_incremented = 0x1000000000000001; // R0_value + 1
+        let addr1 = 0x7000; // [R1+R2]
+        let addr2 = 0x8000; // [R4]
 
         // Étape 1: STORE R0, [R1+R2]
         let store1_instruction = Instruction::create_reg_reg_reg(Opcode::Store, 0, 1, 2);
@@ -591,6 +626,7 @@ mod tests {
             mem_addr: Some(addr1),
             branch_target: None,
             branch_taken: false,
+            branch_prediction_correct: Option::from(false),
             halted: false,
         };
 
@@ -608,6 +644,7 @@ mod tests {
             mem_addr: Some(addr1),
             branch_target: None,
             branch_taken: false,
+            branch_prediction_correct: Option::from(false),
             halted: false,
         };
 
@@ -625,10 +662,11 @@ mod tests {
             instruction: store2_instruction,
             alu_result: 0,
             rd: None,
-            store_value: Some(r3_incremented),  // Valeur incrémentée de R3
+            store_value: Some(r3_incremented), // Valeur incrémentée de R3
             mem_addr: Some(addr2),
             branch_target: None,
             branch_taken: false,
+            branch_prediction_correct: Option::from(false),
             halted: false,
         };
 
@@ -646,6 +684,7 @@ mod tests {
             mem_addr: Some(addr2),
             branch_target: None,
             branch_taken: false,
+            branch_prediction_correct: Option::from(false),
             halted: false,
         };
 
@@ -658,9 +697,6 @@ mod tests {
         assert_eq!(mw_reg_load2.rd, Some(5));
     }
 }
-
-
-
 
 //
 // impl<'a> PipelineStage<'a> for MemoryStage {

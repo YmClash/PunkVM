@@ -1,22 +1,18 @@
 //src/pvm/memorys.rs
 
-
 use std::io;
 
-
-use crate::pvm::caches::{DEFAULT_LINE_SIZE, L1Cache};
 use crate::pvm::buffers::StoreBuffer;
-
+use crate::pvm::caches::{L1Cache, DEFAULT_LINE_SIZE};
 
 /// Configuration du systeme memoire
 #[derive(Debug, Clone, Copy)]
-pub struct MemoryConfig{
+pub struct MemoryConfig {
     pub size: usize,
     pub l1_cache_size: usize,
     // pub l2_cache_size: usize,
     pub store_buffer_size: usize,
 }
-
 
 /// Statistiques du système mémoire
 #[derive(Debug, Clone, Copy, Default)]
@@ -33,11 +29,9 @@ pub struct MemoryStats {
     pub reads: u64,
 }
 
-
-
 impl Default for MemoryConfig {
     fn default() -> Self {
-        Self{
+        Self {
             size: 1024 * 1024, // 1MB
             l1_cache_size: 4 * 1024,
             // l2_cache_size: 512 * 1024, // 512KB
@@ -48,13 +42,13 @@ impl Default for MemoryConfig {
 
 ///  Structure memoire VM
 pub struct Memory {
-    memory: Vec<u8>,    // Mémoire principale
-    l1_cache: L1Cache,      // Cache L1
-    store_buffer: StoreBuffer,  // Store buffer
-    stats: MemoryStats,   // Statistiques de la mémoire
+    memory: Vec<u8>,           // Mémoire principale
+    l1_cache: L1Cache,         // Cache L1
+    store_buffer: StoreBuffer, // Store buffer
+    stats: MemoryStats,        // Statistiques de la mémoire
 }
 
-impl Memory{
+impl Memory {
     /// Crée un nouveau système mémoire
     pub fn new(config: MemoryConfig) -> Self {
         Self {
@@ -101,7 +95,9 @@ impl Memory{
             // On va chercher la ligne complète en RAM, puis on la met en cache.
             self.fill_line_from_ram(addr);
             // Maintenant qu'on a fait un fill line, on relit
-            let val_after_fill = self.l1_cache.read_byte(addr)
+            let val_after_fill = self
+                .l1_cache
+                .read_byte(addr)
                 .expect("Cache must have the line after fill_line_from_ram");
             return Ok(val_after_fill);
         }
@@ -123,7 +119,10 @@ impl Memory{
         let b1 = self.read_byte(addr + 1)?;
         let b2 = self.read_byte(addr + 2)?;
         let b3 = self.read_byte(addr + 3)?;
-        println!("read_dword: b0 = {}, b1 = {}, b2 = {}, b3 = {}", b0, b1, b2, b3);
+        println!(
+            "read_dword: b0 = {}, b1 = {}, b2 = {}, b3 = {}",
+            b0, b1, b2, b3
+        );
         Ok(u32::from_le_bytes([b0, b1, b2, b3]))
     }
 
@@ -196,7 +195,6 @@ impl Memory{
     /// Écrit un mot (16 bits) à l'adresse spécifiée
     // pub fn write_word(&mut self, addr: u32, value: u16) -> io::Result<()> {
 
-
     pub fn write_word(&mut self, addr: u32, value: u16) -> io::Result<()> {
         self.check_address(addr + 1)?;
         let bytes = value.to_le_bytes();
@@ -205,8 +203,6 @@ impl Memory{
         println!("write_word: addr = 0x{:08X}, value = {}", addr, value);
         Ok(())
     }
-
-
 
     /// Écrit un double mot (32 bits) à l'adresse spécifiée
     pub fn write_dword(&mut self, addr: u32, value: u32) -> io::Result<()> {
@@ -230,8 +226,6 @@ impl Memory{
         Ok(())
     }
 
-
-
     /// Écrit un bloc de données à l'adresse spécifiée
     // pub fn write_block(&mut self, addr: u32, data: &[u8]) -> io::Result<()> {
     //     self.check_address(addr + data.len() as u32 - 1)?;
@@ -254,8 +248,6 @@ impl Memory{
         Ok(())
     }
 
-
-
     /// Vide le store buffer en écrivant toutes les données en mémoire
     pub fn flush_store_buffer(&mut self) -> io::Result<()> {
         self.store_buffer.flush(&mut self.memory);
@@ -275,7 +267,6 @@ impl Memory{
         }
     }
 
-
     fn fill_line_from_ram(&mut self, addr: u32) {
         let base = self.l1_cache.get_line_addr(addr);
         let mut line_data = [0u8; DEFAULT_LINE_SIZE];
@@ -284,7 +275,7 @@ impl Memory{
         let max_addr = (base as usize + DEFAULT_LINE_SIZE).min(self.memory.len());
         let slice_len = max_addr - (base as usize);
 
-        line_data[..slice_len].copy_from_slice(&self.memory[base as usize .. max_addr]);
+        line_data[..slice_len].copy_from_slice(&self.memory[base as usize..max_addr]);
 
         // On insère la ligne dans la cache
         self.l1_cache.fill_line(base, line_data);
@@ -302,8 +293,6 @@ impl Memory{
         self.l1_cache.fill_line(base, line_data);
     }
 
-
-
     /// Réinitialise le système mémoire
     pub fn reset(&mut self) {
         println!("Resetting memory...");
@@ -318,12 +307,9 @@ impl Memory{
         // println!("Memory stats: {:?}", self.stats);
         self.stats
     }
-
 }
 
 // Test unitaire pour la mémoire
-
-
 
 #[cfg(test)]
 mod tests {
@@ -497,7 +483,7 @@ mod tests {
 
         // On doit avoir 1 read => c’est forcément un miss => +1 miss
         let stats = mem.stats();
-        assert_eq!(stats.reads, 1);   // la lecture juste après l’écriture
+        assert_eq!(stats.reads, 1); // la lecture juste après l’écriture
         assert_eq!(stats.misses, 1); // la lecture de 0x100 après reset
         assert_eq!(stats.hits, 0);
         assert_eq!(stats.sb_hits, 0);
@@ -563,10 +549,12 @@ mod tests {
         assert_eq!(stats.sb_hits, 0);
 
         assert_eq!(stats.hits, 2, "Deux accès dans la même ligne => 2 hits");
-        assert_eq!(stats.misses, 1, "Premier accès => miss => fill line => hits++");
+        assert_eq!(
+            stats.misses, 1,
+            "Premier accès => miss => fill line => hits++"
+        );
     }
 }
-
 
 // #[cfg(test)]
 // mod tests {
@@ -793,10 +781,6 @@ mod tests {
 //
 //
 //
-
-
-
-
 
 // //src/pvm/memorys.rs
 //

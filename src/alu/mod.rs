@@ -1,2 +1,2 @@
-pub mod alu;
 pub mod agu;
+pub mod alu;
