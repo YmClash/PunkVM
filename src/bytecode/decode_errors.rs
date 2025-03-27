@@ -11,7 +11,7 @@ pub enum DecodeError {
     InvalidArgumentType,
 }
 
-impl fmt::Display for DecodeError{
+impl fmt::Display for DecodeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InsufficientData => write!(f, "Données insuffisantes pour décoder l'instruction"),
@@ -24,6 +24,5 @@ impl fmt::Display for DecodeError{
 }
 
 impl std::error::Error for DecodeError {}
-
 
 pub type DecodeResult<T> = Result<T, DecodeError>;

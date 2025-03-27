@@ -1,12 +1,12 @@
 // examples/disassemble.rs
 
 // use punk_vm::bytecode::{BytecodeFile, ArgValue};
+use crate::bytecode::instructions::ArgValue;
+use crate::pvm::vm_errors::VMResult;
+use crate::BytecodeFile;
+use std::collections::HashMap;
 use std::env;
 use std::path::Path;
-use std::collections::HashMap;
-use crate::bytecode::instructions::ArgValue;
-use crate::BytecodeFile;
-use crate::pvm::vm_errors::VMResult;
 
 fn main() -> VMResult<()> {
     let args: Vec<String> = env::args().collect();
@@ -42,8 +42,10 @@ fn main() -> VMResult<()> {
     // Afficher les segments
     println!("\nSegments:");
     for segment in &bytecode.segments {
-        println!("  {:?}: offset={}, size={}, load_addr=0x{:08X}",
-                 segment.segment_type, segment.offset, segment.size, segment.load_addr);
+        println!(
+            "  {:?}: offset={}, size={}, load_addr=0x{:08X}",
+            segment.segment_type, segment.offset, segment.size, segment.load_addr
+        );
     }
 
     // Désassembler le code
@@ -69,15 +71,15 @@ fn main() -> VMResult<()> {
 
                     (ArgValue::Register(r), ArgValue::None) => {
                         format!("{} R{}", instr_str, r)
-                    },
+                    }
 
                     (ArgValue::Register(r1), ArgValue::Register(r2)) => {
                         format!("{} R{}, R{}", instr_str, r1, r2)
-                    },
+                    }
 
                     (ArgValue::Register(r), ArgValue::Immediate(imm)) => {
                         format!("{} R{}, #{}", instr_str, r, imm)
-                    },
+                    }
 
                     (ArgValue::Register(r), ArgValue::AbsoluteAddr(addr)) => {
                         if let Some(sym) = address_to_symbol.get(&(addr as u32)) {
@@ -85,16 +87,18 @@ fn main() -> VMResult<()> {
                         } else {
                             format!("{} R{}, [0x{:08X}]", instr_str, r, addr)
                         }
-                    },
+                    }
 
                     (ArgValue::Register(r1), ArgValue::RegisterOffset(r2, offset)) => {
-                        format!("{} R{}, [R{}{}{}]",
-                                instr_str,
-                                r1,
-                                r2,
-                                if offset >= 0 { "+" } else { "" },
-                                offset)
-                    },
+                        format!(
+                            "{} R{}, [R{}{}{}]",
+                            instr_str,
+                            r1,
+                            r2,
+                            if offset >= 0 { "+" } else { "" },
+                            offset
+                        )
+                    }
 
                     (ArgValue::None, ArgValue::AbsoluteAddr(addr)) => {
                         if let Some(sym) = address_to_symbol.get(&(addr as u32)) {
@@ -102,7 +106,7 @@ fn main() -> VMResult<()> {
                         } else {
                             format!("{} 0x{:08X}", instr_str, addr)
                         }
-                    },
+                    }
 
                     (ArgValue::None, ArgValue::RelativeAddr(offset)) => {
                         let target_addr = (i as i32 + offset) as u32;
@@ -111,11 +115,11 @@ fn main() -> VMResult<()> {
                         } else {
                             format!("{} 0x{:08X}", instr_str, target_addr)
                         }
-                    },
+                    }
 
                     _ => format!("{} <format non pris en charge>", instr_str),
                 }
-            },
+            }
             _ => {
                 instr_str = format!("{} <erreur de décodage des arguments>", instr_str);
             }
@@ -138,8 +142,6 @@ fn main() -> VMResult<()> {
 
     Ok(())
 }
-
-
 
 /// Affiche un dump hexadécimal des données avec des symboles
 fn dump_data(data: &[u8], symbols: &HashMap<u32, String>) {
@@ -174,7 +176,8 @@ fn dump_data(data: &[u8], symbols: &HashMap<u32, String>) {
         for i in 0..BYTES_PER_LINE {
             if chunk_offset + i < data.len() {
                 let byte = data[chunk_offset + i];
-                if byte >= 32 && byte <= 126 { // Caractères imprimables ASCII
+                if byte >= 32 && byte <= 126 {
+                    // Caractères imprimables ASCII
                     print!("{}", byte as char);
                 } else {
                     print!(".");
