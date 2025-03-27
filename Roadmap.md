@@ -82,7 +82,7 @@ Ce document présente le plan de développement détaillé pour l'implémentatio
 
 ### 3.4 Tests et Optimisation (1 semaine)
 - [ ] Créer des benchmarks ciblant le système mémoire
-- [ ] Tester différentes configurations de cache
+- [x] Tester différentes configurations de cache
 - [ ] Optimiser les performances mémoire
 - [ ] Documenter les compromis et configurations optimales
 
