@@ -1,6 +1,5 @@
 //src/bytecode/files.rs
 
-
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, Read, Write};
@@ -20,7 +19,7 @@ pub struct BytecodeVersion {
     pub build: u8,
 }
 
-impl BytecodeVersion{
+impl BytecodeVersion {
     pub fn new(major: u8, minor: u8, patch: u8, build: u8) -> Self {
         Self {
             major,
@@ -29,10 +28,10 @@ impl BytecodeVersion{
             build,
         }
     }
-    pub fn encode(&self) -> [u8;4]{
-        [self.major,self.minor,self.patch,self.build]
+    pub fn encode(&self) -> [u8; 4] {
+        [self.major, self.minor, self.patch, self.build]
     }
-    pub fn decode(bytes:[u8;4]) -> Self{
+    pub fn decode(bytes: [u8; 4]) -> Self {
         Self {
             major: bytes[0],
             minor: bytes[1],
@@ -41,7 +40,10 @@ impl BytecodeVersion{
         }
     }
     pub fn to_string(&self) -> String {
-        format!("{}.{}.{}.{}", self.major, self.minor, self.patch, self.build)
+        format!(
+            "{}.{}.{}.{}",
+            self.major, self.minor, self.patch, self.build
+        )
     }
 }
 
@@ -56,11 +58,10 @@ impl Default for BytecodeVersion {
     }
 }
 
-
 /// Types de segments dans un fichier de bytecode
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
-pub enum SegmentType{
+pub enum SegmentType {
     Code = 0,
     Data = 1,
     ReadOnlyData = 2,
@@ -69,8 +70,8 @@ pub enum SegmentType{
     // 5-15 réservés pour extensions futures
 }
 
-impl SegmentType{
-    pub fn from_u8(value:u8) -> Option<Self>{
+impl SegmentType {
+    pub fn from_u8(value: u8) -> Option<Self> {
         match value {
             0 => Some(Self::Code),
             1 => Some(Self::Data),
@@ -84,14 +85,14 @@ impl SegmentType{
 
 /// Metadonnées d'un segment
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SegmentMetadata{
+pub struct SegmentMetadata {
     pub segment_type: SegmentType,
-    pub offset:u32,     // offset dans le fichier
-    pub size:u32,       // taille du segment en bytes
-    pub load_addr:u32, // adresse de chargement en memoire
+    pub offset: u32,    // offset dans le fichier
+    pub size: u32,      // taille du segment en bytes
+    pub load_addr: u32, // adresse de chargement en memoire
 }
 
-impl SegmentMetadata{
+impl SegmentMetadata {
     pub fn new(segment_type: SegmentType, offset: u32, size: u32, load_addr: u32) -> Self {
         Self {
             segment_type,
@@ -114,7 +115,7 @@ impl SegmentMetadata{
     }
 
     /// Décodage d'un segment depuis des bytes
-    pub fn decode(bytes:&[u8]) -> Option<Self>{
+    pub fn decode(bytes: &[u8]) -> Option<Self> {
         if bytes.len() < 13 {
             return None;
         }
@@ -131,14 +132,11 @@ impl SegmentMetadata{
             load_addr,
         })
     }
-
 }
-
-
 
 /// Structure representant un fichier bytecode PunkVM complet
 #[derive(Debug, Clone)]
-pub struct BytecodeFile{
+pub struct BytecodeFile {
     pub version: BytecodeVersion,
     pub metadata: HashMap<String, String>,
     pub segments: Vec<SegmentMetadata>,
@@ -146,7 +144,7 @@ pub struct BytecodeFile{
     pub data: Vec<u8>,
     pub readonly_data: Vec<u8>,
     pub symbols: HashMap<String, u32>,
-    pub debug_info: Vec<u8>
+    pub debug_info: Vec<u8>,
 }
 
 impl Default for BytecodeFile {
@@ -157,7 +155,7 @@ impl Default for BytecodeFile {
 
 impl BytecodeFile {
     /// Crée un nouveau fichier de bytecode avec les valeurs par défaut
-    pub fn new() -> Self{
+    pub fn new() -> Self {
         Self {
             version: BytecodeVersion::default(),
             metadata: HashMap::new(),
@@ -171,12 +169,12 @@ impl BytecodeFile {
     }
 
     /// Ajoute une instruction au  segment de code
-    pub fn add_instruction(&mut self, instruction: Instruction){
+    pub fn add_instruction(&mut self, instruction: Instruction) {
         self.code.push(instruction);
     }
 
     /// Ajoute une donnée au segment de données
-    pub fn add_data(&mut self, data: &[u8]) -> u32{
+    pub fn add_data(&mut self, data: &[u8]) -> u32 {
         let offset = self.data.len() as u32;
         self.data.extend_from_slice(data);
         offset
@@ -321,7 +319,8 @@ impl BytecodeFile {
             ));
         }
 
-        let metadata_size = u32::from_le_bytes([buffer[8], buffer[9], buffer[10], buffer[11]]) as usize;
+        let metadata_size =
+            u32::from_le_bytes([buffer[8], buffer[9], buffer[10], buffer[11]]) as usize;
         let mut offset = 12;
 
         // Lecture des métadonnées
@@ -361,11 +360,13 @@ impl BytecodeFile {
                 ));
             }
 
-            let segment = SegmentMetadata::decode(&buffer[offset..offset + 13])
-                .ok_or_else(|| io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "Métadonnées de segment invalides",
-                ))?;
+            let segment =
+                SegmentMetadata::decode(&buffer[offset..offset + 13]).ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "Métadonnées de segment invalides",
+                    )
+                })?;
 
             segments.push(segment);
             offset += 13;
@@ -398,19 +399,19 @@ impl BytecodeFile {
             match segment.segment_type {
                 SegmentType::Code => {
                     bytecode_file.code = Self::decode_code(&buffer[start..end])?;
-                },
+                }
                 SegmentType::Data => {
                     bytecode_file.data = buffer[start..end].to_vec();
-                },
+                }
                 SegmentType::ReadOnlyData => {
                     bytecode_file.readonly_data = buffer[start..end].to_vec();
-                },
+                }
                 SegmentType::Symbols => {
                     bytecode_file.symbols = Self::decode_symbols(&buffer[start..end])?;
-                },
+                }
                 SegmentType::Debug => {
                     bytecode_file.debug_info = buffer[start..end].to_vec();
-                },
+                }
             }
         }
 
@@ -478,11 +479,13 @@ impl BytecodeFile {
             }
 
             // Lecture de la clé
-            let key = String::from_utf8(bytes[offset..offset + key_len].to_vec())
-                .map_err(|_| io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "Clé de métadonnée invalide (UTF-8)",
-                ))?;
+            let key =
+                String::from_utf8(bytes[offset..offset + key_len].to_vec()).map_err(|_| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "Clé de métadonnée invalide (UTF-8)",
+                    )
+                })?;
             offset += key_len;
 
             if bytes.len() < offset + 4 {
@@ -509,11 +512,13 @@ impl BytecodeFile {
             }
 
             // Lecture de la valeur
-            let value = String::from_utf8(bytes[offset..offset + value_len].to_vec())
-                .map_err(|_| io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "Valeur de métadonnée invalide (UTF-8)",
-                ))?;
+            let value =
+                String::from_utf8(bytes[offset..offset + value_len].to_vec()).map_err(|_| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "Valeur de métadonnée invalide (UTF-8)",
+                    )
+                })?;
             offset += value_len;
 
             metadata.insert(key, value);
@@ -523,19 +528,18 @@ impl BytecodeFile {
     }
 
     /// Encode le code en bytes
-    pub fn encode_code(&self) -> Vec<u8>{
+    pub fn encode_code(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
 
         // Nombre d'instructions
         bytes.extend_from_slice(&(self.code.len() as u32).to_le_bytes());
 
         // Encodage de chaque instruction
-        for instruction in &self.code{
+        for instruction in &self.code {
             let encoded = instruction.encode();
             bytes.extend_from_slice(&encoded);
         }
         bytes
-
     }
 
     /// Décode le segment de code depuis des bytes
@@ -547,7 +551,8 @@ impl BytecodeFile {
             ));
         }
 
-        let num_instructions = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as usize;
+        let num_instructions =
+            u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as usize;
         let mut instructions = Vec::with_capacity(num_instructions);
         let mut offset = 4;
 
@@ -559,11 +564,12 @@ impl BytecodeFile {
                 ));
             }
 
-            let (instruction, size) = Instruction::decode(&bytes[offset..])
-                .map_err(|err| io::Error::new(
+            let (instruction, size) = Instruction::decode(&bytes[offset..]).map_err(|err| {
+                io::Error::new(
                     io::ErrorKind::InvalidData,
                     format!("Erreur de décodage d'instruction: {}", err),
-                ))?;
+                )
+            })?;
 
             instructions.push(instruction);
             offset += size;
@@ -631,11 +637,13 @@ impl BytecodeFile {
             }
 
             // Lecture du nom
-            let name = String::from_utf8(bytes[offset..offset + name_len].to_vec())
-                .map_err(|_| io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "Nom de symbole invalide (UTF-8)",
-                ))?;
+            let name =
+                String::from_utf8(bytes[offset..offset + name_len].to_vec()).map_err(|_| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "Nom de symbole invalide (UTF-8)",
+                    )
+                })?;
             offset += name_len;
 
             if bytes.len() < offset + 4 {
@@ -659,16 +667,15 @@ impl BytecodeFile {
 
         Ok(symbols)
     }
-
 }
 
 // Test unitaire pour les fichiers de bytecode
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bytecode::opcodes::Opcode;
     use crate::bytecode::format::{ArgType, InstructionFormat};
     use crate::bytecode::instructions::Instruction;
+    use crate::bytecode::opcodes::Opcode;
     use std::io::ErrorKind;
     use tempfile::tempdir;
 
@@ -771,9 +778,9 @@ mod tests {
         let mut bytecode = BytecodeFile::new();
 
         // Ajouter des instructions arithmétiques avec le nouveau format à 3 registres
-        let instr1 = Instruction::create_reg_reg_reg(Opcode::Add, 2, 0, 1);  // R2 = R0 + R1
-        let instr2 = Instruction::create_reg_reg_reg(Opcode::Sub, 3, 0, 1);  // R3 = R0 - R1
-        let instr3 = Instruction::create_reg_reg_reg(Opcode::Mul, 4, 0, 1);  // R4 = R0 * R1
+        let instr1 = Instruction::create_reg_reg_reg(Opcode::Add, 2, 0, 1); // R2 = R0 + R1
+        let instr2 = Instruction::create_reg_reg_reg(Opcode::Sub, 3, 0, 1); // R3 = R0 - R1
+        let instr3 = Instruction::create_reg_reg_reg(Opcode::Mul, 4, 0, 1); // R4 = R0 * R1
 
         bytecode.add_instruction(instr1);
         bytecode.add_instruction(instr2);
@@ -790,9 +797,9 @@ mod tests {
         assert_eq!(bytecode.code[0].format.arg3_type, ArgType::Register);
 
         // Vérifier les valeurs des registres
-        assert_eq!(bytecode.code[0].args[0], 2);  // Rd (destination)
-        assert_eq!(bytecode.code[0].args[1], 0);  // Rs1 (source 1)
-        assert_eq!(bytecode.code[0].args[2], 1);  // Rs2 (source 2)
+        assert_eq!(bytecode.code[0].args[0], 2); // Rd (destination)
+        assert_eq!(bytecode.code[0].args[1], 0); // Rs1 (source 1)
+        assert_eq!(bytecode.code[0].args[2], 1); // Rs2 (source 2)
     }
 
     #[test]
@@ -811,10 +818,13 @@ mod tests {
         bytecode.add_symbol("main", 0);
 
         // Écrire le fichier
-        bytecode.write_to_file(&file_path).expect("Impossible d'écrire le fichier bytecode");
+        bytecode
+            .write_to_file(&file_path)
+            .expect("Impossible d'écrire le fichier bytecode");
 
         // Lire le fichier
-        let loaded = BytecodeFile::read_from_file(&file_path).expect("Impossible de lire le fichier bytecode");
+        let loaded = BytecodeFile::read_from_file(&file_path)
+            .expect("Impossible de lire le fichier bytecode");
 
         // Vérifier que le contenu est identique
         assert_eq!(loaded.version.major, 1);
@@ -838,14 +848,17 @@ mod tests {
         bytecode.version = BytecodeVersion::new(1, 0, 0, 0);
 
         // Ajouter une instruction ADD avec 3 registres
-        let add_instr = Instruction::create_reg_reg_reg(Opcode::Add, 2, 0, 1);  // R2 = R0 + R1
+        let add_instr = Instruction::create_reg_reg_reg(Opcode::Add, 2, 0, 1); // R2 = R0 + R1
         bytecode.add_instruction(add_instr);
 
         // Écrire le fichier
-        bytecode.write_to_file(&file_path).expect("Impossible d'écrire le fichier bytecode");
+        bytecode
+            .write_to_file(&file_path)
+            .expect("Impossible d'écrire le fichier bytecode");
 
         // Lire le fichier
-        let loaded = BytecodeFile::read_from_file(&file_path).expect("Impossible de lire le fichier bytecode");
+        let loaded = BytecodeFile::read_from_file(&file_path)
+            .expect("Impossible de lire le fichier bytecode");
 
         // Vérifier que l'instruction est correctement chargée
         assert_eq!(loaded.code.len(), 1);
@@ -853,9 +866,9 @@ mod tests {
 
         // Vérifier les valeurs des registres
         assert_eq!(loaded.code[0].args.len(), 3);
-        assert_eq!(loaded.code[0].args[0], 2);  // Rd
-        assert_eq!(loaded.code[0].args[1], 0);  // Rs1
-        assert_eq!(loaded.code[0].args[2], 1);  // Rs2
+        assert_eq!(loaded.code[0].args[0], 2); // Rd
+        assert_eq!(loaded.code[0].args[1], 0); // Rs1
+        assert_eq!(loaded.code[0].args[2], 1); // Rs2
     }
 
     #[test]
@@ -868,20 +881,20 @@ mod tests {
         let mut bytecode = BytecodeFile::new();
 
         // Créer une instruction avec beaucoup de données pour forcer un size_type Extended
-        let large_args = vec![0; 248];  // Suffisant pour dépasser la limite de 255 octets
-        let large_instr = Instruction::new(
-            Opcode::Add,
-            InstructionFormat::double_reg(),
-            large_args
-        );
+        let large_args = vec![0; 248]; // Suffisant pour dépasser la limite de 255 octets
+        let large_instr =
+            Instruction::new(Opcode::Add, InstructionFormat::double_reg(), large_args);
 
         bytecode.add_instruction(large_instr);
 
         // Écrire le fichier
-        bytecode.write_to_file(&file_path).expect("Impossible d'écrire le fichier bytecode");
+        bytecode
+            .write_to_file(&file_path)
+            .expect("Impossible d'écrire le fichier bytecode");
 
         // Lire le fichier
-        let loaded = BytecodeFile::read_from_file(&file_path).expect("Impossible de lire le fichier bytecode");
+        let loaded = BytecodeFile::read_from_file(&file_path)
+            .expect("Impossible de lire le fichier bytecode");
 
         // Vérifier que l'instruction est correctement chargée
         assert_eq!(loaded.code.len(), 1);
@@ -900,18 +913,18 @@ mod tests {
         bytecode.add_metadata("version", "1.0.0");
 
         // Initialisation des registres
-        bytecode.add_instruction(Instruction::create_reg_imm8(Opcode::Load, 0, 10));  // R0 = 10
-        bytecode.add_instruction(Instruction::create_reg_imm8(Opcode::Load, 1, 5));   // R1 = 5
+        bytecode.add_instruction(Instruction::create_reg_imm8(Opcode::Load, 0, 10)); // R0 = 10
+        bytecode.add_instruction(Instruction::create_reg_imm8(Opcode::Load, 1, 5)); // R1 = 5
 
         // Opérations arithmétiques
-        bytecode.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 2, 0, 1));  // R2 = R0 + R1
-        bytecode.add_instruction(Instruction::create_reg_reg_reg(Opcode::Sub, 3, 0, 1));  // R3 = R0 - R1
-        bytecode.add_instruction(Instruction::create_reg_reg_reg(Opcode::Mul, 4, 0, 1));  // R4 = R0 * R1
-        bytecode.add_instruction(Instruction::create_reg_reg_reg(Opcode::Div, 5, 0, 1));  // R5 = R0 / R1
+        bytecode.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 2, 0, 1)); // R2 = R0 + R1
+        bytecode.add_instruction(Instruction::create_reg_reg_reg(Opcode::Sub, 3, 0, 1)); // R3 = R0 - R1
+        bytecode.add_instruction(Instruction::create_reg_reg_reg(Opcode::Mul, 4, 0, 1)); // R4 = R0 * R1
+        bytecode.add_instruction(Instruction::create_reg_reg_reg(Opcode::Div, 5, 0, 1)); // R5 = R0 / R1
 
         // Opérations logiques
-        bytecode.add_instruction(Instruction::create_reg_reg_reg(Opcode::And, 6, 0, 1));  // R6 = R0 & R1
-        bytecode.add_instruction(Instruction::create_reg_reg_reg(Opcode::Or, 7, 0, 1));   // R7 = R0 | R1
+        bytecode.add_instruction(Instruction::create_reg_reg_reg(Opcode::And, 6, 0, 1)); // R6 = R0 & R1
+        bytecode.add_instruction(Instruction::create_reg_reg_reg(Opcode::Or, 7, 0, 1)); // R7 = R0 | R1
 
         // Fin du programme
         bytecode.add_instruction(Instruction::create_no_args(Opcode::Halt));
@@ -924,7 +937,10 @@ mod tests {
 
         // Vérifier les métadonnées
         assert_eq!(bytecode.metadata.len(), 3);
-        assert_eq!(bytecode.metadata.get("name"), Some(&"Programme de test".to_string()));
+        assert_eq!(
+            bytecode.metadata.get("name"),
+            Some(&"Programme de test".to_string())
+        );
 
         // Vérifier les symboles
         assert_eq!(bytecode.symbols.len(), 1);
@@ -942,7 +958,8 @@ mod tests {
         let invalid_file_path = dir.path().join("invalid.punk");
 
         // Créer un fichier invalide avec juste quelques octets
-        std::fs::write(&invalid_file_path, &[0, 1, 2]).expect("Impossible d'écrire le fichier de test");
+        std::fs::write(&invalid_file_path, &[0, 1, 2])
+            .expect("Impossible d'écrire le fichier de test");
 
         let result = BytecodeFile::read_from_file(&invalid_file_path);
         assert!(result.is_err());

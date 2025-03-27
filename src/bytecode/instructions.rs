@@ -1,25 +1,23 @@
 //src/bytecode/instructions.rs
 
-
 use crate::bytecode::decode_errors::DecodeError;
 use crate::bytecode::format::{ArgType, InstructionFormat};
 use crate::bytecode::opcodes::Opcode;
 
-
 /// Represente le type de taille d'instruction
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SizeType{
-    Compact,    // Taille sur 1 byte
-    Extended,   // Taille sur 3 bytes      0xFF + 2 bytes
+pub enum SizeType {
+    Compact,  // Taille sur 1 byte
+    Extended, // Taille sur 3 bytes      0xFF + 2 bytes
 }
 
 /// Structure reprensentan une instruction complete de PunkVM
-#[derive(Debug, Clone, PartialEq,Eq)]
-pub struct Instruction{
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Instruction {
     pub opcode: Opcode,
     pub format: InstructionFormat,
     pub size_type: SizeType,
-    pub args: Vec<u8>,  // Donnees brutes des arguments
+    pub args: Vec<u8>, // Donnees brutes des arguments
 }
 
 /// Valeur extraite d'un argument d'instruction
@@ -33,7 +31,7 @@ pub enum ArgValue {
     RegisterOffset(u8, i8),
 }
 
-impl Instruction{
+impl Instruction {
     /// Cree une nouvelle instruction
     pub fn new(opcode: Opcode, format: InstructionFormat, args: Vec<u8>) -> Self {
         // Calcule la taille potentielle (sans le champ "taille" lui-même)
@@ -67,11 +65,11 @@ impl Instruction{
     }
 
     /// Calcule la taille totale de l'instruction en bytes
-    pub fn total_size(&self) -> usize{
-       let overhead = 1 + 2; // opcode + format
-        let size_field_size = match self.size_type{
+    pub fn total_size(&self) -> usize {
+        let overhead = 1 + 2; // opcode + format
+        let size_field_size = match self.size_type {
             SizeType::Compact => 1,
-            SizeType::Extended => 3,     // 3 octets: 0xFF (marqueur) + 2 octets de taille
+            SizeType::Extended => 3, // 3 octets: 0xFF (marqueur) + 2 octets de taille
         };
 
         // Affichage de debug
@@ -109,7 +107,7 @@ impl Instruction{
             SizeType::Compact => {
                 // 1 octet
                 bytes.push(tsize as u8);
-            },
+            }
             SizeType::Extended => {
                 // 0xFF + 2 octets
                 bytes.push(0xFF);
@@ -131,8 +129,7 @@ impl Instruction{
             return Err(DecodeError::InsufficientData);
         }
 
-        let opcode = Opcode::from_u8(bytes[0])
-            .ok_or(DecodeError::InvalidOpcode(bytes[0]))?;
+        let opcode = Opcode::from_u8(bytes[0]).ok_or(DecodeError::InvalidOpcode(bytes[0]))?;
 
         // Lire le format (2 octets)
         let fmt_lo = bytes[1];
@@ -140,19 +137,17 @@ impl Instruction{
         let format = InstructionFormat::decode([fmt_lo, fmt_hi])
             .ok_or(DecodeError::InvalidFormat(fmt_lo))?;
 
-
         if bytes.len() < 4 {
             return Err(DecodeError::InsufficientData);
         }
 
-
         let first_size_byte = bytes[3];
-
 
         // Détermination du champ de taille
         let (size, size_type, size_field_size) = if first_size_byte == 0xFF {
             // Format étendu, la taille est stockée sur 3 octets après le marqueur
-            if bytes.len() < 6 { // Minimum 5 octets: opcode, format, marker, size_lo, size_hi
+            if bytes.len() < 6 {
+                // Minimum 5 octets: opcode, format, marker, size_lo, size_hi
                 return Err(DecodeError::InsufficientData);
             }
             let lo = bytes[4];
@@ -164,7 +159,7 @@ impl Instruction{
             (first_size_byte as u16, SizeType::Compact, 1)
         };
 
-        let total_header_size = 1 + 2 +  size_field_size; // opcode(1), format(2), champ taille (1 ou 3)
+        let total_header_size = 1 + 2 + size_field_size; // opcode(1), format(2), champ taille (1 ou 3)
         if size as usize > bytes.len() {
             return Err(DecodeError::InsufficientData);
         }
@@ -184,7 +179,6 @@ impl Instruction{
             args,
         };
         Ok((inst, size as usize))
-
     }
 
     /// Extrait la valeur du premier argument en fonction de son type
@@ -199,7 +193,7 @@ impl Instruction{
     }
 
     /// Extrait la valeur du troisième argument en fonction de son type
-    pub fn get_arg3_value(&self) -> Result<ArgValue,DecodeError> {
+    pub fn get_arg3_value(&self) -> Result<ArgValue, DecodeError> {
         let offset = self.format.arg1_type.size() + self.format.arg2_type.size();
         self.get_arg_value(offset, self.format.arg3_type)
     }
@@ -222,9 +216,9 @@ impl Instruction{
             ArgType::None => Ok(ArgValue::None),
 
             ArgType::Register => {
-                let reg = self.args[offset] ;
+                let reg = self.args[offset];
                 Ok(ArgValue::Register(reg & 0x0F))
-            },
+            }
 
             ArgType::RegisterExt => {
                 if offset < self.args.len() {
@@ -232,7 +226,7 @@ impl Instruction{
                 } else {
                     Err(DecodeError::InvalidArgumentOffset)
                 }
-            },
+            }
 
             ArgType::Immediate8 => {
                 if offset < self.args.len() {
@@ -240,19 +234,16 @@ impl Instruction{
                 } else {
                     Err(DecodeError::InvalidArgumentOffset)
                 }
-            },
+            }
 
             ArgType::Immediate16 => {
                 if offset + 1 < self.args.len() {
-                    let value = u16::from_le_bytes([
-                        self.args[offset],
-                        self.args[offset + 1],
-                    ]);
+                    let value = u16::from_le_bytes([self.args[offset], self.args[offset + 1]]);
                     Ok(ArgValue::Immediate(value as u64))
                 } else {
                     Err(DecodeError::InvalidArgumentOffset)
                 }
-            },
+            }
 
             ArgType::Immediate32 => {
                 if offset + 3 < self.args.len() {
@@ -266,7 +257,7 @@ impl Instruction{
                 } else {
                     Err(DecodeError::InvalidArgumentOffset)
                 }
-            },
+            }
 
             ArgType::Immediate64 => {
                 if offset + 7 < self.args.len() {
@@ -284,7 +275,7 @@ impl Instruction{
                 } else {
                     Err(DecodeError::InvalidArgumentOffset)
                 }
-            },
+            }
 
             ArgType::RelativeAddr => {
                 if offset + 3 < self.args.len() {
@@ -294,11 +285,12 @@ impl Instruction{
                         self.args[offset + 2],
                         self.args[offset + 3],
                     ]);
+                    println!("DEBUG: RelativeAddr => value={}", value);
                     Ok(ArgValue::RelativeAddr(value))
                 } else {
                     Err(DecodeError::InvalidArgumentOffset)
                 }
-            },
+            }
 
             ArgType::AbsoluteAddr => {
                 if offset + 3 < self.args.len() {
@@ -308,22 +300,26 @@ impl Instruction{
                         self.args[offset + 2],
                         self.args[offset + 3],
                     ]);
+                    println!("DEBUG: AbsoluteAddr => value={}", value);
                     Ok(ArgValue::AbsoluteAddr(value as u64))
                 } else {
                     Err(DecodeError::InvalidArgumentOffset)
                 }
-            },
+            }
 
             ArgType::RegisterOffset => {
                 if offset + 1 < self.args.len() {
                     let reg = self.args[offset];
                     let offset_val = self.args[offset + 1] as i8;
+                    println!(
+                        "DEBUG: RegisterOffset => reg={}, offset={}",
+                        reg, offset_val
+                    );
                     Ok(ArgValue::RegisterOffset(reg, offset_val))
                 } else {
                     Err(DecodeError::InvalidArgumentOffset)
                 }
-            },
-
+            }
             // ArgType::Flag => {
             //     if offset < self.args.len() {
             //         let flag = self.args[offset];
@@ -332,10 +328,8 @@ impl Instruction{
             //         Err(DecodeError::InvalidArgumentOffset)
             //     }
             // },
-
         }
     }
-
 
     /// ici on a les fonctions d'aide pour créer des instructions
 
@@ -361,7 +355,6 @@ impl Instruction{
         let fmt = InstructionFormat::double_reg();
         let args = vec![rd & 0x0F, rs1 & 0x0F];
         Self::new(opcode, fmt, args)
-
     }
 
     /// Crée une instruction avec trois registres en arguments
@@ -377,7 +370,6 @@ impl Instruction{
 
     /// Crée une instruction avec un registre et une valeur immédiate 8 bits
     pub fn create_reg_imm8(opcode: Opcode, reg: u8, imm: u8) -> Self {
-
         let fmt = InstructionFormat::reg_imm8(); // (Register, Immediate8, None)
         let args = vec![reg & 0x0F, imm];
         Self::new(opcode, fmt, args)
@@ -394,14 +386,13 @@ impl Instruction{
 
     /// Crée une instruction de chargement mémoire avec registre + offset
     pub fn create_load_reg_offset(reg_dest: u8, reg_base: u8, offset: i8) -> Self {
-
         let fmt = InstructionFormat::reg_regoff(); // (Register, RegisterOffset, None)?
         let args = vec![reg_dest & 0x0F, reg_base & 0x0F, offset as u8];
         Self::new(Opcode::Load, fmt, args)
     }
 
     /// Crée une instruction de stockage mémoire avec registre + offset
-    pub fn create_reg_reg_offset(opcode: Opcode, reg_src: u8, reg_base: u8, offset: i8) -> Self{
+    pub fn create_reg_reg_offset(opcode: Opcode, reg_src: u8, reg_base: u8, offset: i8) -> Self {
         let fmt = InstructionFormat::reg_reg_imm8(); // (Register, RegisterOffset, None)?
         let mut args = vec![reg_src & 0x0F, reg_base & 0x0F, offset as u8];
         // let mut args = Vec::with_capacity(3);
@@ -412,7 +403,6 @@ impl Instruction{
         args.push(offset as u8);
 
         Self::new(opcode, fmt, args)
-
     }
 
     /// ici on a les Branch instructions  akaa Jump instructions ou bien saut conditionnel
@@ -426,6 +416,13 @@ impl Instruction{
 
     pub fn create_jump(offset: i32) -> Self {
         // Crée une instruction de saut inconditionnel
+
+        println!(
+            "DEBUG: create_jump avec offset={} , - valeur en bytes {:?}",
+            offset,
+            offset.to_le_bytes()
+        );
+
         let fmt = InstructionFormat::jump();
         let mut args = Vec::new();
         // Encodage sur 4 octets de l’offset relatif (little-endian)
@@ -604,14 +601,13 @@ impl Instruction{
         Self::new(Opcode::JmpIfPositive, fmt, args)
     }
 
-    pub fn create_jump_if_negative(offset: i32) -> Self{
+    pub fn create_jump_if_negative(offset: i32) -> Self {
         let fmt = InstructionFormat::jump_if_negative();
         let mut args = Vec::new();
         args.extend_from_slice(&offset.to_le_bytes());
         println!("DEBUG: create_jump_if_negative => offset={}", offset);
-        Self::new(Opcode::JmpIfNegative,fmt,args)
+        Self::new(Opcode::JmpIfNegative, fmt, args)
     }
-
 
     // methode pour cree  un saut relative
     // Dans bytecode/instruction.rs
@@ -619,8 +615,8 @@ impl Instruction{
     pub fn create_relative_jump(opcode: Opcode, from_addr: u32, to_addr: u32) -> Self {
         let instr = Self::new(
             opcode,
-            InstructionFormat::new(ArgType::None, ArgType::RelativeAddr,ArgType::None),
-            vec![] // Temporaire
+            InstructionFormat::new(ArgType::None, ArgType::RelativeAddr, ArgType::None),
+            vec![], // Temporaire
         );
 
         let instr_size = instr.total_size() as u32;
@@ -628,14 +624,11 @@ impl Instruction{
 
         Self::new(
             opcode,
-            InstructionFormat::new(ArgType::None, ArgType::RelativeAddr,ArgType::None),
-            offset.to_le_bytes()[0..4].to_vec()
+            InstructionFormat::new(ArgType::None, ArgType::RelativeAddr, ArgType::None),
+            offset.to_le_bytes()[0..4].to_vec(),
         )
     }
-
 }
-
-
 
 // Test unitaire pour les instructions
 #[cfg(test)]
@@ -648,7 +641,7 @@ mod tests {
         let instr = Instruction::new(
             Opcode::Add,
             InstructionFormat::double_reg(),
-            vec![0x03, 0x05]  // rd=3, rs1=5
+            vec![0x03, 0x05], // rd=3, rs1=5
         );
 
         assert_eq!(instr.opcode, Opcode::Add);
@@ -927,7 +920,7 @@ mod tests {
     #[test]
     fn test_extended_size_encoding() {
         // Créer une instruction avec suffisamment d'arguments pour forcer un encodage Extended
-        let large_args = vec![0; 254];  // Suffisant pour dépasser la limite de 255 octets
+        let large_args = vec![0; 254]; // Suffisant pour dépasser la limite de 255 octets
 
         // Création de l'instruction avec un format simple
         let instr = Instruction::new(Opcode::Add, InstructionFormat::reg_reg(), large_args);
@@ -939,7 +932,7 @@ mod tests {
         let encoded = instr.encode();
 
         // Vérifier que l'encodage est correct
-        assert_eq!(encoded[3], 0xFF);  // Marqueur du format Extended
+        assert_eq!(encoded[3], 0xFF); // Marqueur du format Extended
 
         // Décoder l'instruction encodée
         let (decoded, size) = Instruction::decode(&encoded).unwrap();
@@ -954,13 +947,12 @@ mod tests {
         // Vérifier que le calcul de la taille des arguments est correct
         let format = InstructionFormat::reg_reg_reg();
         let args_size = format.args_size();
-        assert_eq!(args_size, 3);  // 1 octet par registre
+        assert_eq!(args_size, 3); // 1 octet par registre
 
         let format2 = InstructionFormat::reg_imm8();
         let args_size2 = format2.args_size();
-        assert_eq!(args_size2, 2);  // 1 octet pour registre + 1 octet pour immédiat
+        assert_eq!(args_size2, 2); // 1 octet pour registre + 1 octet pour immédiat
     }
-
 
     #[test]
     fn test_jump_instructions() {
@@ -1026,7 +1018,10 @@ mod tests {
         // Test de création d'instruction de saut conditionnel
         let offset = 42;
         let jump_if_greater_equal_instr = Instruction::create_jump_if_greater_equal(offset);
-        assert_eq!(jump_if_greater_equal_instr.opcode, Opcode::JmpIfGreaterEqual);
+        assert_eq!(
+            jump_if_greater_equal_instr.opcode,
+            Opcode::JmpIfGreaterEqual
+        );
         assert_eq!(jump_if_greater_equal_instr.args.len(), 4); // 4 octets pour l'offset
     }
 
@@ -1127,6 +1122,4 @@ mod tests {
         assert_eq!(jump_if_positive_instr.opcode, Opcode::JmpIfPositive);
         assert_eq!(jump_if_positive_instr.args.len(), 4); // 4 octets pour l'offset
     }
-
-
 }
