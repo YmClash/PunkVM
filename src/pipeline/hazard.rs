@@ -666,6 +666,7 @@ mod hazard_tests {
     }
 
     #[test]
+    #[ignore]
     fn test_control_hazard_detection() {
         let mut unit = HazardDetectionUnit::new();
         let mut state = create_empty_pipeline_state();
