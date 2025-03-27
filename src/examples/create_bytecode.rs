@@ -55,8 +55,8 @@ fn main() -> std::io::Result<()> {
     // JMP_IF_NOT 4   ; Si pas atteint limite, retourner au début de boucle
     let loop_jmp = Instruction::new(
         Opcode::JmpIfNot,
-        InstructionFormat::new(ArgType::None, ArgType::RelativeAddr,ArgType::None),
-        vec![0xFC, 0xFF, 0xFF, 0xFF] // -4 en complément à 2 (retour au début de la boucle)
+        InstructionFormat::new(ArgType::None, ArgType::RelativeAddr, ArgType::None),
+        vec![0xFC, 0xFF, 0xFF, 0xFF], // -4 en complément à 2 (retour au début de la boucle)
     );
     bytecode.add_instruction(loop_jmp);
 
@@ -78,9 +78,15 @@ fn main() -> std::io::Result<()> {
     // Exemple de lecture
     let loaded_bytecode = BytecodeFile::read_from_file("sum_1_to_10.punk")?;
 
-    println!("Version du bytecode: {}", loaded_bytecode.version.to_string());
+    println!(
+        "Version du bytecode: {}",
+        loaded_bytecode.version.to_string()
+    );
     println!("Nombre d'instructions: {}", loaded_bytecode.code.len());
-    println!("Données en lecture seule: {} bytes", loaded_bytecode.readonly_data.len());
+    println!(
+        "Données en lecture seule: {} bytes",
+        loaded_bytecode.readonly_data.len()
+    );
     println!("Symboles définis:");
 
     for (name, address) in &loaded_bytecode.symbols {
