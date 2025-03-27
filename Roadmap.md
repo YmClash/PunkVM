@@ -5,80 +5,80 @@ Ce document présente le plan de développement détaillé pour l'implémentatio
 ## Phase 1: Fondations (2-3 mois)
 
 ### 1.1 Définition du Format de Bytecode (2 semaines)
-- [ ] Définir le format à longueur variable des instructions (opcode, longueur, arguments)
-- [ ] Implémenter les structures pour représenter le bytecode en mémoire
-- [ ] Créer un système de sérialisation/désérialisation pour le bytecode
-- [ ] Développer des outils de base pour visualiser et déboguer le bytecode
+- [x] Définir le format à longueur variable des instructions (opcode, longueur, arguments)
+- [x] Implémenter les structures pour représenter le bytecode en mémoire
+- [x] Créer un système de sérialisation/désérialisation pour le bytecode
+- [x] Développer des outils de base pour visualiser et déboguer le bytecode
 
 ### 1.2 Machine Virtuelle Basique (3 semaines)
 - [ ] Implémenter une boucle d'interprétation simple (sans pipeline)
-- [ ] Développer la banque de registres (8 registres généraux + flags)
-- [ ] Créer le gestionnaire de mémoire virtuelle de base
-- [ ] Implémenter les instructions arithmétiques fondamentales (add, sub, mul, div)
-- [ ] Ajouter les instructions de manipulation mémoire (load, store)
-- [ ] Intégrer les instructions de contrôle simples (jump, jumpif)
+- [x] Développer la banque de registres (8 registres généraux + flags)
+- [x] Créer le gestionnaire de mémoire virtuelle de base
+- [x] Implémenter les instructions arithmétiques fondamentales (add, sub, mul, div)
+- [x] Ajouter les instructions de manipulation mémoire (load, store)
+- [x] Intégrer les instructions de contrôle simples (jump, jumpif)
 
 ### 1.3 Unité ALU (2 semaines)
-- [ ] Développer l'architecture de base de l'ALU
-- [ ] Implémenter les opérations arithmétiques (add, sub, mul, div)
-- [ ] Ajouter les opérations logiques (and, or, xor, not)
-- [ ] Intégrer les opérations de comparaison et mise à jour de flags
-- [ ] Développer les tests unitaires pour l'ALU
+- [x] Développer l'architecture de base de l'ALU
+- [x] Implémenter les opérations arithmétiques (add, sub, mul, div)
+- [x] Ajouter les opérations logiques (and, or, xor, not)
+- [x] Intégrer les opérations de comparaison et mise à jour de flags
+- [x] Développer les tests unitaires pour l'ALU
 
 ### 1.4 Tests et Validation (1 semaine)
-- [ ] Créer une suite de tests pour les instructions de base
-- [ ] Développer des programmes de test simples
-- [ ] Mesurer les performances de base et établir une référence
+- [x] Créer une suite de tests pour les instructions de base
+- [x] Développer des programmes de test simples
+- [x] Mesurer les performances de base et établir une référence
 - [ ] Corriger les bugs et optimiser les parties critiques
 
 ## Phase 2: Pipeline d'Exécution (2-3 mois)
 
 ### 2.1 Architecture du Pipeline (3 semaines)
-- [ ] Refactoriser la VM pour une architecture pipeline
-- [ ] Implémenter l'étage Fetch
-- [ ] Développer l'étage Decode
-- [ ] Créer l'étage Execute en intégrant l'ALU existante
-- [ ] Ajouter l'étage Memory
-- [ ] Implémenter l'étage Writeback
-- [ ] Synchroniser les étages du pipeline
+- [x] Refactoriser la VM pour une architecture pipeline
+- [x] Implémenter l'étage Fetch
+- [x] Développer l'étage Decode
+- [x] Créer l'étage Execute en intégrant l'ALU existante
+- [x] Ajouter l'étage Memory
+- [x] Implémenter l'étage Writeback
+- [x] Synchroniser les étages du pipeline
 
 ### 2.2 Détection de Hazards (2 semaines)
-- [ ] Implémenter la détection des hazards de données (RAW, WAR, WAW)
-- [ ] Ajouter la détection des hazards de contrôle
-- [ ] Développer la détection des hazards structurels
-- [ ] Créer un système de stall du pipeline
+- [x] Implémenter la détection des hazards de données (RAW, WAR, WAW)
+- [x] Ajouter la détection des hazards de contrôle
+- [x] Développer la détection des hazards structurels
+- [x] Créer un système de stall du pipeline
 
 ### 2.3 Forwarding de Données (2 semaines)
-- [ ] Implémenter l'unité de forwarding
-- [ ] Intégrer le forwarding entre Execute et Memory
-- [ ] Ajouter le forwarding entre Memory et Writeback
-- [ ] Développer des optimisations pour réduire les stalls
+- [x] Implémenter l'unité de forwarding
+- [x] Intégrer le forwarding entre Execute et Memory
+- [x] Ajouter le forwarding entre Memory et Writeback
+- [x] Développer des optimisations pour réduire les stalls
 
 ### 2.4 Tests et Optimisation du Pipeline (2 semaines)
-- [ ] Créer une suite de tests spécifique aux hazards
-- [ ] Développer des benchmarks pour évaluer les performances du pipeline
+- [x] Créer une suite de tests spécifique aux hazards
+- [] Développer des benchmarks pour évaluer les performances du pipeline
 - [ ] Analyser et résoudre les bottlenecks
-- [ ] Optimiser la synchronisation des étages
+- [x] Optimiser la synchronisation des étages
 
 ## Phase 3: Systèmes Avancés de Mémoire (1-2 mois)
 
 ### 3.1 Cache L1 (2 semaines)
-- [ ] Implémenter une architecture de cache à correspondance directe
-- [ ] Développer la logique de hit/miss
+- [x] Implémenter une architecture de cache à correspondance directe
+- [x] Développer la logique de hit/miss
 - [ ] Ajouter les politiques de remplacement (LRU)
-- [ ] Intégrer le cache avec l'étage Memory
+- [x] Intégrer le cache avec l'étage Memory
 
 ### 3.2 Store Buffer (2 semaines)
-- [ ] Développer l'architecture du store buffer
-- [ ] Implémenter la détection des hazards store-load
-- [ ] Ajouter le forwarding depuis le store buffer
-- [ ] Intégrer avec le système de cache
+- [x] Développer l'architecture du store buffer
+- [x] Implémenter la détection des hazards store-load
+- [x] Ajouter le forwarding depuis le store buffer
+- [x] Intégrer avec le système de cache
 
 ### 3.3 Politiques d'Écriture (1 semaine)
-- [ ] Implémenter la politique write-through
-- [ ] Développer la politique write-back
+- [] Implémenter la politique write-through
+- [x] Développer la politique write-back
 - [ ] Ajouter le paramétrage des politiques
-- [ ] Mesurer l'impact sur les performances
+- [x] Mesurer l'impact sur les performances
 
 ### 3.4 Tests et Optimisation (1 semaine)
 - [ ] Créer des benchmarks ciblant le système mémoire
@@ -89,10 +89,10 @@ Ce document présente le plan de développement détaillé pour l'implémentatio
 ## Phase 4: Prédiction de Branchement (1-2 mois)
 
 ### 4.1 Prédicteur Statique (1 semaine)
-- [ ] Implémenter un prédicteur "toujours pris"
-- [ ] Ajouter un prédicteur "jamais pris"
-- [ ] Développer un prédicteur basé sur l'opcode
-- [ ] Intégrer avec l'étage Fetch
+- [x] Implémenter un prédicteur "toujours pris"
+- [x] Ajouter un prédicteur "jamais pris"
+- [x] Développer un prédicteur basé sur l'opcode
+- [x] Intégrer avec l'étage Fetch
 
 ### 4.2 Branch Target Buffer (BTB) (2 semaines)
 - [ ] Développer la structure du BTB
@@ -102,9 +102,9 @@ Ce document présente le plan de développement détaillé pour l'implémentatio
 
 ### 4.3 Prédicteur Dynamique (2 semaines)
 - [ ] Implémenter un prédicteur à 1 bit
-- [ ] Développer un prédicteur à 2 bits
+- [x] Développer un prédicteur à 2 bits
 - [ ] Ajouter un prédicteur corrélé (local/global)
-- [ ] Créer un système hybride configurable
+- [x] Créer un système hybride configurable
 
 ### 4.4 Return Address Stack (RAS) (1 semaine)
 - [ ] Développer la structure du RAS
@@ -115,10 +115,10 @@ Ce document présente le plan de développement détaillé pour l'implémentatio
 ## Phase 5: Optimisations de Performance (1-2 mois)
 
 ### 5.1 Réordonnancement d'Instructions (2 semaines)
-- [ ] Implémenter l'analyse de dépendances
+- [x] Implémenter l'analyse de dépendances
 - [ ] Développer l'algorithme de réordonnancement
 - [ ] Ajouter la détection des opportunités de réordonnancement
-- [ ] Intégrer avec le décodeur d'instructions
+- [x] Intégrer avec le décodeur d'instructions
 
 ### 5.2 Optimisation du Code à Chaud (2 semaines)
 - [ ] Implémenter un profilage d'exécution simple
