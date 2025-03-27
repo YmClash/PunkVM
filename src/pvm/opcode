@@ -1,0 +1,106 @@
++--------+--------+---------+-----------------+
+| Opcode | Format | Taille  | Arguments       |
+| (1B)   | (1B)   | (1-2B)  | (Variable)      |
++--------+--------+---------+-----------------+
+
+Détail des Champs:
+
+Opcode (1 byte) - Identifie l'opération à exécuter
+
+Permet jusqu'à 256 opcodes différents
+Réserve certaines plages pour des catégories d'instructions
+
+
+Format (1 byte) - Définit la structure des arguments
+
+4 bits de poids fort: type du premier argument
+4 bits de poids faible: type du second argument (si applicable)
+Types possibles: registre, immédiat, adresse, etc.
+
+
+Taille (1-2 bytes) - Longueur totale de l'instruction
+
+Format compressé: 1 byte pour les instructions courantes
+Format étendu: 2 bytes pour instructions complexes
+
+
+Arguments (longueur variable) - Données spécifiques à l'instruction
+
+Peut contenir des registres, valeurs immédiates, offsets, etc.
+Taille déterminée par le champ Format et Taille
+
+Encodage des Types d'Arguments
+Je suggère le codage suivant pour les types d'arguments (dans le champ Format):
+
+0000: Aucun argument
+0001: Registre général (4 bits - jusqu'à 16 registres)
+0010: Registre étendu (8 bits - jusqu'à 256 registres)
+0011: Immédiat 8-bit
+0100: Immédiat 16-bit
+0101: Immédiat 32-bit
+0110: Immédiat 64-bit (sur architectures 64-bit)
+0111: Adresse mémoire relative (offset sur PC)
+1000: Adresse mémoire absolue
+1001: Registre + offset (pour accès mémoire indexé)
+1010-1111: Réservés pour extensions futures
+
+
+Catégories d'Opcodes
+Organisons les opcodes par catégories fonctionnelles:
+
+0x00-0x1F: Instructions de base ALU (add, sub, mul, div, etc.)
+0x20-0x3F: Instructions logiques et de bit (and, or, xor, shl, etc.)
+0x40-0x5F: Instructions de contrôle de flux (jmp, call, ret, etc.)
+0x60-0x7F: Instructions d'accès mémoire (load, store, etc.)
+0x80-0x9F: Instructions spéciales (syscall, trap, nop, etc.)
+0xA0-0xEF: Réservés pour extensions futures
+0xF0-0xFF: Instructions étendues (préfixe pour ajouter des opcodes)
+
+Exemples Concrets d'Instructions
+Voici quelques exemples d'encodage d'instructions:
+
+ADD R1, R2 (Addition de deux registres)
+Opcode: 0x01 (ADD)
+Format: 0x11 (Registre, Registre)
+Taille: 0x04 (4 bytes au total)
+Arguments: 0x12 (R1 = 0x1, R2 = 0x2)
+
+LOAD R3, [R4+0x10] (Chargement avec offset)
+Opcode: 0x60 (LOAD)
+Format: 0x19 (Registre, Registre+offset)
+Taille: 0x06 (6 bytes au total)
+Arguments: 0x34 0x10 (R3, R4, offset 0x10)
+
+
+JMP 0x1234 (Saut à adresse absolue)
+Opcode: 0x40 (JMP)
+Format: 0x08 (Aucun, Adresse absolue)
+Taille: 0x05 (5 bytes au total)
+Arguments: 0x34 0x12 (adresse 0x1234 en little-endian)
+
+Optimisations du Format
+Instructions courantes compressées - Formats spéciaux pour les opérations les plus fréquentes
+Registres à accès rapide - Optimisation pour R0-R7 (encodage plus court)
+Valeurs immédiates communes - Encodage spécial pour 0, 1, -1, etc.
+Offsets relatifs - Utilisation d'offsets relatifs au PC pour réduire la taille
+
+
+
+
+
+structure des Fichiers de Bytecode
+bytecode PunkVM:
+
++--------+---------+----------+----------+--------------+
+| Header | Version | Metadata | Segments | Instructions |
+| (4B)   | (4B)    | (Var)    | (Var)    | (Var)        |
++--------+---------+----------+----------+--------------+
+
+Header: Signature "PUNK" en ASCII (0x50554E4B)
+Version: Version du format de bytecode (major.minor.patch.build)
+Metadata: Informations sur le programme (nom, auteur, timestamp, etc.)
+Segments: Définition des segments de code, données, constantes
+Instructions: Le bytecode exécutable lui-même
+
+
+by Ymc
