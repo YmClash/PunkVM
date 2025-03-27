@@ -2,7 +2,6 @@
 
 use std::collections::HashMap;
 
-
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum PredictorType {
     Static,
@@ -15,7 +14,6 @@ struct GSharePredictor {
     global_history: u16,
     pattern_table: Vec<u8>,
     history_length: usize,
-
 }
 
 #[derive(Debug, Clone)]
@@ -30,7 +28,6 @@ pub struct BTBEntry {
     pub valid: bool,
 }
 
-
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BranchPrediction {
     Taken,
@@ -44,8 +41,6 @@ pub enum TwoBitState {
     WeaklyTaken = 2,
     StronglyTaken = 3,
 }
-
-
 
 #[derive(Debug)]
 pub struct BranchPredictor {
@@ -75,7 +70,6 @@ impl BranchPredictor {
         }
     }
 
-
     pub fn predict(&mut self, pc: u64) -> BranchPrediction {
         self.metrics.predictions_made += 1;
 
@@ -86,12 +80,18 @@ impl BranchPredictor {
             }
             PredictorType::Dynamic => {
                 // Lire l'état 2 bits ou init par défaut
-                let state = self.two_bit_states.entry(pc)
+                let state = self
+                    .two_bit_states
+                    .entry(pc)
                     .or_insert(TwoBitState::WeaklyNotTaken);
 
                 match state {
-                    TwoBitState::StronglyNotTaken | TwoBitState::WeaklyNotTaken => BranchPrediction::NotTaken,
-                    TwoBitState::WeaklyTaken      | TwoBitState::StronglyTaken  => BranchPrediction::Taken,
+                    TwoBitState::StronglyNotTaken | TwoBitState::WeaklyNotTaken => {
+                        BranchPrediction::NotTaken
+                    }
+                    TwoBitState::WeaklyTaken | TwoBitState::StronglyTaken => {
+                        BranchPrediction::Taken
+                    }
                 }
             }
             PredictorType::GShare => {
@@ -115,30 +115,53 @@ impl BranchPredictor {
         match (prediction, taken) {
             (BranchPrediction::Taken, true) | (BranchPrediction::NotTaken, false) => {
                 self.metrics.correct_predictions += 1;
+                println!(
+                    "Branch predictor: PC={:X}, prediction correct ({})",
+                    pc,
+                    if taken { "taken" } else { "not taken" }
+                );
             }
             _ => {
                 self.metrics.incorrect_predictions += 1;
+                println!(
+                    "Branch predictor: PC={:X}, prediction INCORRECT (predicted={:?}, actual={})",
+                    pc,
+                    prediction,
+                    if taken { "taken" } else { "not taken" }
+                );
             }
         }
 
         // Mise à jour du prédicteur dynamique
         if self.prediction_type == PredictorType::Dynamic {
+            let old_state = self.two_bit_states.get(&pc).cloned();
             self.update_dynamic(pc, taken);
+            let new_state = self.two_bit_states.get(&pc).cloned();
+            println!(
+                "Branch state update: PC={:X}, {:?} -> {:?}",
+                pc, old_state, new_state
+            );
         }
     }
 
-
     fn predict_dynamic(&mut self, pc: u64) -> BranchPrediction {
-        let state = self.two_bit_states.entry(pc).or_insert(TwoBitState::WeaklyNotTaken);
+        let state = self
+            .two_bit_states
+            .entry(pc)
+            .or_insert(TwoBitState::WeaklyNotTaken);
         match state {
-            TwoBitState::StronglyNotTaken | TwoBitState::WeaklyNotTaken => BranchPrediction::NotTaken,
+            TwoBitState::StronglyNotTaken | TwoBitState::WeaklyNotTaken => {
+                BranchPrediction::NotTaken
+            }
             TwoBitState::WeaklyTaken | TwoBitState::StronglyTaken => BranchPrediction::Taken,
         }
     }
 
-
     fn update_dynamic(&mut self, pc: u64, taken: bool) {
-        let state = self.two_bit_states.entry(pc).or_insert(TwoBitState::WeaklyNotTaken);
+        let state = self
+            .two_bit_states
+            .entry(pc)
+            .or_insert(TwoBitState::WeaklyNotTaken);
         *state = match (*state, taken) {
             // Comportement standard du prédicteur à 2 bits
             (TwoBitState::StronglyNotTaken, true) => TwoBitState::WeaklyNotTaken,
@@ -153,7 +176,6 @@ impl BranchPredictor {
         };
     }
 
-
     /// Retourne le ratio de prédictions correctes
     pub fn get_accuracy(&self) -> f64 {
         if self.metrics.total_branches == 0 {
@@ -162,17 +184,18 @@ impl BranchPredictor {
             self.metrics.correct_predictions as f64 / self.metrics.total_branches as f64
         }
     }
-
-
 }
-
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     // Helper function pour les tests
-    fn check_prediction_sequence(predictor: &mut BranchPredictor, pc: u64, sequence: &[(bool, bool)]) -> bool {
+    fn check_prediction_sequence(
+        predictor: &mut BranchPredictor,
+        pc: u64,
+        sequence: &[(bool, bool)],
+    ) -> bool {
         let mut all_correct = true;
         for &(branch_taken, should_predict_taken) in sequence {
             let prediction = predictor.predict(pc);
@@ -195,7 +218,7 @@ mod tests {
         assert_eq!(predictor.predict(4), BranchPrediction::NotTaken);
 
         // Vérifions que les métriques sont correctement mises à jour
-        predictor.update(0, true, BranchPrediction::NotTaken);  // Mauvaise prédiction
+        predictor.update(0, true, BranchPrediction::NotTaken); // Mauvaise prédiction
         predictor.update(4, false, BranchPrediction::NotTaken); // Bonne prédiction
 
         assert_eq!(predictor.metrics.total_branches, 2);
@@ -209,7 +232,10 @@ mod tests {
 
         // Par défaut, devrait prédire Not Taken (état initial WeaklyNotTaken)
         assert_eq!(predictor.predict(0), BranchPrediction::NotTaken);
-        assert_eq!(predictor.two_bit_states.get(&0), Some(&TwoBitState::WeaklyNotTaken));
+        assert_eq!(
+            predictor.two_bit_states.get(&0),
+            Some(&TwoBitState::WeaklyNotTaken)
+        );
     }
 
     /// Montre comment la transition est plus "conservatrice" pour ce test
@@ -219,10 +245,10 @@ mod tests {
         let pc = 0x1000;
 
         let sequence = vec![
-            (true, false),   // Initial WeaklyNotTaken -> WeaklyTaken
-            (true, true),    // WeaklyTaken -> StronglyTaken
-            (true, true),    // Reste StronglyTaken
-            (true, true),    // Reste StronglyTaken
+            (true, false), // Initial WeaklyNotTaken -> WeaklyTaken
+            (true, true),  // WeaklyTaken -> StronglyTaken
+            (true, true),  // Reste StronglyTaken
+            (true, true),  // Reste StronglyTaken
         ];
 
         for (i, &(branch_taken, expected_prediction)) in sequence.iter().enumerate() {
@@ -234,11 +260,12 @@ mod tests {
                 predicted_taken,
                 expected_prediction,
                 "Itération {}: prédit {} mais attendait {}",
-                i + 1, predicted_taken, expected_prediction
+                i + 1,
+                predicted_taken,
+                expected_prediction
             );
         }
     }
-
 
     #[test]
     fn test_dynamic_predictor_state_transitions() {
@@ -246,13 +273,13 @@ mod tests {
         let pc = 0x2000;
 
         // Test de transition d'états
-        predictor.update_dynamic(pc, true);  // WeaklyNotTaken -> WeaklyTaken
+        predictor.update_dynamic(pc, true); // WeaklyNotTaken -> WeaklyTaken
         assert_eq!(
             predictor.two_bit_states.get(&pc),
             Some(&TwoBitState::WeaklyTaken)
         );
 
-        predictor.update_dynamic(pc, true);  // WeaklyTaken -> StronglyTaken
+        predictor.update_dynamic(pc, true); // WeaklyTaken -> StronglyTaken
         assert_eq!(
             predictor.two_bit_states.get(&pc),
             Some(&TwoBitState::StronglyTaken)
@@ -277,10 +304,10 @@ mod tests {
         // Séquence T-T-F-T
         let sequence = [
             // (branchement pris?, état actuel -> nouvel état, prédiction correcte?)
-            (true,  "WeaklyNotTaken -> WeaklyTaken",    false), // prédit NT, était T
-            (true,  "WeaklyTaken -> StronglyTaken",     true),  // prédit T, était T
-            (false, "StronglyTaken -> WeaklyTaken",     false), // prédit T, était NT
-            (true,  "WeaklyTaken -> StronglyTaken",     true)   // prédit T, était T
+            (true, "WeaklyNotTaken -> WeaklyTaken", false), // prédit NT, était T
+            (true, "WeaklyTaken -> StronglyTaken", true),   // prédit T, était T
+            (false, "StronglyTaken -> WeaklyTaken", false), // prédit T, était NT
+            (true, "WeaklyTaken -> StronglyTaken", true),   // prédit T, était T
         ];
 
         for (i, &(branch_taken, transition, expected_correct)) in sequence.iter().enumerate() {
@@ -289,39 +316,48 @@ mod tests {
 
             let was_correct = match (prediction, branch_taken) {
                 (BranchPrediction::Taken, true) | (BranchPrediction::NotTaken, false) => true,
-                _ => false
+                _ => false,
             };
 
             transitions.push(format!(
                 "Étape {}: {} - prédit {}, était {}, {}",
                 i + 1,
                 transition,
-                if prediction == BranchPrediction::Taken { "T" } else { "NT" },
+                if prediction == BranchPrediction::Taken {
+                    "T"
+                } else {
+                    "NT"
+                },
                 if branch_taken { "T" } else { "NT" },
                 if was_correct { "correct" } else { "incorrect" }
             ));
 
-            assert_eq!(was_correct, expected_correct,
-                       "Étape {} : attendait {}, obtenu {}.\nHistorique des transitions:\n{}",
-                       i + 1,
-                       expected_correct,
-                       was_correct,
-                       transitions.join("\n")
+            assert_eq!(
+                was_correct,
+                expected_correct,
+                "Étape {} : attendait {}, obtenu {}.\nHistorique des transitions:\n{}",
+                i + 1,
+                expected_correct,
+                was_correct,
+                transitions.join("\n")
             );
         }
 
         // Vérification finale des métriques
-        assert_eq!(predictor.metrics.correct_predictions, 2,
-                   "Devrait avoir exactement 2 prédictions correctes.\nHistorique des transitions:\n{}",
-                   transitions.join("\n")
+        assert_eq!(
+            predictor.metrics.correct_predictions,
+            2,
+            "Devrait avoir exactement 2 prédictions correctes.\nHistorique des transitions:\n{}",
+            transitions.join("\n")
         );
-        assert_eq!(predictor.metrics.incorrect_predictions, 2,
-                   "Devrait avoir exactement 2 prédictions incorrectes.\nHistorique des transitions:\n{}",
-                   transitions.join("\n")
+        assert_eq!(
+            predictor.metrics.incorrect_predictions,
+            2,
+            "Devrait avoir exactement 2 prédictions incorrectes.\nHistorique des transitions:\n{}",
+            transitions.join("\n")
         );
         assert_eq!(predictor.metrics.total_branches, 4);
     }
-
 
     #[test]
     fn test_multiple_branches() {
@@ -344,10 +380,11 @@ mod tests {
         predictor.update(pc2, false, BranchPrediction::NotTaken);
 
         // Vérifions que les deux branches ont des états différents
-        assert_ne!(predictor.two_bit_states.get(&pc1), predictor.two_bit_states.get(&pc2));
+        assert_ne!(
+            predictor.two_bit_states.get(&pc1),
+            predictor.two_bit_states.get(&pc2)
+        );
     }
-
-
 
     //////////////////
     // Test pour vérifier le comportement avec une boucle
@@ -358,12 +395,12 @@ mod tests {
 
         // Simule une boucle qui s'exécute 5 fois puis sort
         let sequence = vec![
-            (true, false),    // 1ère itération - prédit NT, était T
-            (true, true),     // 2ème itération - prédit T
-            (true, true),     // 3ème itération - prédit T
-            (true, true),     // 4ème itération - prédit T
-            (true, true),     // 5ème itération - prédit T
-            (false, true),    // Sortie de boucle - prédit T, était NT
+            (true, false), // 1ère itération - prédit NT, était T
+            (true, true),  // 2ème itération - prédit T
+            (true, true),  // 3ème itération - prédit T
+            (true, true),  // 4ème itération - prédit T
+            (true, true),  // 5ème itération - prédit T
+            (false, true), // Sortie de boucle - prédit T, était NT
         ];
 
         for (i, &(branch_taken, _)) in sequence.iter().enumerate() {
@@ -372,16 +409,21 @@ mod tests {
 
             // Vérifie que le prédicteur apprend bien le pattern de la boucle
             if i >= 2 {
-                assert_eq!(prediction, BranchPrediction::Taken,
-                           "Le prédicteur devrait prédire Taken après 2 itérations");
+                assert_eq!(
+                    prediction,
+                    BranchPrediction::Taken,
+                    "Le prédicteur devrait prédire Taken après 2 itérations"
+                );
             }
         }
 
         // Vérifie que le prédicteur commence à s'adapter après la sortie de boucle
         let final_prediction = predictor.predict(loop_branch);
-        assert_eq!(predictor.two_bit_states.get(&loop_branch),
-                   Some(&TwoBitState::WeaklyTaken),
-                   "L'état devrait être affaibli après une prédiction incorrecte");
+        assert_eq!(
+            predictor.two_bit_states.get(&loop_branch),
+            Some(&TwoBitState::WeaklyTaken),
+            "L'état devrait être affaibli après une prédiction incorrecte"
+        );
     }
 
     // Test pour les branches alternantes (if/else alterné)
@@ -400,7 +442,7 @@ mod tests {
             let prediction = predictor.predict(branch_pc);
             let was_correct = match (prediction, branch_taken) {
                 (BranchPrediction::Taken, true) | (BranchPrediction::NotTaken, false) => true,
-                _ => false
+                _ => false,
             };
             predictor.update(branch_pc, branch_taken, prediction);
 
@@ -410,8 +452,11 @@ mod tests {
         }
 
         let accuracy = total_correct as f64 / sequence_len as f64;
-        assert!(accuracy <= 0.5,
-                "Sur un pattern alterné, l'accuracy devrait être faible (était: {})", accuracy);
+        assert!(
+            accuracy <= 0.5,
+            "Sur un pattern alterné, l'accuracy devrait être faible (était: {})",
+            accuracy
+        );
         assert!(accuracy > 0.0, "L'accuracy ne devrait pas être nulle");
     }
 
@@ -422,16 +467,16 @@ mod tests {
         let pc = 0x3000;
 
         // Test de changements rapides d'état
-        predictor.update_dynamic(pc, true);   // WeaklyNotTaken -> WeaklyTaken
-        predictor.update_dynamic(pc, true);   // WeaklyTaken -> StronglyTaken
+        predictor.update_dynamic(pc, true); // WeaklyNotTaken -> WeaklyTaken
+        predictor.update_dynamic(pc, true); // WeaklyTaken -> StronglyTaken
         assert_eq!(
             predictor.two_bit_states.get(&pc),
             Some(&TwoBitState::StronglyTaken),
             "Devrait atteindre StronglyTaken après 2 branches prises"
         );
 
-        predictor.update_dynamic(pc, false);  // StronglyTaken -> WeaklyTaken
-        predictor.update_dynamic(pc, false);  // WeaklyTaken -> WeaklyNotTaken
+        predictor.update_dynamic(pc, false); // StronglyTaken -> WeaklyTaken
+        predictor.update_dynamic(pc, false); // WeaklyTaken -> WeaklyNotTaken
         assert_eq!(
             predictor.two_bit_states.get(&pc),
             Some(&TwoBitState::WeaklyNotTaken),
@@ -503,5 +548,4 @@ mod tests {
             predictor.two_bit_states.get(&branch1)
         );
     }
-
 }

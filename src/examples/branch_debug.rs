@@ -1,15 +1,15 @@
 // examples/branch_debug.rs
 
-use std::time::Instant;
-use std::io::{self, Write};
 use crate::bytecode::files::{BytecodeVersion, SegmentMetadata, SegmentType};
 use crate::bytecode::format::{ArgType, InstructionFormat};
 use crate::bytecode::instructions::Instruction;
 use crate::bytecode::opcodes::Opcode;
-use crate::BytecodeFile;
 use crate::debug::TracerConfig;
 use crate::pvm::vm::PunkVM;
 use crate::pvm::vm_errors::VMResult;
+use crate::BytecodeFile;
+use std::io::{self, Write};
+use std::time::Instant;
 
 use crate::bytecode::instructions::ArgValue;
 
@@ -108,7 +108,7 @@ fn main() -> VMResult<()> {
             // let csv_filename = format!("branch_test_{}_trace.csv", test_type);
             // vm.export_trace_to_csv(&csv_filename)?;
             // println!("\nTraces exportées dans {}", csv_filename);
-        },
+        }
         Err(e) => {
             println!("\n❌ Erreur d'exécution: {}", e);
         }
@@ -123,9 +123,13 @@ fn disassemble_bytecode(bytecode: &BytecodeFile) -> String {
     output.push_str("=== PunkVM Bytecode Disassembly ===\n\n");
 
     // En-tête avec métadonnées
-    output.push_str(&format!("Version: {}.{}.{}.{}\n",
-                             bytecode.version.major, bytecode.version.minor,
-                             bytecode.version.patch, bytecode.version.build));
+    output.push_str(&format!(
+        "Version: {}.{}.{}.{}\n",
+        bytecode.version.major,
+        bytecode.version.minor,
+        bytecode.version.patch,
+        bytecode.version.build
+    ));
 
     output.push_str("\nMetadata:\n");
     for (key, value) in &bytecode.metadata {
@@ -140,7 +144,10 @@ fn disassemble_bytecode(bytecode: &BytecodeFile) -> String {
         let instr_size = instr.total_size();
 
         // Format de base de l'instruction
-        let mut instr_str = format!("{:04X}: [{:02X}] {:?}", addr, instr.opcode as u8, instr.opcode);
+        let mut instr_str = format!(
+            "{:04X}: [{:02X}] {:?}",
+            addr, instr.opcode as u8, instr.opcode
+        );
 
         // Traitement spécial pour les branchements
         if instr.opcode.is_branch() {
@@ -148,10 +155,10 @@ fn disassemble_bytecode(bytecode: &BytecodeFile) -> String {
                 Ok(ArgValue::RelativeAddr(offset)) => {
                     let target = (addr as i32 + offset) as u32;
                     instr_str.push_str(&format!(" {:+} (-> 0x{:04X})", offset, target));
-                },
+                }
                 Ok(ArgValue::AbsoluteAddr(target)) => {
                     instr_str.push_str(&format!(" -> 0x{:04X}", target));
-                },
+                }
                 _ => {
                     instr_str.push_str(" [format d'adresse invalide]");
                 }
@@ -161,10 +168,10 @@ fn disassemble_bytecode(bytecode: &BytecodeFile) -> String {
             match (instr.get_arg1_value(), instr.get_arg2_value()) {
                 (Ok(arg1), Ok(arg2)) => {
                     instr_str.push_str(&format!(" {:?}, {:?}", arg1, arg2));
-                },
+                }
                 (Ok(arg1), _) => {
                     instr_str.push_str(&format!(" {:?}", arg1));
-                },
+                }
                 _ => {}
             }
         }
@@ -176,8 +183,12 @@ fn disassemble_bytecode(bytecode: &BytecodeFile) -> String {
             hex_bytes.push_str(&format!("{:02X} ", byte));
         }
 
-        output.push_str(&format!("{:<50} ; size={:2}, bytes=[{}]\n",
-                                 instr_str, instr_size, hex_bytes.trim_end()));
+        output.push_str(&format!(
+            "{:<50} ; size={:2}, bytes=[{}]\n",
+            instr_str,
+            instr_size,
+            hex_bytes.trim_end()
+        ));
 
         addr += instr_size as u32;
     }
@@ -203,8 +214,8 @@ fn create_forward_jump_test() -> BytecodeFile {
     let jump_offset: i32 = 8; // 2 instructions * 4 bytes par instruction
     let jmp = Instruction::new(
         Opcode::Jmp,
-        InstructionFormat::new(ArgType::None, ArgType::RelativeAddr,ArgType::None),
-        jump_offset.to_le_bytes()[0..4].to_vec()
+        InstructionFormat::new(ArgType::None, ArgType::RelativeAddr, ArgType::None),
+        jump_offset.to_le_bytes()[0..4].to_vec(),
     );
     bytecode.add_instruction(jmp);
 
@@ -243,8 +254,8 @@ fn create_conditional_jump_taken_test() -> BytecodeFile {
     let jump_offset: i32 = 8; // 2 instructions * 4 bytes par instruction
     let jmpif = Instruction::new(
         Opcode::JmpIf,
-        InstructionFormat::new(ArgType::None, ArgType::RelativeAddr,ArgType::None),
-        jump_offset.to_le_bytes()[0..4].to_vec()
+        InstructionFormat::new(ArgType::None, ArgType::RelativeAddr, ArgType::None),
+        jump_offset.to_le_bytes()[0..4].to_vec(),
     );
     bytecode.add_instruction(jmpif);
 
@@ -282,8 +293,8 @@ fn create_conditional_jump_not_taken_test() -> BytecodeFile {
     let jump_offset: i32 = 8; // 2 instructions * 4 bytes par instruction
     let jmpif = Instruction::new(
         Opcode::JmpIf,
-        InstructionFormat::new(ArgType::None, ArgType::RelativeAddr,ArgType::None),
-        jump_offset.to_le_bytes()[0..4].to_vec()
+        InstructionFormat::new(ArgType::None, ArgType::RelativeAddr, ArgType::None),
+        jump_offset.to_le_bytes()[0..4].to_vec(),
     );
     bytecode.add_instruction(jmpif);
 
@@ -354,8 +365,8 @@ fn create_simple_loop_test() -> BytecodeFile {
     let jump_offset = -(loop_size as i32);
     let jmpifnot = Instruction::new(
         Opcode::JmpIfNot,
-        InstructionFormat::new(ArgType::None, ArgType::RelativeAddr,ArgType::None),
-        jump_offset.to_le_bytes()[0..4].to_vec()
+        InstructionFormat::new(ArgType::None, ArgType::RelativeAddr, ArgType::None),
+        jump_offset.to_le_bytes()[0..4].to_vec(),
     );
     bytecode.add_instruction(jmpifnot);
 
@@ -421,8 +432,8 @@ fn create_precise_branch_measurement_test() -> BytecodeFile {
     let forward_offset: i32 = jmpifnot_size; // Sauter par-dessus l'instruction JmpIfNot suivante
     let jmpif = Instruction::new(
         Opcode::JmpIf,
-        InstructionFormat::new(ArgType::None, ArgType::RelativeAddr,ArgType::None),
-        forward_offset.to_le_bytes()[0..4].to_vec()
+        InstructionFormat::new(ArgType::None, ArgType::RelativeAddr, ArgType::None),
+        forward_offset.to_le_bytes()[0..4].to_vec(),
     );
     bytecode.add_instruction(jmpif);
     current_addr += jmpif_size;
@@ -431,22 +442,22 @@ fn create_precise_branch_measurement_test() -> BytecodeFile {
     let backward_offset = -((current_addr - loop_start_addr) as i32);
     let jmpifnot = Instruction::new(
         Opcode::JmpIfNot,
-        InstructionFormat::new(ArgType::None, ArgType::RelativeAddr,ArgType::None),
-        backward_offset.to_le_bytes()[0..4].to_vec()
+        InstructionFormat::new(ArgType::None, ArgType::RelativeAddr, ArgType::None),
+        backward_offset.to_le_bytes()[0..4].to_vec(),
     );
     bytecode.add_instruction(jmpifnot);
 
     // HALT           ; Fin du programme
     bytecode.add_instruction(Instruction::create_no_args(Opcode::Halt));
 
-    let total_size: u32 = bytecode.code.iter()
+    let total_size: u32 = bytecode
+        .code
+        .iter()
         .map(|instr| instr.total_size() as u32)
         .sum();
 
     // Créer le segment de code
-    bytecode.segments = vec![
-        SegmentMetadata::new(SegmentType::Code, 0, total_size, 0)
-    ];
+    bytecode.segments = vec![SegmentMetadata::new(SegmentType::Code, 0, total_size, 0)];
 
     // Créer un segment de données
     let data_size = 256; // Allouer 256 bytes pour les données
@@ -454,7 +465,10 @@ fn create_precise_branch_measurement_test() -> BytecodeFile {
     bytecode.segments.push(data_segment);
     bytecode.data = vec![0; data_size as usize];
 
-    println!("Programme simplifié créé avec {} instructions", bytecode.code.len());
+    println!(
+        "Programme simplifié créé avec {} instructions",
+        bytecode.code.len()
+    );
 
     bytecode
 }
