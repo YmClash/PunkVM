@@ -35,21 +35,26 @@ fn main() -> VMResult<()> {
     println!(" PunkVM initialisée avec {} registre succès", vm.registers.len());
 
     // Créer le programme complexe
-    // let program = create_complex_program();
-    // let program = create_simple_complex_program();
-    // let program = create_cmp_loop_program();
-    // let program = create_pipeline_test_program();
-    // let program = create_reg_reg_reg_test_program();
-    // let program = create_hazard_detection_test_program();
-    // let program = create_branch_test_program();
-    // let program = create_branch_test_program_2();
-    // let program = create_branch_test_program_3();
-    // let program = create_branch_test_program_4();
-    // let program = create_branch_comparison_test_program();
-    // let program = create_all_branch_test_program();
-    // let program = create_3_branch_test_program();
-    let program= create_box_branch_test_program();
+     //let program = create_complex_program();
+    /* let program = create_simple_complex_program(); */
+    //let program = create_cmp_loop_program();
+    //let program = create_pipeline_test_program();
+//  let program = create_reg_reg_reg_test_program();
+    //let program = create_hazard_detection_test_program();
+    //let program = create_branch_test_program();
+    //let program = create_branch_test_program_2();
+    //let program = create_branch_test_program_3();
+    //let program = create_branch_test_program_4();
+     //let program = create_branch_comparison_test_program();
+    let program = create_all_branch_test_program();
+    //let program = create_3_branch_test_program();
+    //let program= create_box_branch_test_program();
+    //let program = test_decode_stage_calculate_branch_address();
+    
+    
     // Charger le programme dans la VM
+
+
     println!("Chargement du programme...");
     vm.load_program_from_bytecode(program)?;
 
@@ -126,6 +131,15 @@ fn create_simple_complex_program() -> BytecodeFile {
     program.data = vec![0; data_size as usize];
 
     println!("Programme simplifié créé avec {} instructions", program.code.len());
+
+    println!("Carte des instructions");
+    let mut addr = 0;
+    for (idx, instr) in program.code.iter().enumerate() {
+        let size = instr.total_size();
+        println!("Instruction {}: Adresse 0x{:04X}-0x{:04X} (taille {}): {:?}", 
+                 idx, addr, addr + size - 1, size, instr.opcode);
+        addr += size;
+    }
 
     program
 }
@@ -228,6 +242,15 @@ fn create_complex_program() -> BytecodeFile {
     program.data = vec![0; data_size as usize];
 
     println!("Programme complexe créé avec {} instructions", program.code.len());
+
+    println!("Carte des instructions");
+    let mut addr = 0;
+    for (idx, instr) in program.code.iter().enumerate() {
+        let size = instr.total_size();
+        println!("Instruction {}: Adresse 0x{:04X}-0x{:04X} (taille {}): {:?}", 
+                 idx, addr, addr + size - 1, size, instr.opcode);
+        addr += size;
+    }
 
     program
 }
@@ -353,6 +376,15 @@ pub fn create_cmp_loop_program() -> BytecodeFile {
     let total_size: u32 = program.code.iter().map(|instr| instr.total_size() as u32).sum();
     program.segments = vec![SegmentMetadata::new(SegmentType::Code, 0, total_size, 0)];
 
+    println!("Carte des instructions");
+    let mut addr = 0;
+    for (idx, instr) in program.code.iter().enumerate() {
+        let size = instr.total_size();
+        println!("Instruction {}: Adresse 0x{:04X}-0x{:04X} (taille {}): {:?}", 
+                 idx, addr, addr + size - 1, size, instr.opcode);
+        addr += size;
+    }
+
     program
 }
 
@@ -450,6 +482,15 @@ pub fn create_pipeline_test_program() -> BytecodeFile {
 
     println!("Programme de test du pipeline créé avec {} instructions", program.code.len());
 
+    println!("Carte des instructions");
+    let mut addr = 0;
+    for (idx, instr) in program.code.iter().enumerate() {
+        let size = instr.total_size();
+        println!("Instruction {}: Adresse 0x{:04X}-0x{:04X} (taille {}): {:?}", 
+                 idx, addr, addr + size - 1, size, instr.opcode);
+        addr += size;
+    }
+
     program
 }
 
@@ -513,6 +554,15 @@ pub fn create_reg_reg_reg_test_program() -> BytecodeFile {
     program.segments.push(data_segment);
     program.data = vec![0; data_size as usize];
 
+    println!("Carte des instructions");
+    let mut addr = 0;
+    for (idx, instr) in program.code.iter().enumerate() {
+        let size = instr.total_size();
+        println!("Instruction {}: Adresse 0x{:04X}-0x{:04X} (taille {}): {:?}", 
+                 idx, addr, addr + size - 1, size, instr.opcode);
+        addr += size;
+    }
+
     program
 }
 
@@ -573,12 +623,12 @@ pub fn create_hazard_detection_test_program() -> BytecodeFile {
     // let mut jmpif_args = Vec::new();
     // jmpif_args.extend_from_slice(&offset_bytes);
     // program.add_instruction(Instruction::new(Opcode::JmpIf, jmpif_format, jmpif_args));
-    program.add_instruction(Instruction::create_jump_if(14)); // JmpIf (devrait être pris)
-    // program.add_instruction(Instruction::ccreate_jump_if_not(14)); // JmpIfNot (devrait être pris)
-    // program.add_instruction(Instruction::create_jump_if_less_equal(14)); // JmpIfEqual (devrait être pris)
-    // program.add_instruction(Instruction::create_jump_if_not_equal(14)); // JmpIfNotEqual (devrait être pris)
-    // program.add_instruction(Instruction::create_jump(14)); // Jmp (devrait être pris)
-    // program.add_instruction(Instruction::create_jump_if_equal(14)); // JmpIfEqual (devrait être pris)
+    //program.add_instruction(Instruction::create_jump_if(14)); // JmpIf (devrait être pris)
+    //program.add_instruction(Instruction::create_jump_if_not(8)); // JmpIfNot (devrait être pris)
+     //program.add_instruction(Instruction::create_jump_if_less_equal(8)); // JmpIfEqual (devrait être pris)
+    //program.add_instruction(Instruction::create_jump_if_not_equal(8)); // JmpIfNotEqual (devrait être pris)
+    //program.add_instruction(Instruction::create_jump(8)); // Jmp (devrait être pris)
+     program.add_instruction(Instruction::create_jump_if_equal(8)); // JmpIfEqual (devrait être pris)
 
 
     // Instructions qui seront sautées si le branchement est pris
@@ -626,6 +676,16 @@ pub fn create_hazard_detection_test_program() -> BytecodeFile {
     let data_segment = SegmentMetadata::new(SegmentType::Data, 0, data_size, 0x1000);
     program.segments.push(data_segment);
     program.data = vec![0; data_size as usize];
+
+
+    println!("Carte des instructions");
+    let mut addr = 0;
+    for (idx, instr) in program.code.iter().enumerate() {
+        let size = instr.total_size();
+        println!("Instruction {}: Adresse 0x{:04X}-0x{:04X} (taille {}): {:?}", 
+                 idx, addr, addr + size - 1, size, instr.opcode);
+        addr += size;
+    }
 
     program
 }
@@ -716,6 +776,15 @@ pub fn create_branch_test_program_3() -> BytecodeFile {
     program.segments.push(data_segment);
     program.data = vec![0; data_size as usize];
 
+    println!("Carte des instructions");
+    let mut addr = 0;
+    for (idx, instr) in program.code.iter().enumerate() {
+        let size = instr.total_size();
+        println!("Instruction {}: Adresse 0x{:04X}-0x{:04X} (taille {}): {:?}", 
+                 idx, addr, addr + size - 1, size, instr.opcode);
+        addr += size;
+    }
+
     program
 }
 
@@ -761,6 +830,16 @@ fn create_branch_test_program_2() -> BytecodeFile {
     let data_segment = SegmentMetadata::new(SegmentType::Data, 0, data_size, 0x1000);
     program.segments.push(data_segment);
     program.data = vec![0; data_size as usize];
+
+    println!("Carte des instructions");
+    let mut addr = 0;
+    for (idx, instr) in program.code.iter().enumerate() {
+        let size = instr.total_size();
+        println!("Instruction {}: Adresse 0x{:04X}-0x{:04X} (taille {}): {:?}", 
+                 idx, addr, addr + size - 1, size, instr.opcode);
+        addr += size;
+    }
+
 
     program
 }
@@ -847,6 +926,17 @@ pub fn create_branch_test_program() -> BytecodeFile {
     program.segments.push(data_segment);
     program.data = vec![0; data_size as usize];
 
+    println!("Carte des instructions");
+    let mut addr = 0;
+    for (idx, instr) in program.code.iter().enumerate() {
+        let size = instr.total_size();
+        println!("Instruction {}: Adresse 0x{:04X}-0x{:04X} (taille {}): {:?}", 
+                 idx, addr, addr + size - 1, size, instr.opcode);
+        addr += size;
+    }
+
+
+
     program
 }
 
@@ -894,6 +984,16 @@ fn create_branch_test_program_4() -> BytecodeFile {
             0
         )
     ];
+
+    println!("Carte des instructions");
+    let mut addr = 0;
+    for (idx, instr) in program.code.iter().enumerate() {
+        let size = instr.total_size();
+        println!("Instruction {}: Adresse 0x{:04X}-0x{:04X} (taille {}): {:?}", 
+                 idx, addr, addr + size - 1, size, instr.opcode);
+        addr += size;
+    }
+
 
     // Retour du programme
     program
@@ -997,6 +1097,16 @@ pub fn create_branch_comparison_test_program() -> BytecodeFile {
     let data_segment = SegmentMetadata::new(SegmentType::Data, 0, data_size, 0x1000);
     program.segments.push(data_segment);
     program.data = vec![0; data_size as usize];
+
+
+    println!("Carte des instructions");
+    let mut addr = 0;
+    for (idx, instr) in program.code.iter().enumerate() {
+        let size = instr.total_size();
+        println!("Instruction {}: Adresse 0x{:04X}-0x{:04X} (taille {}): {:?}", 
+                 idx, addr, addr + size - 1, size, instr.opcode);
+        addr += size;
+    }
 
     program
 }
@@ -1190,6 +1300,17 @@ pub fn create_all_branch_test_program() -> BytecodeFile {
     program.segments.push(data_segment);
     program.data = vec![0; data_size as usize];
 
+    println!("Carte des instructions");
+    let mut addr = 0;
+    for (idx, instr) in program.code.iter().enumerate() {
+        let size = instr.total_size();
+        println!("Instruction {}: Adresse 0x{:04X}-0x{:04X} (taille {}): {:?}", 
+                 idx, addr, addr + size - 1, size, instr.opcode);
+        addr += size;
+    }
+
+
+
     program
 }
 
@@ -1281,6 +1402,16 @@ pub fn create_3_branch_test_program() -> BytecodeFile {
     program.segments.push(data_segment);
     program.data = vec![0; data_size as usize];
 
+    println!("Carte des instructions");
+    let mut addr = 0;
+    for (idx, instr) in program.code.iter().enumerate() {
+        let size = instr.total_size();
+        println!("Instruction {}: Adresse 0x{:04X}-0x{:04X} (taille {}): {:?}", 
+                 idx, addr, addr + size - 1, size, instr.opcode);
+        addr += size;
+    }
+
+
     program
 }
 
@@ -1333,6 +1464,16 @@ pub fn create_box_branch_test_program() -> BytecodeFile {
     let data_segment = SegmentMetadata::new(SegmentType::Data, 0, data_size, 0x1000);
     program.segments.push(data_segment);
     program.data = vec![0; data_size as usize];
+
+    println!("Carte des instructions");
+    let mut addr = 0;
+    for (idx, instr) in program.code.iter().enumerate() {
+        let size = instr.total_size();
+        println!("Instruction {}: Adresse 0x{:04X}-0x{:04X} (taille {}): {:?}", 
+                 idx, addr, addr + size - 1, size, instr.opcode);
+        addr += size;
+    }
+
 
     program
 

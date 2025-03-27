@@ -1136,6 +1136,9 @@ mod tests {
         }
     }
 
+
+
+
     #[test]
     fn test_decode_stage_mixed_format_program() {
         let mut decode = DecodeStage::new();

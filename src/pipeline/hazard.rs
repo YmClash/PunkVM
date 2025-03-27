@@ -237,7 +237,8 @@ impl HazardDetectionUnit {
 
     /// Détecte les hazards de contrôle (branchements)
     /// Vérifie control hazard
-    fn is_control_hazard(&self, state: &PipelineState) -> bool {
+    /// 
+    /*fn is_control_hazard(&self, state: &PipelineState) -> bool {
         let ex_reg = match &state.execute_memory {
             Some(r) => r,
             None => return false,
@@ -246,6 +247,27 @@ impl HazardDetectionUnit {
             println!("Control hazard : branch in execute stage");
             return true;
         }
+        false
+    }*/
+
+    fn is_control_hazard(&self, state: &PipelineState) -> bool {
+        let ex_reg = match &state.execute_memory {
+            Some(r) => r,
+            None => return false,
+        };
+        
+        // Si ce n'est pas une instruction de branchement, pas de hazard
+        if !ex_reg.instruction.opcode.is_branch() {
+            return false;
+        }
+        
+        // Vérifier si cette instruction est nouvelle dans l'étage Execute
+        // (nous pouvons utiliser un attribut state.branch_in_progress pour cela)
+        if !state.branch_processed {
+            println!("Control hazard : branch in execute stage");
+            return true;
+        }
+        
         false
     }
 

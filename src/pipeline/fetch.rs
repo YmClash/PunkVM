@@ -68,6 +68,7 @@ impl FetchStage {
             self.fetch_buffer.clear();
             self.prefetch(pc, instructions);
         }
+        println!("Trying to fetch instruction at address 0x{:08X}", pc);
 
         // Récupérer l'instruction à l'adresse PC
         if let Some(idx) = self.fetch_buffer.iter().position(|(addr, _)| *addr == pc) {
@@ -79,6 +80,9 @@ impl FetchStage {
             println!("Instruction récupérée à l'adresse 0x{:08X}", pc);
 
             println!("Fetched Instruction: {:?}", instruction);
+
+            println!("Instruction size: {}, Next PC: 0x{:08X}", 
+          instruction.total_size(), pc + instruction.total_size() as u32);
 
             Ok(FetchDecodeRegister {
                 instruction,

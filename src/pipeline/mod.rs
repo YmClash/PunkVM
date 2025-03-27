@@ -59,6 +59,8 @@ pub struct PipelineState {
     pub halted: bool,
     /// Nombre d'instructions complétées ce cycle
     pub instructions_completed: usize,
+
+    pub branch_processed:bool
 }
 
 impl Default for PipelineState {
@@ -72,6 +74,7 @@ impl Default for PipelineState {
             stalled: false,
             halted: false,
             instructions_completed: 0,
+            branch_processed:false,
         }
     }
 }
@@ -211,11 +214,30 @@ impl Pipeline {
     ) -> Result<PipelineState, String> {
         // 0) Incrément du compteur de cycles pipeline
         self.stats.cycles += 1;
+        println!("DEBUG: Début du cycle - PC = {}", self.state.next_pc);
 
         // 1) Clone de l’état local
         let mut state = self.state.clone();
         state.stalled = false;
         state.instructions_completed = 0;
+
+        
+
+         // Gestion de l'état des branchements en cours
+            // Si on a un branchement dans l'étage Execute, gérer l'état de traitement
+            if state.execute_memory.is_some() && 
+            state.execute_memory.as_ref().unwrap().instruction.opcode.is_branch() {
+            if state.stalled {
+                // Si on est stalled et qu'on a déjà un branchement en Execute,
+                // marquer qu'on a traité ce branchement
+                state.branch_processed = true;
+            } else {
+                // Si ce branchement apparaît pour la première fois dans Execute,
+                // réinitialiser l'état de traitement
+                state.branch_processed = false;
+            }
+        }
+
 
         // 2) Détection de hazards
         if self.enable_hazard_detection {
@@ -226,6 +248,8 @@ impl Pipeline {
                 state.stalled = true;
             }
         }
+
+
 
         // ----- (1ᵉʳᵉ étape) FETCH -----
         // Si on n’est pas stalled, on fetch l’instruction à l’adresse `pc`.
@@ -254,7 +278,7 @@ impl Pipeline {
         }
 
         // ----- (3ᵉ étape) EXECUTE -----
-        if let Some(de_reg) = &state.decode_execute {
+        /* if let Some(de_reg) = &state.decode_execute {
             // Forwarding si activé
             let mut de_reg_mut = de_reg.clone();
             if self.enable_forwarding {
@@ -271,12 +295,50 @@ impl Pipeline {
             if mem_reg.branch_taken {
                 if let Some(target) = mem_reg.branch_target {
                     state.next_pc = target;
+                    println!("DEBUG: Début du cycle - PC = {}", self.state.next_pc);
                     state.fetch_decode = None;
                     state.decode_execute = None;
                 }
             }
             state.execute_memory = Some(mem_reg);
         } else {
+            state.execute_memory = None;
+        } */
+       // ----- (3ᵉ étape) EXECUTE -----
+       if let Some(de_reg) = &state.decode_execute {
+        // Forwarding si activé
+        let mut de_reg_mut = de_reg.clone();
+        if self.enable_forwarding {
+            self.forwarding.forward(
+                &mut de_reg_mut,
+                &state.execute_memory,
+                &state.memory_writeback,
+            );
+        }
+    
+        let mem_reg = self.execute.process_direct(&de_reg_mut, alu)?;
+    
+        // Si un branch est pris => flush fetch/decode
+        if mem_reg.branch_taken {
+            if let Some(target) = mem_reg.branch_target {
+                state.next_pc = target;
+                println!("Branchement pris vers l'adresse: 0x{:08X}", target);
+                state.fetch_decode = None;
+                state.decode_execute = None;
+            }
+
+            } if !mem_reg.branch_taken && mem_reg.instruction.opcode.is_branch() {
+            // IMPORTANT: Si branchement non pris, assurez-vous que next_pc avance
+            // au-delà de l'instruction de branchement
+                if state.next_pc == pc { // Si next_pc n'a pas déjà été mis à jour
+                state.next_pc = pc + mem_reg.instruction.total_size() as u32;
+                println!("Branchement non pris, avancement à PC = 0x{:08X}", state.next_pc);
+
+                }
+            }
+        
+             state.execute_memory = Some(mem_reg);
+            } else {
             state.execute_memory = None;
         }
 
@@ -324,6 +386,9 @@ impl Pipeline {
 
         // 9) Mise à jour de self.state
         self.state = state.clone();
+
+        println!("DEBUG: Fin du cycle - PC = {}", self.state.next_pc);
+        
         Ok(state)
     }
 
