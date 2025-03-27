@@ -515,7 +515,13 @@ impl PipelineTracer {
 
     // Génère un rapport de synthèse des événements de traçage
     pub fn generate_summary(&self) -> String {
+
         println!("Génération du rapport de synthèse...");
+
+        let start_time = Instant::now();
+
+
+
         let mut summary = String::new();
         summary.push_str("=== Rapport de synthèse du traçage PunkVM ===\n\n");
 
@@ -628,7 +634,11 @@ impl PipelineTracer {
                 total_stall_cycles as f64 / hazards.len() as f64
             ));
         }
-        println!("Rapport de synthèse généré avec succès.");
+
+        let duration = start_time.elapsed();
+
+        println!("Rapport de synthèse généré en {:?} avec succès.",duration);
+
         summary
     }
 }
