@@ -3,7 +3,7 @@
 ///Type d'argument pour les instructions
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
-pub enum ArgType{
+pub enum ArgType {
     None = 0x0,
     Register = 0x1,     //registre general 4 bits
     RegisterExt = 0x2,  //registre general 8 bits
@@ -11,12 +11,13 @@ pub enum ArgType{
     Immediate16 = 0x4,  //valeur immediate 16 bits
     Immediate32 = 0x5,  //valeur immediate 32 bits
     Immediate64 = 0x6,  //valeur immediate 64 bits
-    RelativeAddr = 0x7,        // Adresse relative (offset par rapport au PC)
-    AbsoluteAddr = 0x8,        // Adresse absolue
-    RegisterOffset = 0x9,      // Registre + offset (pour accès mémoire indexé)
-    // 0xA-0xF réservés pour extensions futures
+    RelativeAddr = 0x7, // Adresse relative (offset par rapport au PC)
+    AbsoluteAddr = 0x8, // Adresse absolue
+    RegisterOffset = 0x9, // Registre + offset (pour accès mémoire indexé)
+                        // Flag = 0xA, // 4 bits pour les flags (ex: ZF, SF, OF, CF)
+                        // 0xA-0xF réservés pour extensions futures
 }
-impl ArgType{
+impl ArgType {
     /// Convertit un u8 en ArgType 4 bits
     pub fn from_u8(value: u8) -> Option<Self> {
         match value & 0x0F {
@@ -30,6 +31,7 @@ impl ArgType{
             0x7 => Some(Self::RelativeAddr),
             0x8 => Some(Self::AbsoluteAddr),
             0x9 => Some(Self::RegisterOffset),
+            // 0xA => Some(Self::Flag),
             _ => None,
         }
     }
@@ -47,9 +49,9 @@ impl ArgType{
             Self::RelativeAddr => 4, // Typiquement 32 bits pour un offset
             Self::AbsoluteAddr => 4, // Pourrait être 8 sur systèmes 64 bits
             Self::RegisterOffset => 2, // Registre (1B) + offset (1B)
+                                      // Self::Flag => 1, // 4 bits pour les flags, mais on aligne sur le byte
         }
     }
-
 }
 
 /// Format d'une instruction - definit les types d'arguments
@@ -60,22 +62,23 @@ pub struct InstructionFormat {
     pub arg3_type: ArgType,
 }
 
-
-
 impl InstructionFormat {
     /// Crée un nouveau format d'instruction
-    pub fn new(arg1_type: ArgType, arg2_type: ArgType , arg3_type:ArgType) -> Self {
-        Self { arg1_type, arg2_type ,arg3_type}
+    pub fn new(arg1_type: ArgType, arg2_type: ArgType, arg3_type: ArgType) -> Self {
+        Self {
+            arg1_type,
+            arg2_type,
+            arg3_type,
+        }
     }
 
     /// Encode le format dans un byte
     pub fn encode(&self) -> [u8; 2] {
-         // Sur 2 octets (16 bit ) : 4 bit par ArgType
+        // Sur 2 octets (16 bit ) : 4 bit par ArgType
         // arg1: bits [11:8], arg2: bits [7:4], arg3: bits [3:0]
-        let bits =
-                ((self.arg1_type as u16 & 0xF) << 8) |
-                ((self.arg2_type as u16 & 0xF) << 4) |
-                ((self.arg3_type as u16 & 0xF) << 0);
+        let bits = ((self.arg1_type as u16 & 0xF) << 8)
+            | ((self.arg2_type as u16 & 0xF) << 4)
+            | ((self.arg3_type as u16 & 0xF) << 0);
         bits.to_le_bytes()
     }
 
@@ -98,20 +101,21 @@ impl InstructionFormat {
     }
 
     /// Formats prédéfinis courants pour les instructions
-    pub fn reg_reg_reg() -> Self {      //reg, reg , reg
+    pub fn reg_reg_reg() -> Self {
+        //reg, reg , reg
         Self::new(ArgType::Register, ArgType::Register, ArgType::Register)
     }
 
     pub fn reg_reg_imm8() -> Self {
-        Self::new(ArgType::Register,ArgType::Register,ArgType::Immediate8)
+        Self::new(ArgType::Register, ArgType::Register, ArgType::Immediate8)
     }
 
     pub fn reg_reg_imm16() -> Self {
-        Self::new(ArgType::Register,ArgType::Register, ArgType::Immediate16)
+        Self::new(ArgType::Register, ArgType::Register, ArgType::Immediate16)
     }
 
     pub fn reg_reg_imm32() -> Self {
-        Self::new(ArgType::Register,ArgType::Register, ArgType::Immediate32)
+        Self::new(ArgType::Register, ArgType::Register, ArgType::Immediate32)
     }
 
     pub fn reg_reg_addr() -> Self {
@@ -119,11 +123,15 @@ impl InstructionFormat {
     }
 
     pub fn reg_reg_off() -> Self {
-        Self::new(ArgType::Register, ArgType::Register, ArgType::RegisterOffset)
+        Self::new(
+            ArgType::Register,
+            ArgType::Register,
+            ArgType::RegisterOffset,
+        )
     }
 
     pub fn addr_only() -> Self {
-        Self::new(ArgType::None,ArgType::None, ArgType::AbsoluteAddr)
+        Self::new(ArgType::None, ArgType::None, ArgType::AbsoluteAddr)
     }
 
     pub fn single_reg() -> Self {
@@ -154,9 +162,108 @@ impl InstructionFormat {
     pub fn no_args() -> Self {
         Self::new(ArgType::None, ArgType::None, ArgType::None)
     }
+
+    // Format pout les instructions de saut
+    pub fn jump() -> Self {
+        Self::new(ArgType::None, ArgType::RelativeAddr, ArgType::None)
+        // Self {
+        //     arg1_type: ArgType::None,
+        //     arg2_type: ArgType::Immediate32, // offset relatif sur 32 bits
+        //     arg3_type: ArgType::None,
+        // }
+    }
+
+    // pub fn jump() -> Self {
+    //     Self::new(ArgType::None, ArgType::Flag, ArgType::None)
+    //     // Self {
+    //     //     arg1_type: ArgType::None,
+    //     //     arg2_type: ArgType::Immediate32, // offset relatif sur 32 bits
+    //     //     arg3_type: ArgType::None,
+    //     // }
+    // }
+
+    pub fn jumpif() -> Self {
+        Self::new(ArgType::None, ArgType::RelativeAddr, ArgType::None)
+    }
+
+    pub fn jump_if_not() -> Self {
+        Self::new(ArgType::None, ArgType::RelativeAddr, ArgType::None)
+    }
+
+    pub fn jump_if_equal() -> Self {
+        Self::new(ArgType::None, ArgType::RelativeAddr, ArgType::None)
+    }
+    pub fn jump_if_notequal() -> Self {
+        Self::new(ArgType::None, ArgType::RelativeAddr, ArgType::None)
+    }
+
+    pub fn jump_if_greater() -> Self {
+        Self::new(ArgType::None, ArgType::RelativeAddr, ArgType::None)
+    }
+
+    pub fn jump_if_greaterequal() -> Self {
+        Self::new(ArgType::None, ArgType::RelativeAddr, ArgType::None)
+    }
+
+    pub fn jump_if_less() -> Self {
+        Self::new(ArgType::None, ArgType::RelativeAddr, ArgType::None)
+    }
+    pub fn jump_if_lessequal() -> Self {
+        Self::new(ArgType::None, ArgType::RelativeAddr, ArgType::None)
+    }
+    pub fn jump_if_above() -> Self {
+        Self::new(ArgType::None, ArgType::RelativeAddr, ArgType::None)
+    }
+
+    pub fn jump_if_aboveequal() -> Self {
+        Self::new(ArgType::None, ArgType::RelativeAddr, ArgType::None)
+    }
+
+    pub fn jump_if_below() -> Self {
+        Self::new(ArgType::None, ArgType::RelativeAddr, ArgType::None)
+    }
+
+    pub fn jump_if_belowequal() -> Self {
+        Self::new(ArgType::None, ArgType::RelativeAddr, ArgType::None)
+    }
+
+    pub fn jump_if_overflow() -> Self {
+        Self::new(ArgType::None, ArgType::RelativeAddr, ArgType::None)
+    }
+
+    pub fn jump_if_not_overflow() -> Self {
+        Self::new(ArgType::None, ArgType::RelativeAddr, ArgType::None)
+    }
+
+    pub fn jump_if_zero() -> Self {
+        Self::new(ArgType::None, ArgType::RelativeAddr, ArgType::None)
+    }
+    pub fn jump_if_not_zero() -> Self {
+        Self::new(ArgType::None, ArgType::RelativeAddr, ArgType::None)
+    }
+
+    pub fn jump_if_positive() -> Self {
+        Self::new(ArgType::None, ArgType::RelativeAddr, ArgType::None)
+    }
+
+    pub fn jump_if_negative() -> Self {
+        Self::new(ArgType::None, ArgType::RelativeAddr, ArgType::None)
+    }
+
+    //Format pour les instructions de type CALL
+    pub fn call() -> Self {
+        Self::new(ArgType::None, ArgType::RelativeAddr, ArgType::None)
+    }
+
+    //Format pour les instructions de type RET
+    pub fn ret() -> Self {
+        Self::no_args()
+    }
+
+    pub fn reg_reg_offset() -> Self {
+        Self::new(ArgType::Register, ArgType::RegisterOffset, ArgType::None)
+    }
 }
-
-
 
 // Test unitaire pour les formats d'instruction
 #[cfg(test)]
@@ -200,11 +307,8 @@ mod tests {
     #[test]
     fn test_instruction_format_new() {
         // Test simple : Reg, Reg, Imm32
-        let format = InstructionFormat::new(
-            ArgType::Register,
-            ArgType::Register,
-            ArgType::Immediate32,
-        );
+        let format =
+            InstructionFormat::new(ArgType::Register, ArgType::Register, ArgType::Immediate32);
         assert_eq!(format.arg1_type, ArgType::Register);
         assert_eq!(format.arg2_type, ArgType::Register);
         assert_eq!(format.arg3_type, ArgType::Immediate32);
@@ -215,21 +319,20 @@ mod tests {
         // Exemple : (ArgType::Register, ArgType::Immediate8, ArgType::None)
         // => on s'attend à ce que arg1=Register (0x1), arg2=Immediate8 (0x3), arg3=None (0x0)
 
-        let format = InstructionFormat::new(
-            ArgType::Register,
-            ArgType::Immediate8,
-            ArgType::None
-        );
+        let format = InstructionFormat::new(ArgType::Register, ArgType::Immediate8, ArgType::None);
 
         // Encodage : sur 16 bits
         // arg1=1 => bits [11..8], arg2=3 => bits [7..4], arg3=0 => bits [3..0]
         // => bits = 1<<8 + 3<<4 + 0= 0x100 + 0x30 = 0x130 => LE = [0x30, 0x01]
         let encoded = format.encode();
-        assert_eq!(encoded, [0x30, 0x01], "Encoding incorrect pour (Reg, Imm8, None)");
+        assert_eq!(
+            encoded,
+            [0x30, 0x01],
+            "Encoding incorrect pour (Reg, Imm8, None)"
+        );
 
         // Décodage
-        let decoded = InstructionFormat::decode(encoded)
-            .expect("Décodage should not fail");
+        let decoded = InstructionFormat::decode(encoded).expect("Décodage should not fail");
         assert_eq!(decoded.arg1_type, ArgType::Register);
         assert_eq!(decoded.arg2_type, ArgType::Immediate8);
         assert_eq!(decoded.arg3_type, ArgType::None);
@@ -240,17 +343,17 @@ mod tests {
         // Ex: ArgType::Register, ArgType::Register, ArgType::Immediate8
         // => arg1=0x1, arg2=0x1, arg3=0x3
         // => bits = (1<<8) + (1<<4) + (3) = 0x100 + 0x10 + 0x3 = 0x113 => LE=[0x13,0x01]
-        let format = InstructionFormat::new(
-            ArgType::Register,
-            ArgType::Register,
-            ArgType::Immediate8
-        );
+        let format =
+            InstructionFormat::new(ArgType::Register, ArgType::Register, ArgType::Immediate8);
 
         let encoded = format.encode();
-        assert_eq!(encoded, [0x13, 0x01], "Encoding incorrect pour (Reg, Reg, Imm8)");
+        assert_eq!(
+            encoded,
+            [0x13, 0x01],
+            "Encoding incorrect pour (Reg, Reg, Imm8)"
+        );
 
-        let decoded = InstructionFormat::decode(encoded)
-            .expect("Décodage should succeed");
+        let decoded = InstructionFormat::decode(encoded).expect("Décodage should succeed");
         assert_eq!(decoded.arg1_type, ArgType::Register);
         assert_eq!(decoded.arg2_type, ArgType::Register);
         assert_eq!(decoded.arg3_type, ArgType::Immediate8);
@@ -259,11 +362,7 @@ mod tests {
     #[test]
     fn test_instruction_format_args_size() {
         // (Register, Register, Immediate8) => 1 + 1 + 1 = 3
-        let f1 = InstructionFormat::new(
-            ArgType::Register,
-            ArgType::Register,
-            ArgType::Immediate8
-        );
+        let f1 = InstructionFormat::new(ArgType::Register, ArgType::Register, ArgType::Immediate8);
         assert_eq!(f1.args_size(), 3);
 
         // (None, None, None) => 0
@@ -271,7 +370,11 @@ mod tests {
         assert_eq!(f2.args_size(), 0);
 
         // (Register, Immediate16, RegisterOffset) => 1 + 2 + 2 = 5
-        let f3 = InstructionFormat::new(ArgType::Register, ArgType::Immediate16, ArgType::RegisterOffset);
+        let f3 = InstructionFormat::new(
+            ArgType::Register,
+            ArgType::Immediate16,
+            ArgType::RegisterOffset,
+        );
         assert_eq!(f3.args_size(), 5);
 
         // (Immediate64, AbsoluteAddr, None) => 8 + 4 + 0 = 12
@@ -311,13 +414,187 @@ mod tests {
         // ArgType::from_u8(0xA) => None => decode => None
         let encoded = [0x10, 0x0A];
         let result = InstructionFormat::decode(encoded);
-        assert!(result.is_none(), "Devrait être None car arg1=0xA => ArgType invalide");
+        assert!(
+            result.is_none(),
+            "Devrait être None car arg1=0xA => ArgType invalide"
+        );
 
         // Autre test invalid => arg2= 0xA
         // bits = (0x1<<8)+(0xA<<4)+(0x1)= 0x1xx ???
         // On peut juste forcer un code => [0xF0, 0xFF]
         let encoded2 = [0xF0, 0xFF];
         let result2 = InstructionFormat::decode(encoded2);
-        assert!(result2.is_none(), "Décodage devrait échouer si on a un ArgType invalide");
+        assert!(
+            result2.is_none(),
+            "Décodage devrait échouer si on a un ArgType invalide"
+        );
+    }
+
+    #[test]
+    fn test_jump_format() {
+        let fmt = InstructionFormat::jump();
+        let encoded = fmt.encode();
+        let decoded = InstructionFormat::decode(encoded).unwrap();
+        assert_eq!(fmt, decoded);
+    }
+
+    #[test]
+    fn test_jump_if_format() {
+        let fmt = InstructionFormat::jumpif();
+        let encoded = fmt.encode();
+        let decoded = InstructionFormat::decode(encoded).unwrap();
+        assert_eq!(fmt, decoded);
+    }
+
+    #[test]
+    fn test_jump_if_not_format() {
+        let fmt = InstructionFormat::jump_if_not();
+        let encoded = fmt.encode();
+        let decoded = InstructionFormat::decode(encoded).unwrap();
+        assert_eq!(fmt, decoded);
+    }
+
+    #[test]
+    fn test_jump_if_equal_format() {
+        let fmt = InstructionFormat::jump_if_equal();
+        let encoded = fmt.encode();
+        let decoded = InstructionFormat::decode(encoded).unwrap();
+        assert_eq!(fmt, decoded);
+    }
+
+    #[test]
+    fn test_jump_if_not_equal_format() {
+        let fmt = InstructionFormat::jump_if_notequal();
+        let encoded = fmt.encode();
+        let decoded = InstructionFormat::decode(encoded).unwrap();
+        assert_eq!(fmt, decoded);
+    }
+
+    #[test]
+    fn test_jump_if_greater_format() {
+        let fmt = InstructionFormat::jump_if_greater();
+        let encoded = fmt.encode();
+        let decoded = InstructionFormat::decode(encoded).unwrap();
+        assert_eq!(fmt, decoded);
+    }
+
+    #[test]
+    fn test_jump_if_greater_equal_format() {
+        let fmt = InstructionFormat::jump_if_greaterequal();
+        let encoded = fmt.encode();
+        let decoded = InstructionFormat::decode(encoded).unwrap();
+        assert_eq!(fmt, decoded);
+    }
+
+    #[test]
+    fn test_jump_if_less_format() {
+        let fmt = InstructionFormat::jump_if_less();
+        let encoded = fmt.encode();
+        let decoded = InstructionFormat::decode(encoded).unwrap();
+        assert_eq!(fmt, decoded);
+    }
+
+    #[test]
+    fn test_jump_if_less_equal_format() {
+        let fmt = InstructionFormat::jump_if_lessequal();
+        let encoded = fmt.encode();
+        let decoded = InstructionFormat::decode(encoded).unwrap();
+        assert_eq!(fmt, decoded);
+    }
+
+    #[test]
+    fn test_jump_if_above_format() {
+        let fmt = InstructionFormat::jump_if_above();
+        let encoded = fmt.encode();
+        let decoded = InstructionFormat::decode(encoded).unwrap();
+        assert_eq!(fmt, decoded);
+    }
+
+    #[test]
+    fn test_jump_if_above_equal_format() {
+        let fmt = InstructionFormat::jump_if_aboveequal();
+        let encoded = fmt.encode();
+        let decoded = InstructionFormat::decode(encoded).unwrap();
+        assert_eq!(fmt, decoded);
+    }
+
+    #[test]
+    fn test_jump_if_below_format() {
+        let fmt = InstructionFormat::jump_if_below();
+        let encoded = fmt.encode();
+        let decoded = InstructionFormat::decode(encoded).unwrap();
+        assert_eq!(fmt, decoded);
+    }
+
+    #[test]
+    fn test_jump_if_below_equal_format() {
+        let fmt = InstructionFormat::jump_if_belowequal();
+        let encoded = fmt.encode();
+        let decoded = InstructionFormat::decode(encoded).unwrap();
+        assert_eq!(fmt, decoded);
+    }
+
+    #[test]
+    fn test_jump_if_overflow_format() {
+        let fmt = InstructionFormat::jump_if_overflow();
+        let encoded = fmt.encode();
+        let decoded = InstructionFormat::decode(encoded).unwrap();
+        assert_eq!(fmt, decoded);
+    }
+
+    #[test]
+    fn test_jump_if_not_overflow_format() {
+        let fmt = InstructionFormat::jump_if_not_overflow();
+        let encoded = fmt.encode();
+        let decoded = InstructionFormat::decode(encoded).unwrap();
+        assert_eq!(fmt, decoded);
+    }
+
+    #[test]
+    fn test_jump_if_zero_format() {
+        let fmt = InstructionFormat::jump_if_zero();
+        let encoded = fmt.encode();
+        let decoded = InstructionFormat::decode(encoded).unwrap();
+        assert_eq!(fmt, decoded);
+    }
+
+    #[test]
+    fn test_jump_if_not_zero_format() {
+        let fmt = InstructionFormat::jump_if_not_zero();
+        let encoded = fmt.encode();
+        let decoded = InstructionFormat::decode(encoded).unwrap();
+        assert_eq!(fmt, decoded);
+    }
+
+    #[test]
+    fn test_jump_if_positive_format() {
+        let fmt = InstructionFormat::jump_if_positive();
+        let encoded = fmt.encode();
+        let decoded = InstructionFormat::decode(encoded).unwrap();
+        assert_eq!(fmt, decoded);
+    }
+
+    #[test]
+    fn test_call_format() {
+        let fmt = InstructionFormat::call();
+        let encoded = fmt.encode();
+        let decoded = InstructionFormat::decode(encoded).unwrap();
+        assert_eq!(fmt, decoded);
+    }
+
+    #[test]
+    fn test_ret_format() {
+        let fmt = InstructionFormat::ret();
+        let encoded = fmt.encode();
+        let decoded = InstructionFormat::decode(encoded).unwrap();
+        assert_eq!(fmt, decoded);
+    }
+
+    #[test]
+    fn test_reg_reg_offset_format() {
+        let fmt = InstructionFormat::reg_reg_offset();
+        let encoded = fmt.encode();
+        let decoded = InstructionFormat::decode(encoded).unwrap();
+        assert_eq!(fmt, decoded);
     }
 }

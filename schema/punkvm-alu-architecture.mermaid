@@ -1,0 +1,41 @@
+graph TD
+    subgraph "PunkVM Core"
+        subgraph "Pipeline Principal"
+            FETCH["Fetch Stage"] --> DECODE["Decode Stage"]
+            DECODE --> EXECUTE["Execute Stage"]
+            EXECUTE --> MEMORY["Memory Stage"]
+            MEMORY --> WRITEBACK["Writeback Stage"]
+        end
+
+        subgraph "ALU"
+            ARITHMETIC["Opérations Arithmétiques\nAdd, Sub, Mul, Div"] 
+            LOGIC["Opérations Logiques\nAnd, Or, Xor, Not"]
+            SHIFT["Opérations de Décalage\nShl, Shr, Rol, Ror"]
+            COMPARE["Opérations de Comparaison\nCmp, Test"]
+            FLAGS["Registres de Flags\nZero, Negative, Overflow, Carry"]
+            
+            ARITHMETIC --- FLAGS
+            LOGIC --- FLAGS
+            SHIFT --- FLAGS
+            COMPARE --- FLAGS
+        end
+        
+        EXECUTE <---> ALU
+    end
+
+    subgraph "Composants Périphériques"
+        REG["Banque de Registres"] <--> EXECUTE
+        REG <--> WRITEBACK
+        MEM["Contrôleur Mémoire"] <--> MEMORY
+        CACHE["Système de Cache"] <--> MEM
+    end
+
+    subgraph "Extension Modules"
+        JIT["Module JIT\n(Cranelift)"] <--> DECODE
+        OPT["Optimiseur de Bytecode"] <--> FETCH
+        PROF["Profileur d'Exécution"] <--> EXECUTE
+        NEURAL["Module Neural\n(Future)"] <--> EXECUTE
+    end
+
+    BYTECODE["Bytecode PunkLang"] --> FETCH
+    JIT --> BYTECODE

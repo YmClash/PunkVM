@@ -1,0 +1,52 @@
+flowchart TD
+    subgraph ALU["Arithmetic Logic Unit"]
+        direction TB
+        
+        IN_A["Entrée A"] --> MUX_A
+        IN_B["Entrée B"] --> MUX_B
+        OPCODE["Code d'Opération"] --> CONTROL
+        
+        subgraph CONTROL["Unité de Contrôle"]
+            DECODER["Décodeur d'Opérations"]
+            FSM["Machine à États"]
+            TIMING["Générateur de Timing"]
+        end
+        
+        MUX_A["Multiplexeur A"] --> ARITH
+        MUX_B["Multiplexeur B"] --> ARITH
+        
+        subgraph ARITH["Unités Fonctionnelles"]
+            ADD["Additionneur"]
+            SUB["Soustracteur"]
+            MUL["Multiplicateur"]
+            DIV["Diviseur"]
+            BITWISE["Opérateur Bit à Bit"]
+            SHIFT["Unité de Décalage"]
+        end
+        
+        ARITH --> RESULT_MUX["Multiplexeur de Résultat"]
+        
+        RESULT_MUX --> RESULT["Résultat"]
+        RESULT --> FLAG_GEN["Générateur de Flags"]
+        
+        FLAG_GEN --> FLAGS["Registre de Flags"]
+        
+        FLAGS -->|"Zero\nNegative\nOverflow\nCarry"| FLAG_OUT["Sortie Flags"]
+    end
+    
+    subgraph INTEGRATION["Intégration Pipeline"]
+        EX_STAGE["Étage Execute"]
+        REG_BANK["Banque de Registres"]
+        DECODE_STAGE["Étage Decode"]
+        
+        DECODE_STAGE -->|"Instruction\nDécodée"| EX_STAGE
+        REG_BANK -->|"Valeurs\nRegistres"| EX_STAGE
+        
+        EX_STAGE -->|"Opérandes"| IN_A & IN_B
+        EX_STAGE -->|"OpCode"| OPCODE
+        
+        RESULT -->|"Résultat\nCalculé"| EX_STAGE
+        FLAG_OUT -->|"Flags\nMis à Jour"| EX_STAGE
+        
+        EX_STAGE -->|"Résultat +\nFlags"| NEXT["Étage Suivant"]
+    end

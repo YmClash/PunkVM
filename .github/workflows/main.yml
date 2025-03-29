@@ -17,7 +17,8 @@ jobs:
         uses: actions/checkout@v2
 
       - name: Set up Rust
-        uses: actions/setup-rust@v1.78.0  # Updated to a specific valid version
+#        uses: actions/setup-rust@v1.78.0  # Updated to a specific valid version
+        uses: actions/setup-rust@v1
         with:
           rust-version: stable
 

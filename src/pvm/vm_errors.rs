@@ -12,10 +12,7 @@ pub enum VMError {
     ExecutionError(String),
     ALUError(String),
     DecodeError(String),
-
 }
-
-
 
 // Ajouter type d'erreur pour les opérations arithmétiques
 impl VMError {
@@ -50,12 +47,9 @@ impl VMError {
     pub fn decode_error(msg: &str) -> Self {
         VMError::DecodeError(msg.to_string())
     }
-
 }
 
-
-
-impl fmt::Display for VMError{
+impl fmt::Display for VMError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             VMError::MemoryError(msg) => write!(f, "MemoryError: {}", msg),
@@ -66,21 +60,15 @@ impl fmt::Display for VMError{
             VMError::ExecutionError(msg) => write!(f, "ExecutionError: {}", msg),
             VMError::ALUError(msg) => write!(f, "ALUError: {}", msg),
             VMError::DecodeError(msg) => write!(f, "DecodeError: {}", msg),
-
         }
     }
 }
 
-
-
 impl From<Error> for VMError {
-    fn from(err:Error) -> Self {
+    fn from(err: Error) -> Self {
         VMError::ExecutionError(format!("I/O Error: {}", err))
     }
 }
 
-
 /// Resultat type pour les operation de la VM
 pub type VMResult<T> = Result<T, VMError>;
-
-

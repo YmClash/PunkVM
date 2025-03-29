@@ -2,11 +2,11 @@
 
 /// Structure des flags de l'ALU
 #[derive(Debug, Clone, Copy, Default)]
-pub struct ALUFlags{
+pub struct ALUFlags {
     pub zero: bool,     // Flag zéro Resultat nul
-    pub negative: bool,     // Flag négatif Resultat négatif, bit le plus significatif = 1
-    pub overflow: bool,     // Flag de débordement signe Overflow, dépassement de capacité
-    pub carry: bool,        // Flag de retenue Carry sur les opérations non signées
+    pub negative: bool, // Flag négatif Resultat négatif, bit le plus significatif = 1
+    pub overflow: bool, // Flag de débordement signe Overflow, dépassement de capacité
+    pub carry: bool,    // Flag de retenue Carry sur les opérations non signées
 }
 
 /// Type d'opération de l'ALU
@@ -23,15 +23,20 @@ pub enum ALUOperation {
     Not,
     Shl,
     Shr,
-    Sar,  // Shift Arithmetic Right
-    Rol,  // Rotate Left
-    Ror,  // Rotate Right
+    Sar, // Shift Arithmetic Right
+    Rol, // Rotate Left
+    Ror, // Rotate Right
     Inc,
     Dec,
     Neg,
     Cmp,  // Compare (comme Sub mais ne stocke pas le résultat)
     Test, // Test (comme And mais ne stocke pas le résultat)
     Mov,  // Copie la valeur
+          // Instructions de contrôle de flux
+          // Jumps, branches, etc.
+          // Jmp,
+          // Call,
+          // Ret,
 }
 
 /// Unité ALU (Arithmetic Logic Unit)
@@ -61,8 +66,8 @@ impl ALU {
             ALUOperation::Add => {
                 let (result, carry) = a.overflowing_add(b);
                 // Vérifier l'overflow pour les nombres signés
-                let a_sign = (a >>63) & 1;
-                let b_sign = (b >>63) & 1;
+                let a_sign = (a >> 63) & 1;
+                let b_sign = (b >> 63) & 1;
                 let result_sign = (result >> 63) & 1;
 
                 // Overflow se produit si a et b ont le même signe mais le résultat a un signe différent
@@ -73,13 +78,13 @@ impl ALU {
                 self.flags.carry = carry;
                 self.flags.overflow = overflow;
                 result
-            },
+            }
 
             ALUOperation::Sub => {
                 let (result, carry) = a.overflowing_sub(b);
                 // Vérifier l'overflow pour les nombres signés sans conversion
-                let a_sign = (a >>63) & 1;
-                let b_sign = (b >>63) & 1;
+                let a_sign = (a >> 63) & 1;
+                let b_sign = (b >> 63) & 1;
                 let result_sign = (result >> 63) & 1;
                 // Pour la soustraction, l'overflow se produit quand les signes sont différents
                 // et que le signe du résultat ne correspond pas au signe du premier opérande
@@ -88,17 +93,17 @@ impl ALU {
 
                 // let overflow = ((a as i64) - (b as i64)) != (result as i64);
 
-                self.flags.carry = carry;       // Indique un emprunt
+                self.flags.carry = carry; // Indique un emprunt
                 self.flags.overflow = overflow;
                 result
-            },
+            }
 
             ALUOperation::Mul => {
                 let (result, overflow) = a.overflowing_mul(b);
                 self.flags.carry = overflow;
                 self.flags.overflow = overflow;
                 result
-            },
+            }
 
             ALUOperation::Div => {
                 if b == 0 {
@@ -108,7 +113,7 @@ impl ALU {
                 self.flags.carry = false;
                 self.flags.overflow = false;
                 result
-            },
+            }
 
             ALUOperation::Mod => {
                 if b == 0 {
@@ -118,35 +123,35 @@ impl ALU {
                 self.flags.carry = false;
                 self.flags.overflow = false;
                 result
-            },
+            }
 
             ALUOperation::And => {
                 let result = a & b;
                 self.flags.carry = false;
                 self.flags.overflow = false;
                 result
-            },
+            }
 
             ALUOperation::Or => {
                 let result = a | b;
                 self.flags.carry = false;
                 self.flags.overflow = false;
                 result
-            },
+            }
 
             ALUOperation::Xor => {
                 let result = a ^ b;
                 self.flags.carry = false;
                 self.flags.overflow = false;
                 result
-            },
+            }
 
             ALUOperation::Not => {
                 let result = !a;
                 self.flags.carry = false;
                 self.flags.overflow = false;
                 result
-            },
+            }
 
             ALUOperation::Shl => {
                 if b > 63 {
@@ -167,7 +172,7 @@ impl ALU {
                     self.flags.overflow = false;
                     result
                 }
-            },
+            }
 
             ALUOperation::Shr => {
                 if b > 63 {
@@ -188,7 +193,7 @@ impl ALU {
                     self.flags.overflow = false;
                     result
                 }
-            },
+            }
 
             ALUOperation::Sar => {
                 if b > 63 {
@@ -219,7 +224,7 @@ impl ALU {
                     self.flags.overflow = false;
                     result
                 }
-            },
+            }
 
             ALUOperation::Rol => {
                 let shift_amount = (b % 64) as u32;
@@ -231,7 +236,7 @@ impl ALU {
                     self.flags.overflow = false;
                     result
                 }
-            },
+            }
 
             ALUOperation::Ror => {
                 let shift_amount = (b % 64) as u32;
@@ -243,7 +248,7 @@ impl ALU {
                     self.flags.overflow = false;
                     result
                 }
-            },
+            }
 
             ALUOperation::Inc => {
                 let (result, carry) = a.overflowing_add(1);
@@ -259,7 +264,7 @@ impl ALU {
                 self.flags.carry = carry;
                 self.flags.overflow = overflow;
                 result
-            },
+            }
 
             ALUOperation::Dec => {
                 let (result, carry) = a.overflowing_sub(1);
@@ -277,20 +282,19 @@ impl ALU {
                 self.flags.carry = carry;
                 self.flags.overflow = overflow;
                 result
-            },
+            }
 
             ALUOperation::Neg => {
                 let (result, carry) = (!a).overflowing_add(1); // Two's complement negation
-                // Overflow happens if the input is the minimum negative number
+                                                               // Overflow happens if the input is the minimum negative number
 
                 let overflow = a == (1u64 << 63);
                 // let overflow = (a == 0x8000_0000_0000_0000);
 
-
                 self.flags.carry = carry;
                 self.flags.overflow = overflow;
                 result
-            },
+            }
 
             ALUOperation::Cmp => {
                 // Compare = Sub mais ne stocke pas le résultat
@@ -323,11 +327,12 @@ impl ALU {
                 self.flags.zero = a == b;
                 self.flags.negative = negative;
 
-                println!("CMP Flags après comparaison: zero={}, negative={}, overflow={}, carry={}",
-                         self.flags.zero, self.flags.negative, self.flags.overflow, self.flags.carry);
+                println!(
+                    "CMP Flags après comparaison: zero={}, negative={}, overflow={}, carry={}",
+                    self.flags.zero, self.flags.negative, self.flags.overflow, self.flags.carry
+                );
                 result
-
-            },
+            }
 
             ALUOperation::Test => {
                 // test = And(a, b)  => flags => Zero, etc
@@ -335,16 +340,15 @@ impl ALU {
                 self.flags.carry = false;
                 self.flags.overflow = false;
                 result // Retourne le résultat, mais il n'est normalement pas utilisé
-            },
+            }
 
             ALUOperation::Mov => {
                 // Simplement retourne (pas d'impact sur les flags)
                 self.flags.carry = false;
                 self.flags.overflow = false;
                 b
-            },
+            }
         };
-
 
         // Mettre à jour zero/negative sur le résultat (sauf si c'est un "Cmp" qui l'a déjà fait)
         if !matches!(operation, ALUOperation::Cmp) {
@@ -362,26 +366,156 @@ impl ALU {
     /// Vérifie si une condition de branchement est satisfaite
     pub fn check_condition(&self, condition: BranchCondition) -> bool {
         match condition {
-            BranchCondition::Always => true,
-            BranchCondition::Equal => self.flags.zero,
+            // BranchCondition::Always => true,
+            BranchCondition::Always => {
+                println!("BranchCondition::Always: always true");
+                true
+            }
+            // BranchCondition::Equal => self.flags.zero,
+            BranchCondition::Equal => {
+                let result = self.flags.zero;
+                println!(
+                    "BranchCondition::Equal: zero={}, result={}",
+                    self.flags.zero, result
+                );
+                result
+            }
+
             // BranchCondition::NotEqual => !self.flags.zero,
             BranchCondition::NotEqual => {
                 let result = !self.flags.zero;
-                println!("BranchCondition::NotEqual: zero={}, result={}", self.flags.zero, result);
+                println!(
+                    "BranchCondition::NotEqual: zero={}, result={}",
+                    self.flags.zero, result
+                );
                 result
-            },
-            BranchCondition::Greater => !self.flags.zero && !self.flags.negative,
-            BranchCondition::GreaterEqual => !self.flags.negative,
-            BranchCondition::Less => self.flags.negative,
-            BranchCondition::LessEqual => self.flags.zero || self.flags.negative,
-            BranchCondition::Above => !self.flags.carry && !self.flags.zero,
-            BranchCondition::AboveEqual => !self.flags.carry,
-            BranchCondition::Below => self.flags.carry,
-            BranchCondition::BelowEqual => self.flags.carry || self.flags.zero,
-            BranchCondition::Overflow => self.flags.overflow,
-            BranchCondition::NotOverflow => !self.flags.overflow,
-            BranchCondition::Negative => self.flags.negative,
-            BranchCondition::Positive => !self.flags.negative,
+            }
+            // BranchCondition::Greater => !self.flags.zero && !self.flags.negative,
+            BranchCondition::Greater => {
+                let result = !self.flags.zero && !self.flags.negative;
+                println!(
+                    "BranchCondition::Greater: zero={}, negative={}, result={}",
+                    self.flags.zero, self.flags.negative, result
+                );
+                result
+            }
+            // BranchCondition::GreaterEqual => !self.flags.negative,
+            BranchCondition::GreaterEqual => {
+                let result = !self.flags.negative;
+                println!(
+                    "BranchCondition::GreaterEqual: negative={}, result={}",
+                    self.flags.negative, result
+                );
+                result
+            }
+            // BranchCondition::Less => self.flags.negative,
+            BranchCondition::Less => {
+                let result = self.flags.negative;
+                println!(
+                    "BranchCondition::Less: negative={}, result={}",
+                    self.flags.negative, result
+                );
+                result
+            }
+            // BranchCondition::LessEqual => self.flags.zero || self.flags.negative,
+            BranchCondition::LessEqual => {
+                let result = self.flags.zero || self.flags.negative;
+                println!(
+                    "BranchCondition::LessEqual: zero={}, negative={}, result={}",
+                    self.flags.zero, self.flags.negative, result
+                );
+                result
+            }
+            // BranchCondition::Above => !self.flags.carry && !self.flags.zero,
+            BranchCondition::Above => {
+                let result = !self.flags.carry && !self.flags.zero;
+                println!(
+                    "BranchCondition::Above: carry={}, zero={}, result={}",
+                    self.flags.carry, self.flags.zero, result
+                );
+                result
+            }
+            // BranchCondition::AboveEqual => !self.flags.carry,
+            BranchCondition::AboveEqual => {
+                let result = !self.flags.carry;
+                println!(
+                    "BranchCondition::AboveEqual: carry={}, result={}",
+                    self.flags.carry, result
+                );
+                result
+            }
+            // BranchCondition::Below => self.flags.carry,
+            BranchCondition::Below => {
+                let result = self.flags.carry;
+                println!(
+                    "BranchCondition::Below: carry={}, result={}",
+                    self.flags.carry, result
+                );
+                result
+            }
+            // BranchCondition::BelowEqual => self.flags.carry || self.flags.zero,
+            BranchCondition::BelowEqual => {
+                let result = self.flags.carry || self.flags.zero;
+                println!(
+                    "BranchCondition::BelowEqual: carry={}, zero={}, result={}",
+                    self.flags.carry, self.flags.zero, result
+                );
+                result
+            }
+            // BranchCondition::Overflow => self.flags.overflow,
+            BranchCondition::Overflow => {
+                let result = self.flags.overflow;
+                println!(
+                    "BranchCondition::Overflow: overflow={}, result={}",
+                    self.flags.overflow, result
+                );
+                result
+            }
+            // BranchCondition::NotOverflow => !self.flags.overflow,
+            BranchCondition::NotOverflow => {
+                let result = !self.flags.overflow;
+                println!(
+                    "BranchCondition::NotOverflow: overflow={}, result={}",
+                    self.flags.overflow, result
+                );
+                result
+            }
+            // BranchCondition::Negative => self.flags.negative,
+            BranchCondition::Negative => {
+                let result = self.flags.negative;
+                println!(
+                    "BranchCondition::Negative: negative={}, result={}",
+                    self.flags.negative, result
+                );
+                result
+            }
+            // BranchCondition::Positive => !self.flags.negative,
+            BranchCondition::Positive => {
+                let result = !self.flags.negative;
+                println!(
+                    "BranchCondition::Positive: negative={}, result={}",
+                    self.flags.negative, result
+                );
+                result
+            }
+            // BranchCondition::NotZero => !self.flags.zero,
+            BranchCondition::NotZero => {
+                let result = !self.flags.zero;
+                println!(
+                    "BranchCondition::NotZero: zero={}, result={}",
+                    self.flags.zero, result
+                );
+                result
+            }
+            // BranchCondition::Zero => self.flags.zero,
+            BranchCondition::Zero => {
+                let result = self.flags.zero;
+                println!(
+                    "BranchCondition::Zero: zero={}, result={}",
+                    self.flags.zero, result
+                );
+                result
+            }
         }
     }
 
@@ -389,7 +523,6 @@ impl ALU {
     pub fn reset_flags(&mut self) {
         self.flags = ALUFlags::default();
     }
-
 }
 
 /// Condition de branchement basee sur les flags
@@ -410,9 +543,9 @@ pub enum BranchCondition {
     NotOverflow,  // OF = 0
     Negative,     // SF = 1
     Positive,     // SF = 0
-
+    NotZero,      // ZF = 0
+    Zero,         // ZF = 1
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -525,7 +658,9 @@ mod tests {
         assert!(alu.flags.negative);
 
         // Negative flag with direct assignment of a negative value (MSB set)
-        let result = alu.execute(ALUOperation::Mov, 0, 0x8000000000000000).unwrap();
+        let result = alu
+            .execute(ALUOperation::Mov, 0, 0x8000000000000000)
+            .unwrap();
         assert_eq!(result, 0x8000000000000000);
         assert!(!alu.flags.zero);
         assert!(alu.flags.negative);
@@ -537,23 +672,27 @@ mod tests {
 
         // Provoquer un overflow avec des valeurs u64 qui activeront le bit de signe
         // 0x7FFFFFFFFFFFFFFF (max i64) + 1 = 0x8000000000000000 (qui est négatif en complément à 2)
-        let result = alu.execute(ALUOperation::Add, 0x7FFFFFFFFFFFFFFF, 1).unwrap();
+        let result = alu
+            .execute(ALUOperation::Add, 0x7FFFFFFFFFFFFFFF, 1)
+            .unwrap();
 
         assert_eq!(result, 0x8000000000000000);
         assert!(!alu.flags.zero);
         assert!(alu.flags.negative); // Le bit 63 est maintenant activé
         assert!(alu.flags.overflow); // Il y a un overflow car le signe change de manière inattendue
-        assert!(!alu.flags.carry);   // Pas de carry car nous sommes bien en-dessous de u64::MAX
+        assert!(!alu.flags.carry); // Pas de carry car nous sommes bien en-dessous de u64::MAX
 
         // Test d'overflow en soustraction
         // 0x8000000000000000 - 1 = 0x7FFFFFFFFFFFFFFF (change de négatif à positif)
         alu.reset_flags();
-        let result = alu.execute(ALUOperation::Sub, 0x8000000000000000, 1).unwrap();
+        let result = alu
+            .execute(ALUOperation::Sub, 0x8000000000000000, 1)
+            .unwrap();
         assert_eq!(result, 0x7FFFFFFFFFFFFFFF);
         assert!(!alu.flags.zero);
         assert!(!alu.flags.negative); // Le résultat est positif
-        assert!(alu.flags.overflow);  // Overflow car le signe change
-        assert!(!alu.flags.carry);    // Pas de carry
+        assert!(alu.flags.overflow); // Overflow car le signe change
+        assert!(!alu.flags.carry); // Pas de carry
     }
 
     #[test]
@@ -624,7 +763,9 @@ mod tests {
 
         // Test ROL
         // Utilisons une valeur plus petite pour éviter les problèmes
-        let result = alu.execute(ALUOperation::Rol, 0x8000000000000000u64, 1).unwrap();
+        let result = alu
+            .execute(ALUOperation::Rol, 0x8000000000000000u64, 1)
+            .unwrap();
         assert_eq!(result, 0x1);
 
         // Test ROR
@@ -679,7 +820,6 @@ mod tests {
         assert!(!alu.flags.carry);
     }
 
-
     #[test]
     fn test_compare_operations() {
         let mut alu = ALU::new();
@@ -730,7 +870,6 @@ mod tests {
         assert!(!alu.flags.zero);
         assert!(!alu.flags.negative);
         assert!(!alu.flags.carry);
-
     }
 
     #[test]
@@ -764,7 +903,8 @@ mod tests {
         assert!(!alu.check_condition(BranchCondition::AboveEqual));
 
         // Test des conditions spécifiques à l'overflow
-        alu.execute(ALUOperation::Add, 0x7FFFFFFFFFFFFFFF, 1).unwrap();
+        alu.execute(ALUOperation::Add, 0x7FFFFFFFFFFFFFFF, 1)
+            .unwrap();
         assert!(alu.check_condition(BranchCondition::Overflow));
         assert!(!alu.check_condition(BranchCondition::NotOverflow));
     }
@@ -805,7 +945,7 @@ mod tests {
         // Simuler l'exécution d'une instruction ADD avec 3 registres
         // ADD R2, R0, R1 (R2 = R0 + R1)
         let r0 = 10; // Valeur dans R0
-        let r1 = 5;  // Valeur dans R1
+        let r1 = 5; // Valeur dans R1
 
         // Simuler l'étape d'exécution avec l'ALU
         let result = alu.execute(ALUOperation::Add, r0, r1).unwrap();
@@ -850,25 +990,32 @@ mod tests {
         registers[1] = 5;
 
         // ADD R2, R0, R1 (R2 = R0 + R1)
-        let result = alu.execute(ALUOperation::Add, registers[0], registers[1]).unwrap();
+        let result = alu
+            .execute(ALUOperation::Add, registers[0], registers[1])
+            .unwrap();
         registers[2] = result;
         assert_eq!(registers[2], 15);
 
         // SUB R3, R0, R1 (R3 = R0 - R1)
-        let result = alu.execute(ALUOperation::Sub, registers[0], registers[1]).unwrap();
+        let result = alu
+            .execute(ALUOperation::Sub, registers[0], registers[1])
+            .unwrap();
         registers[3] = result;
         assert_eq!(registers[3], 5);
 
         // MUL R4, R0, R1 (R4 = R0 * R1)
-        let result = alu.execute(ALUOperation::Mul, registers[0], registers[1]).unwrap();
+        let result = alu
+            .execute(ALUOperation::Mul, registers[0], registers[1])
+            .unwrap();
         registers[4] = result;
         assert_eq!(registers[4], 50);
 
         // CMP R2, R4 (Compare R2 with R4)
-        alu.execute(ALUOperation::Cmp, registers[2], registers[4]).unwrap();
-        assert!(!alu.flags.zero);      // Not equal
-        assert!(alu.flags.negative);   // R2 < R4
-        assert!(alu.flags.carry);      // Borrow happened
+        alu.execute(ALUOperation::Cmp, registers[2], registers[4])
+            .unwrap();
+        assert!(!alu.flags.zero); // Not equal
+        assert!(alu.flags.negative); // R2 < R4
+        assert!(alu.flags.carry); // Borrow happened
 
         // JMP_IF_LESS label (should take the branch as R2 < R4)
         assert!(alu.check_condition(BranchCondition::Less));

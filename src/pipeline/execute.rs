@@ -1,10 +1,9 @@
 //src/pipeline/execute.rs
 
-use crate::alu::alu::{ALU, ALUOperation, BranchCondition};
+use crate::alu::alu::{ALUOperation, BranchCondition, ALU};
 use crate::bytecode::opcodes::Opcode;
 use crate::pipeline::{DecodeExecuteRegister, ExecuteMemoryRegister, PipelineState};
-
-
+use crate::pvm::branch_predictor::{BranchPrediction, BranchPredictor};
 
 /// Implementation de l'étage Execute du pipeline
 pub struct ExecuteStage {
@@ -12,14 +11,18 @@ pub struct ExecuteStage {
     // Aucun état interne pour l'instant
 }
 
-impl ExecuteStage{
+impl ExecuteStage {
     /// Crée un nouvel étage Execute
     pub fn new() -> Self {
         Self {}
     }
 
     /// Traite l'étage Execute directement
-    pub fn process_direct(&mut self, ex_reg: &DecodeExecuteRegister, alu: &mut ALU) -> Result<ExecuteMemoryRegister, String> {
+    pub fn process_direct(
+        &mut self,
+        ex_reg: &DecodeExecuteRegister,
+        alu: &mut ALU,
+    ) -> Result<ExecuteMemoryRegister, String> {
         // Valeurs par défaut
         // let mut branch_taken = false;
         // let mut branch_target = None;
@@ -35,120 +38,241 @@ impl ExecuteStage{
 
         let mut store_value = None;
 
-
         // Exécuter l'opération en fonction de l'opcode
+
         match ex_reg.instruction.opcode {
             // Instructions arithmétiques et logiques
             Opcode::Add => {
                 alu_result = alu.execute(ALUOperation::Add, rs1_value, rs2_value)?;
-                println!("Execute ADD: rs1_value={}, rs2_value={}, alu_result={}", rs1_value, rs2_value, alu_result);
-            },
+                println!(
+                    "Execute ADD: rs1_value={}, rs2_value={}, alu_result={}",
+                    rs1_value, rs2_value, alu_result
+                );
+            }
 
             Opcode::Sub => {
                 alu_result = alu.execute(ALUOperation::Sub, rs1_value, rs2_value)?;
-                println!("Execute SUB: rs1_value={}, rs2_value={}, alu_result={}", rs1_value, rs2_value, alu_result);
-            },
+                println!(
+                    "Execute SUB: rs1_value={}, rs2_value={}, alu_result={}",
+                    rs1_value, rs2_value, alu_result
+                );
+            }
 
             Opcode::Mul => {
                 alu_result = alu.execute(ALUOperation::Mul, rs1_value, rs2_value)?;
-                println!("Execute MUL: rs1_value={}, rs2_value={}, alu_result={}", rs1_value, rs2_value, alu_result);
-            },
+                println!(
+                    "Execute MUL: rs1_value={}, rs2_value={}, alu_result={}",
+                    rs1_value, rs2_value, alu_result
+                );
+            }
 
             Opcode::Div => {
                 alu_result = alu.execute(ALUOperation::Div, rs1_value, rs2_value)?;
-                println!("Execute DIV: rs1_value={}, rs2_value={}, alu_result={}", rs1_value, rs2_value, alu_result);
-            },
+                println!(
+                    "Execute DIV: rs1_value={}, rs2_value={}, alu_result={}",
+                    rs1_value, rs2_value, alu_result
+                );
+            }
 
             Opcode::Mod => {
                 alu_result = alu.execute(ALUOperation::Mod, rs1_value, rs2_value)?;
-                println!("Execute MOD: rs1_value={}, rs2_value={}, alu_result={}", rs1_value, rs2_value, alu_result);
-            },
+                println!(
+                    "Execute MOD: rs1_value={}, rs2_value={}, alu_result={}",
+                    rs1_value, rs2_value, alu_result
+                );
+            }
             Opcode::Mov => {
                 let value = ex_reg.immediate.unwrap_or(ex_reg.rs2_value);
                 alu_result = value;
-                println!("Execute MOV: rs1_value={}, immediate={:?}, alu_result={}", rs1_value, ex_reg.immediate, alu_result);
+                println!(
+                    "Execute MOV: rs1_value={}, immediate={:?}, alu_result={}",
+                    rs1_value, ex_reg.immediate, alu_result
+                );
             }
 
             Opcode::Inc => {
                 alu_result = alu.execute(ALUOperation::Inc, rs1_value, 0)?;
-                println!("Execute INC: rs1_value={}, alu_result={}", rs1_value, alu_result);
-            },
+                println!(
+                    "Execute INC: rs1_value={}, alu_result={}",
+                    rs1_value, alu_result
+                );
+            }
 
             Opcode::Dec => {
                 alu_result = alu.execute(ALUOperation::Dec, rs1_value, 0)?;
-                println!("Execute DEC: rs1_value={}, alu_result={}", rs1_value, alu_result);
-            },
+                println!(
+                    "Execute DEC: rs1_value={}, alu_result={}",
+                    rs1_value, alu_result
+                );
+            }
 
             Opcode::Neg => {
                 alu_result = alu.execute(ALUOperation::Neg, rs1_value, 0)?;
-                println!("Execute NEG: rs1_value={}, alu_result={}", rs1_value, alu_result);
-            },
+                println!(
+                    "Execute NEG: rs1_value={}, alu_result={}",
+                    rs1_value, alu_result
+                );
+            }
 
             Opcode::And => {
                 alu_result = alu.execute(ALUOperation::And, rs1_value, rs2_value)?;
-                println!("Execute AND: rs1_value={}, rs2_value={}, alu_result={}", rs1_value, rs2_value, alu_result);
-            },
+                println!(
+                    "Execute AND: rs1_value={}, rs2_value={}, alu_result={}",
+                    rs1_value, rs2_value, alu_result
+                );
+            }
 
             Opcode::Or => {
                 alu_result = alu.execute(ALUOperation::Or, rs1_value, rs2_value)?;
-                println!("Execute OR: rs1_value={}, rs2_value={}, alu_result={}", rs1_value, rs2_value, alu_result);
-            },
+                println!(
+                    "Execute OR: rs1_value={}, rs2_value={}, alu_result={}",
+                    rs1_value, rs2_value, alu_result
+                );
+            }
 
             Opcode::Xor => {
                 alu_result = alu.execute(ALUOperation::Xor, rs1_value, rs2_value)?;
-                println!("Execute XOR: rs1_value={}, rs2_value={}, alu_result={}", rs1_value, rs2_value, alu_result);
-            },
+                println!(
+                    "Execute XOR: rs1_value={}, rs2_value={}, alu_result={}",
+                    rs1_value, rs2_value, alu_result
+                );
+            }
 
             Opcode::Not => {
                 alu_result = alu.execute(ALUOperation::Not, rs1_value, 0)?;
-                println!("Execute NOT: rs1_value={}, alu_result={}", rs1_value, alu_result);
-            },
+                println!(
+                    "Execute NOT: rs1_value={}, alu_result={}",
+                    rs1_value, alu_result
+                );
+            }
 
             Opcode::Nop => {
                 // Pas d'opération
                 alu_result = 0; // Pas utilisé
                 println!("Execute NOP");
-            },
+            }
 
             Opcode::Shl => {
                 alu_result = alu.execute(ALUOperation::Shl, rs1_value, rs2_value)?;
-                println!("Execute SHL: rs1_value={}, rs2_value={}, alu_result={}", rs1_value, rs2_value, alu_result);
-            },
+                println!(
+                    "Execute SHL: rs1_value={}, rs2_value={}, alu_result={}",
+                    rs1_value, rs2_value, alu_result
+                );
+            }
 
             Opcode::Shr => {
                 alu_result = alu.execute(ALUOperation::Shr, rs1_value, rs2_value)?;
-                println!("Execute SHR: rs1_value={}, rs2_value={}, alu_result={}", rs1_value, rs2_value, alu_result);
-            },
+                println!(
+                    "Execute SHR: rs1_value={}, rs2_value={}, alu_result={}",
+                    rs1_value, rs2_value, alu_result
+                );
+            }
 
             Opcode::Sar => {
                 alu_result = alu.execute(ALUOperation::Sar, rs1_value, rs2_value)?;
-                println!("Execute SAR: rs1_value={}, rs2_value={}, alu_result={}", rs1_value, rs2_value, alu_result);
-            },
+                println!(
+                    "Execute SAR: rs1_value={}, rs2_value={}, alu_result={}",
+                    rs1_value, rs2_value, alu_result
+                );
+            }
 
             Opcode::Rol => {
                 alu_result = alu.execute(ALUOperation::Rol, rs1_value, rs2_value)?;
-                println!("Execute ROL: rs1_value={}, rs2_value={}, alu_result={}", rs1_value, rs2_value, alu_result);
-            },
+                println!(
+                    "Execute ROL: rs1_value={}, rs2_value={}, alu_result={}",
+                    rs1_value, rs2_value, alu_result
+                );
+            }
 
             Opcode::Ror => {
                 alu_result = alu.execute(ALUOperation::Ror, rs1_value, rs2_value)?;
-                println!("Execute ROR: rs1_value={}, rs2_value={}, alu_result={}", rs1_value, rs2_value, alu_result);
-            },
+                println!(
+                    "Execute ROR: rs1_value={}, rs2_value={}, alu_result={}",
+                    rs1_value, rs2_value, alu_result
+                );
+            }
 
             // Instructions de comparaison
             Opcode::Cmp => {
                 // Compare mais ne stocke pas le résultat
                 alu.execute(ALUOperation::Cmp, rs1_value, rs2_value)?;
                 alu_result = 0; // Pas utilisé
-                println!("Execute CMP: rs1_value={}, rs2_value={}", rs1_value, rs2_value);
-            },
+                println!(
+                    "Execute CMP: rs1_value={}, rs2_value={}",
+                    rs1_value, rs2_value
+                );
+            }
 
             Opcode::Test => {
                 // Test (AND logique) mais ne stocke pas le résultat
                 alu.execute(ALUOperation::Test, rs1_value, rs2_value)?;
                 alu_result = 0; // Pas utilisé
-                println!("Execute TEST: rs1_value={}, rs2_value={}", rs1_value, rs2_value);
-            },
+                println!(
+                    "Execute TEST: rs1_value={}, rs2_value={}",
+                    rs1_value, rs2_value
+                );
+            }
+            Opcode::JmpIf
+            |Opcode::JmpIfNot
+            | Opcode::JmpIfEqual
+            | Opcode::JmpIfNotEqual
+            | Opcode::JmpIfGreater
+            | Opcode::JmpIfGreaterEqual
+            | Opcode::JmpIfLess
+            | Opcode::JmpIfLessEqual
+            | Opcode::JmpIfAbove
+            | Opcode::JmpIfAboveEqual
+            | Opcode::JmpIfBelow
+            | Opcode::JmpIfBelowEqual
+            | Opcode::JmpIfZero
+            | Opcode::JmpIfNotZero
+            | Opcode::JmpIfOverflow
+            | Opcode::JmpIfNotOverflow
+            | Opcode::JmpIfPositive
+            | Opcode::JmpIfNegative => {
+                branch_taken = alu.check_condition(match ex_reg.instruction.opcode {
+                    Opcode::JmpIf => BranchCondition::Equal,
+                    Opcode::JmpIfEqual => BranchCondition::Equal,
+                    Opcode::JmpIfNotEqual => BranchCondition::NotEqual,
+                    Opcode::JmpIfGreater => BranchCondition::Greater,
+                    Opcode::JmpIfGreaterEqual => BranchCondition::GreaterEqual,
+                    Opcode::JmpIfLess => BranchCondition::Less,
+                    Opcode::JmpIfLessEqual => BranchCondition::LessEqual,
+                    Opcode::JmpIfAbove => BranchCondition::Above,
+                    Opcode::JmpIfAboveEqual => BranchCondition::AboveEqual,
+                    Opcode::JmpIfBelow => BranchCondition::Below,
+                    Opcode::JmpIfBelowEqual => BranchCondition::BelowEqual,
+                    Opcode::JmpIfZero => BranchCondition::Zero,
+                    Opcode::JmpIfNotZero => BranchCondition::NotZero,
+                    Opcode::JmpIfOverflow => BranchCondition::Overflow,
+                    Opcode::JmpIfNotOverflow => BranchCondition::NotOverflow,
+                    Opcode::JmpIfPositive => BranchCondition::Positive,
+                    Opcode::JmpIfNegative => BranchCondition::Negative,
+                    //pour tous les autres opcodes
+                    _ => BranchCondition::Always, // Ne devrait pas arriver
+                });
+                branch_target = ex_reg.branch_addr;
+
+                // mettre a jour le prédicteur avec des resultats réels
+
+                if let Some(prediction) = ex_reg.branch_prediction {
+                    // le PC devrai etre passé au predicteur ou stocké dans ex_reg
+                    // self.update_predictor(ex_reg.pc, prediction, branch_taken);
+                    self.update_branch_predictor(ex_reg.pc as u64, branch_taken, prediction);
+                }
+
+                println!(
+                    "DEBUG: Processing branch instruction: {:?}",
+                    ex_reg.instruction
+                );
+                println!("DEBUG: Branch address: {:?}", ex_reg.branch_addr);
+                println!("DEBUG: Format: {:?}", ex_reg.instruction.format);
+                println!("DEBUG: Args: {:?}", ex_reg.instruction.args);
+                println!(
+                    "Execute branch instruction: {:?}, branch_taken={}, branch_target={:?}",
+                    ex_reg.instruction.opcode, branch_taken, branch_target
+                );
+            }
 
             // Instructions de contrôle de flux
             Opcode::Jmp => {
@@ -156,57 +280,238 @@ impl ExecuteStage{
                 branch_taken = true;
                 branch_target = ex_reg.branch_addr;
                 println!("Execute JMP: branch_target={:?}", branch_target);
-            },
+                println!(
+                    "DEBUG: Traitement d'un Jmp - PC = {}, Target = {:?}",
+                    ex_reg.pc, branch_target
+                );
+            }
 
-            Opcode::JmpIf => {
-                // Saut conditionnel si la condition est vraie
-                branch_taken = alu.check_condition(BranchCondition::Equal);
-                branch_target = ex_reg.branch_addr;
-                println!("Execute JMP_IF: branch_taken={}, branch_target={:?}", branch_taken, branch_target);
-            },
-
-            Opcode::JmpIfNot => {
-                // Saut conditionnel si la condition est fausse
-                branch_taken = alu.check_condition(BranchCondition::NotEqual);
-                branch_target = ex_reg.branch_addr;
-                println!("Execute JMP_IF_NOT: branch_taken={}, branch_target={:?}", branch_taken, branch_target);
-            },
+            // Opcode::JmpIf => {
+            //     // Saut conditionnel si la condition est vraie
+            //     branch_taken = alu.check_condition(BranchCondition::Equal);
+            //     branch_target = ex_reg.branch_addr;
+            //     println!("DEBUG: Processing branch instruction: {:?}", ex_reg.instruction);
+            //     println!("DEBUG: Branch address: {:?}", ex_reg.branch_addr);
+            //     println!("DEBUG: Format: {:?}", ex_reg.instruction.format);
+            //     println!("DEBUG: Args: {:?}", ex_reg.instruction.args);
+            //
+            //     println!("Execute JMP_IF: branch_taken={}, branch_target={:?}", branch_taken, branch_target);
+            // },
+            //
+            // Opcode::JmpIfNot => {
+            //     // Saut conditionnel si la condition est fausse
+            //     branch_taken = alu.check_condition(BranchCondition::NotEqual);
+            //     branch_target = ex_reg.branch_addr;
+            //     println!("Execute JMP_IF_NOT: branch_taken={}, branch_target={:?}", branch_taken, branch_target);
+            // },
+            //
+            // Opcode::JmpIfEqual => {
+            //     branch_taken = alu.check_condition(BranchCondition::Equal);
+            //     branch_target = ex_reg.branch_addr;
+            //     println!("DEBUG: Processing branch instruction: {:?}", ex_reg.instruction);
+            //     println!("DEBUG: Branch address: {:?}", ex_reg.branch_addr);
+            //     println!("DEBUG: Format: {:?}", ex_reg.instruction.format);
+            //     println!("DEBUG: Args: {:?}", ex_reg.instruction.args);
+            //     println!("Execute JMP_IF_EQUAL: branch_taken={}, branch_target={:?}", branch_taken, branch_target);
+            // },
+            //
+            // Opcode::JmpIfNotEqual => {
+            //     branch_taken = alu.check_condition(BranchCondition::NotEqual);
+            //     branch_target = ex_reg.branch_addr;
+            //     println!("DEBUG: Processing branch instruction: {:?}", ex_reg.instruction);
+            //     println!("DEBUG: Branch address: {:?}", ex_reg.branch_addr);
+            //     println!("DEBUG: Format: {:?}", ex_reg.instruction.format);
+            //     println!("DEBUG: Args: {:?}", ex_reg.instruction.args);
+            //     println!("Execute JMP_IF_NOT_EQUAL: branch_taken={}, branch_target={:?}", branch_taken, branch_target);
+            // },
+            //
+            // Opcode::JmpIfGreater => {
+            //     branch_taken = alu.check_condition(BranchCondition::Greater);
+            //     branch_target = ex_reg.branch_addr;
+            //     println!("DEBUG: Processing branch instruction: {:?}", ex_reg.instruction);
+            //     println!("DEBUG: Branch address: {:?}", ex_reg.branch_addr);
+            //     println!("DEBUG: Format: {:?}", ex_reg.instruction.format);
+            //     println!("DEBUG: Args: {:?}", ex_reg.instruction.args);
+            //     println!("Execute JMP_IF_GREATER: branch_taken={}, branch_target={:?}", branch_taken, branch_target);
+            // },
+            //
+            // Opcode::JmpIfGreaterEqual => {
+            //     branch_taken = alu.check_condition(BranchCondition::GreaterEqual);
+            //     branch_target = ex_reg.branch_addr;
+            //     println!("DEBUG: Processing branch instruction: {:?}", ex_reg.instruction);
+            //     println!("DEBUG: Branch address: {:?}", ex_reg.branch_addr);
+            //     println!("DEBUG: Format: {:?}", ex_reg.instruction.format);
+            //     println!("DEBUG: Args: {:?}", ex_reg.instruction.args);
+            //     println!("Execute JMP_IF_GREATER_EQUAL: branch_taken={}, branch_target={:?}", branch_taken, branch_target);
+            // },
+            //
+            // Opcode::JmpIfLess => {
+            //     // Saut conditionnel si pas égal
+            //     branch_taken = alu.check_condition(BranchCondition::Less);
+            //     branch_target = ex_reg.branch_addr;
+            //     println!("DEBUG: Processing branch instruction: {:?}", ex_reg.instruction);
+            //     println!("DEBUG: Branch address: {:?}", ex_reg.branch_addr);
+            //     println!("DEBUG: Format: {:?}", ex_reg.instruction.format);
+            //     println!("DEBUG: Args: {:?}", ex_reg.instruction.args);
+            //     println!("Execute JMP_IF_LESS: branch_taken={}, branch_target={:?}", branch_taken, branch_target);
+            //
+            // },
+            //
+            // Opcode::JmpIfLessEqual => {
+            //     branch_taken = alu.check_condition(BranchCondition::LessEqual);
+            //     branch_target = ex_reg.branch_addr;
+            //     println!("DEBUG: Processing branch instruction: {:?}", ex_reg.instruction);
+            //     println!("DEBUG: Branch address: {:?}", ex_reg.branch_addr);
+            //     println!("DEBUG: Format: {:?}", ex_reg.instruction.format);
+            //     println!("DEBUG: Args: {:?}", ex_reg.instruction.args);
+            //     println!("Execute JMP_IF_LESS_EQUAL: branch_taken={}, branch_target={:?}", branch_taken, branch_target);
+            // },
+            //
+            // Opcode::JmpIfAbove =>{
+            //     branch_taken = alu.check_condition(BranchCondition::Above);
+            //     branch_target = ex_reg.branch_addr;
+            //     println!("DEBUG: Processing branch instruction: {:?}", ex_reg.instruction);
+            //     println!("DEBUG: Branch address: {:?}", ex_reg.branch_addr);
+            //     println!("DEBUG: Format: {:?}", ex_reg.instruction.format);
+            //     println!("DEBUG: Args: {:?}", ex_reg.instruction.args);
+            //     println!("Execute JMP_IF_ABOVE: branch_taken={}, branch_target={:?}", branch_taken, branch_target);
+            // },
+            //
+            // Opcode::JmpIfAboveEqual => {
+            //     branch_taken = alu.check_condition(BranchCondition::AboveEqual);
+            //     branch_target = ex_reg.branch_addr;
+            //     println!("DEBUG: Processing branch instruction: {:?}", ex_reg.instruction);
+            //     println!("DEBUG: Branch address: {:?}", ex_reg.branch_addr);
+            //     println!("DEBUG: Format: {:?}", ex_reg.instruction.format);
+            //     println!("DEBUG: Args: {:?}", ex_reg.instruction.args);
+            //     println!("Execute JMP_IF_ABOVE_EQUAL: branch_taken={}, branch_target={:?}", branch_taken, branch_target);
+            // },
+            //
+            // Opcode::JmpIfBelow => {
+            //     branch_taken = alu.check_condition(BranchCondition::Below);
+            //     branch_target = ex_reg.branch_addr;
+            //     println!("DEBUG: Processing branch instruction: {:?}", ex_reg.instruction);
+            //     println!("DEBUG: Branch address: {:?}", ex_reg.branch_addr);
+            //     println!("DEBUG: Format: {:?}", ex_reg.instruction.format);
+            //     println!("DEBUG: Args: {:?}", ex_reg.instruction.args);
+            //     println!("Execute JMP_IF_BELOW: branch_taken={}, branch_target={:?}", branch_taken, branch_target);
+            // },
+            //
+            // Opcode::JmpIfBelowEqual => {
+            //     branch_taken = alu.check_condition(BranchCondition::BelowEqual);
+            //     branch_target = ex_reg.branch_addr;
+            //     println!("DEBUG: Processing branch instruction: {:?}", ex_reg.instruction);
+            //     println!("DEBUG: Branch address: {:?}", ex_reg.branch_addr);
+            //     println!("DEBUG: Format: {:?}", ex_reg.instruction.format);
+            //     println!("DEBUG: Args: {:?}", ex_reg.instruction.args);
+            //     println!("Execute JMP_IF_BELOW_EQUAL: branch_taken={}, branch_target={:?}", branch_taken, branch_target);
+            // },
+            //
+            // Opcode::JmpIfZero => {
+            //     branch_taken = alu.check_condition(BranchCondition::Zero);
+            //     branch_target = ex_reg.branch_addr;
+            //     println!("DEBUG: Processing branch instruction: {:?}", ex_reg.instruction);
+            //     println!("DEBUG: Branch address: {:?}", ex_reg.branch_addr);
+            //     println!("DEBUG: Format: {:?}", ex_reg.instruction.format);
+            //     println!("DEBUG: Args: {:?}", ex_reg.instruction.args);
+            //     println!("Execute JMP_IF_ZERO: branch_taken={}, branch_target={:?}", branch_taken, branch_target);
+            //
+            // },
+            //
+            // Opcode::JmpIfNotZero => {
+            //     branch_taken = alu.check_condition(BranchCondition::NotZero);
+            //     branch_target =ex_reg.branch_addr;
+            //     println!("DEBUG: Processing branch instruction: {:?}", ex_reg.instruction);
+            //     println!("DEBUG: Branch address: {:?}", ex_reg.branch_addr);
+            //     println!("DEBUG: Format: {:?}", ex_reg.instruction.format);
+            //     println!("DEBUG: Args: {:?}", ex_reg.instruction.args);
+            //     println!("Execute JMP_IF_NOT_ZERO: branch_taken={}, branch_target={:?}", branch_taken, branch_target);
+            // },
+            //
+            // Opcode::JmpIfOverflow => {
+            //     branch_taken = alu.check_condition(BranchCondition::Overflow);
+            //     branch_target = ex_reg.branch_addr;
+            //     println!("DEBUG: Processing branch instruction: {:?}", ex_reg.instruction);
+            //     println!("DEBUG: Branch address: {:?}", ex_reg.branch_addr);
+            //     println!("DEBUG: Format: {:?}", ex_reg.instruction.format);
+            //     println!("DEBUG: Args: {:?}", ex_reg.instruction.args);
+            //     println!("Execute JMP_IF_OVERFLOW: branch_taken={}, branch_target={:?}", branch_taken, branch_target);
+            // },
+            //
+            // Opcode::JmpIfNotOverflow => {
+            //     branch_taken = alu.check_condition(BranchCondition::NotOverflow);
+            //     branch_target = ex_reg.branch_addr;
+            //     println!("DEBUG: Processing branch instruction: {:?}", ex_reg.instruction);
+            //     println!("DEBUG: Branch address: {:?}", ex_reg.branch_addr);
+            //     println!("DEBUG: Format: {:?}", ex_reg.instruction.format);
+            //     println!("DEBUG: Args: {:?}", ex_reg.instruction.args);
+            //     println!("Execute JMP_IF_NOT_OVERFLOW: branch_taken={}, branch_target={:?}", branch_taken, branch_target);
+            // },
+            //
+            // Opcode::JmpIfPositive => {
+            //     branch_taken = alu.check_condition(BranchCondition::Positive);
+            //     branch_target = ex_reg.branch_addr;
+            //     println!("DEBUG: Processing branch instruction: {:?}", ex_reg.instruction);
+            //     println!("DEBUG: Branch address: {:?}", ex_reg.branch_addr);
+            //     println!("DEBUG: Format: {:?}", ex_reg.instruction.format);
+            //     println!("DEBUG: Args: {:?}", ex_reg.instruction.args);
+            //     println!("Execute JMP_IF_POSITIVE: branch_taken={}, branch_target={:?}", branch_taken, branch_target);
+            // },
+            //
+            // Opcode::JmpIfNegative => {
+            //     branch_taken = alu.check_condition(BranchCondition::Negative);
+            //     branch_target = ex_reg.branch_addr;
+            //     println!("DEBUG: Processing branch instruction: {:?}", ex_reg.instruction);
+            //     println!("DEBUG: Branch address: {:?}", ex_reg.branch_addr);
+            //     println!("DEBUG: Format: {:?}", ex_reg.instruction.format);
+            //     println!("DEBUG: Args: {:?}", ex_reg.instruction.args);
+            //     println!("Execute JMP_IF_NEGATIVE: branch_taken={}, branch_target={:?}", branch_taken, branch_target);
+            // },
 
             // Instructions d'accès mémoire
             Opcode::Load | Opcode::LoadB | Opcode::LoadW | Opcode::LoadD => {
                 // Ces instructions finalisent leur exécution dans l'étage Memory
                 alu_result = 0; // Sera remplacé par la valeur chargée
-                println!("Execute LOAD: rs1_value={}, mem_addr={:?}", rs1_value, mem_addr);
-            },
+                println!(
+                    "Execute LOAD: rs1_value={}, mem_addr={:?}",
+                    rs1_value, mem_addr
+                );
+            }
 
             Opcode::Store | Opcode::StoreB | Opcode::StoreW | Opcode::StoreD => {
                 // Préparer la valeur à stocker
                 store_value = Some(rs1_value);
-                println!("Execute STORE: rs1_value={}, mem_addr={:?}", rs1_value, mem_addr);
-            },
+                println!(
+                    "Execute STORE: rs1_value={}, mem_addr={:?}",
+                    rs1_value, mem_addr
+                );
+            }
 
             Opcode::Push => {
                 // Préparer la valeur à empiler
                 store_value = Some(rs1_value);
                 // L'adresse est calculée dans l'étage Memory
-                println!("Execute PUSH: rs1_value={}, mem_addr={:?}", rs1_value, mem_addr);
-            },
+                println!(
+                    "Execute PUSH: rs1_value={}, mem_addr={:?}",
+                    rs1_value, mem_addr
+                );
+            }
 
             Opcode::Pop => {
                 // L'adresse est calculée dans l'étage Memory
                 // La valeur sera chargée dans l'étage Memory
-            },
+            }
 
             // Instructions spéciales
             Opcode::Syscall => {
                 // Traitées séparément (pas implémenté pour l'instant)
                 return Err("Syscall non implémenté".to_string());
-            },
+            }
 
             Opcode::Break => {
                 // Instruction de débogage, ne fait rien dans le simulateur
                 println!("Execute BREAK");
-            },
+            }
 
             Opcode::Halt => {
                 println!("Execute HALT");
@@ -218,27 +523,43 @@ impl ExecuteStage{
                     mem_addr: None,
                     branch_target: None,
                     branch_taken: false,
+                    branch_prediction_correct: None,
                     halted: true, // un champ qu’il faut rajouter (voir ci-dessous)
                 });
-            },
+            }
 
             // Instructions étendues et autres
             _ => {
-                return Err(format!("Opcode non supporté: {:?}", ex_reg.instruction.opcode));
-            },
+                return Err(format!(
+                    "Opcode non supporté: {:?}",
+                    ex_reg.instruction.opcode
+                ));
+            }
         }
+
+        println!("Executed Instruction : {:?}", ex_reg.instruction);
 
         Ok(ExecuteMemoryRegister {
             instruction: ex_reg.instruction.clone(),
             alu_result,
             rd: ex_reg.rd,
-            store_value:None,   // pour CMP
+            store_value, // pour CMP
             mem_addr,
             branch_target,
             branch_taken,
+            branch_prediction_correct: ex_reg
+                .branch_prediction
+                .map(|pred| (pred == BranchPrediction::Taken) == branch_taken), // Pas encore implémenté
             halted: false, // Pas de halt ici
         })
     }
+
+    pub fn update_branch_predictor(&mut self, pc: u64, taken: bool, prediction: BranchPrediction) {
+        // Met à jour le prédicteur de branchement
+        // self.branch_predictor.update(pc, taken, prediction);
+    }
+
+    //methode pour
 
     /// Réinitialise l'étage Execute
     pub fn reset(&mut self) {
@@ -246,15 +567,14 @@ impl ExecuteStage{
     }
 }
 
-
 // Test unitaire pour l'étage Execute
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bytecode::opcodes::Opcode;
-    use crate::bytecode::instructions::Instruction;
-    use crate::bytecode::format::InstructionFormat;
     use crate::bytecode::format::ArgType;
+    use crate::bytecode::format::InstructionFormat;
+    use crate::bytecode::instructions::Instruction;
+    use crate::bytecode::opcodes::Opcode;
     use crate::pipeline::DecodeExecuteRegister;
 
     #[test]
@@ -287,13 +607,14 @@ mod tests {
         let de_reg = DecodeExecuteRegister {
             instruction: add_instruction,
             pc: 100,
-            rs1: Some(0),    // index
+            rs1: Some(0), // index
             rs2: Some(1),
             rd: Some(0),
-            rs1_value: 5,    // R0=5
-            rs2_value: 7,    // R1=7
+            rs1_value: 5, // R0=5
+            rs2_value: 7, // R1=7
             immediate: None,
             branch_addr: None,
+            branch_prediction: None,
             mem_addr: None,
         };
 
@@ -326,10 +647,11 @@ mod tests {
             rs1: Some(0),
             rs2: Some(1),
             rd: Some(2),
-            rs1_value: 5,  // R0=5
-            rs2_value: 7,  // R1=7
+            rs1_value: 5, // R0=5
+            rs2_value: 7, // R1=7
             immediate: None,
             branch_addr: None,
+            branch_prediction: None,
             mem_addr: None,
         };
 
@@ -357,10 +679,11 @@ mod tests {
             rs1: Some(0),
             rs2: Some(1),
             rd: Some(0),
-            rs1_value: 10,  // R0=10
-            rs2_value: 7,   // R1=7
+            rs1_value: 10, // R0=10
+            rs2_value: 7,  // R1=7
             immediate: None,
             branch_addr: None,
+            branch_prediction: None,
             mem_addr: None,
         };
 
@@ -386,10 +709,11 @@ mod tests {
             rs1: Some(0),
             rs2: Some(1),
             rd: Some(2),
-            rs1_value: 10,  // R0=10
-            rs2_value: 7,   // R1=7
+            rs1_value: 10, // R0=10
+            rs2_value: 7,  // R1=7
             immediate: None,
             branch_addr: None,
+            branch_prediction: None,
             mem_addr: None,
         };
 
@@ -409,11 +733,11 @@ mod tests {
 
         // Tester plusieurs opérations arithmétiques
         let operations = [
-            (Opcode::Add,  5,  7,  12),
-            (Opcode::Sub, 10,  3,   7),
-            (Opcode::Mul,  4,  5,  20),
-            (Opcode::Div, 20,  4,   5),
-            (Opcode::Mod, 10,  3,   1),
+            (Opcode::Add, 5, 7, 12),
+            (Opcode::Sub, 10, 3, 7),
+            (Opcode::Mul, 4, 5, 20),
+            (Opcode::Div, 20, 4, 5),
+            (Opcode::Mod, 10, 3, 1),
         ];
 
         for (op, val1, val2, expected) in operations {
@@ -430,6 +754,7 @@ mod tests {
                 rs2_value: val2,
                 immediate: None,
                 branch_addr: None,
+                branch_prediction: None,
                 mem_addr: None,
             };
 
@@ -454,7 +779,7 @@ mod tests {
         // Tester les opérations logiques
         let operations = [
             (Opcode::And, 0xF0, 0x0F, 0x00),
-            (Opcode::Or,  0xF0, 0x0F, 0xFF),
+            (Opcode::Or, 0xF0, 0x0F, 0xFF),
             (Opcode::Xor, 0xF0, 0x0F, 0xFF),
         ];
 
@@ -471,6 +796,7 @@ mod tests {
                 rs2_value: val2,
                 immediate: None,
                 branch_addr: None,
+                branch_prediction: None,
                 mem_addr: None,
             };
 
@@ -496,7 +822,7 @@ mod tests {
         let store_instruction = Instruction::new(
             Opcode::Store,
             InstructionFormat::new(ArgType::Register, ArgType::AbsoluteAddr, ArgType::None),
-            vec![]
+            vec![],
         );
 
         let de_reg = DecodeExecuteRegister {
@@ -509,6 +835,7 @@ mod tests {
             rs2_value: 0,
             immediate: None,
             branch_addr: None,
+            branch_prediction: None,
             mem_addr: Some(0x2000),
         };
 
@@ -535,10 +862,11 @@ mod tests {
             rs1: Some(0),
             rs2: Some(1),
             rd: Some(3),
-            rs1_value: 5,   // R0=5
-            rs2_value: 7,   // R1=7
+            rs1_value: 5, // R0=5
+            rs2_value: 7, // R1=7
             immediate: None,
             branch_addr: None,
+            branch_prediction: None,
             mem_addr: None,
         };
         let res_add = execute.process_direct(&de_reg_add, &mut alu).unwrap();
@@ -553,10 +881,11 @@ mod tests {
             rs1: Some(3),
             rs2: Some(2),
             rd: Some(4),
-            rs1_value: res_add.alu_result,  // R3=12
-            rs2_value: 3,                   // R2=3
+            rs1_value: res_add.alu_result, // R3=12
+            rs2_value: 3,                  // R2=3
             immediate: None,
             branch_addr: None,
+            branch_prediction: None,
             mem_addr: None,
         };
         let res_mul = execute.process_direct(&de_reg_mul, &mut alu).unwrap();
@@ -577,10 +906,11 @@ mod tests {
             rs1: Some(0),
             rs2: Some(1),
             rd: Some(3),
-            rs1_value: 5,  // R0=5
-            rs2_value: 7,  // R1=7
+            rs1_value: 5, // R0=5
+            rs2_value: 7, // R1=7
             immediate: None,
             branch_addr: None,
+            branch_prediction: None,
             mem_addr: None,
         };
         let em_reg_add = execute.process_direct(&de_reg_add, &mut alu).unwrap();
@@ -595,10 +925,11 @@ mod tests {
             rs1: Some(3),
             rs2: None,
             rd: Some(3),
-            rs1_value: em_reg_add.alu_result,  // R3=12
+            rs1_value: em_reg_add.alu_result, // R3=12
             rs2_value: 0,
             immediate: None,
             branch_addr: None,
+            branch_prediction: None,
             mem_addr: None,
         };
         let em_reg_inc = execute.process_direct(&de_reg_inc, &mut alu).unwrap();
@@ -613,10 +944,11 @@ mod tests {
             rs1: Some(3),
             rs2: Some(2),
             rd: None,
-            rs1_value: 13,  // R3=13
-            rs2_value: 13,  // R2=13
+            rs1_value: 13, // R3=13
+            rs2_value: 13, // R2=13
             immediate: None,
             branch_addr: None,
+            branch_prediction: None,
             mem_addr: None,
         };
         let em_reg_cmp = execute.process_direct(&de_reg_cmp, &mut alu).unwrap();
@@ -625,7 +957,6 @@ mod tests {
         assert!(!alu.flags.negative);
         assert!(!alu.flags.carry);
     }
-
 
     #[test]
     fn test_execute_jump_instruction() {
@@ -636,7 +967,7 @@ mod tests {
         let jmp_instruction = Instruction::new(
             Opcode::Jmp,
             InstructionFormat::new(ArgType::None, ArgType::AbsoluteAddr, ArgType::None),
-            vec![0, 16, 0, 0] // Adresse 0x1000 (little-endian)
+            vec![0, 16, 0, 0], // Adresse 0x1000 (little-endian)
         );
 
         // Créer un registre Decode → Execute avec adresse de branchement
@@ -650,6 +981,7 @@ mod tests {
             rs2_value: 0,
             immediate: None,
             branch_addr: Some(0x1000),
+            branch_prediction: None,
             mem_addr: None,
         };
 
@@ -675,7 +1007,7 @@ mod tests {
         let jmp_if_instruction = Instruction::new(
             Opcode::JmpIf,
             InstructionFormat::new(ArgType::None, ArgType::AbsoluteAddr, ArgType::None),
-            vec![0, 16, 0, 0] // Adresse 0x1000
+            vec![0, 16, 0, 0], // Adresse 0x1000
         );
 
         // Créer un registre Decode → Execute
@@ -689,6 +1021,7 @@ mod tests {
             rs2_value: 0,
             immediate: None,
             branch_addr: Some(0x1000),
+            branch_prediction: None,
             mem_addr: None,
         };
 
@@ -711,7 +1044,7 @@ mod tests {
         let load_instruction = Instruction::new(
             Opcode::Load,
             InstructionFormat::new(ArgType::Register, ArgType::AbsoluteAddr, ArgType::None),
-            vec![0, 0, 32, 0, 0] // R0 = Mem[0x2000]
+            vec![0, 0, 32, 0, 0], // R0 = Mem[0x2000]
         );
 
         // Créer un registre Decode → Execute
@@ -725,6 +1058,7 @@ mod tests {
             rs2_value: 0,
             immediate: None,
             branch_addr: None,
+            branch_prediction: None,
             mem_addr: Some(0x2000),
         };
 
@@ -738,6 +1072,4 @@ mod tests {
         assert_eq!(em_reg.rd, Some(0));
         assert_eq!(em_reg.alu_result, 0); // Pas de calcul ALU pour LOAD
     }
-
-
 }

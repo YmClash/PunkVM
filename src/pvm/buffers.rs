@@ -1,15 +1,12 @@
 // //src/pvm/buffers.rs
 
-
 /// Store buffer pour les écritures mémoire
 pub struct StoreBuffer {
-    capacity: usize,        // Taille maximale du buffer
-    entries: Vec<(u32, u8)>,    // Entrées du buffer (adresse -> valeur)
+    capacity: usize,         // Taille maximale du buffer
+    entries: Vec<(u32, u8)>, // Entrées du buffer (adresse -> valeur)
 }
 
-
-
-impl StoreBuffer{
+impl StoreBuffer {
     /// Crée un nouveau store buffer
     pub fn new(capacity: usize) -> Self {
         Self {
@@ -64,11 +61,7 @@ impl StoreBuffer{
     pub fn clear(&mut self) {
         self.entries.clear();
     }
-
-
 }
-
-
 
 #[cfg(test)]
 mod tests {
@@ -202,7 +195,6 @@ mod tests {
     }
 }
 
-
 //  /// Tests unitaires pour le store buffer
 // #[cfg(test)]
 // mod tests {
@@ -335,37 +327,6 @@ mod tests {
 //         assert_eq!(buffer.lookup_byte(0x100), Some(44));
 //     }
 // }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 // use crate::pvm::instructions::Address;
 // use std::collections::VecDeque;

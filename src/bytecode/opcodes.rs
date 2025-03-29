@@ -3,7 +3,7 @@
 /// Représente les opcodes supportés par PunkVM
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
-pub enum Opcode{
+pub enum Opcode {
     // Instructions ALU (0x00 - 0x1F)
     Nop = 0x00,
     Add = 0x01,
@@ -33,20 +33,43 @@ pub enum Opcode{
     Jmp = 0x40,
     JmpIf = 0x41,
     JmpIfNot = 0x42,
-    Call = 0x43,
-    Ret = 0x44,
-    Cmp = 0x45,
-    Test = 0x46,
-    //0x47 - 0x5F : Réservé pour les futures instructions de controle de flux
+    JmpIfEqual = 0x43,        //JmpIfEqual
+    JmpIfNotEqual = 0x44,     //JmpIfNotEqual
+    JmpIfGreater = 0x45,      //JumpIfGreater
+    JmpIfGreaterEqual = 0x46, //JumpIfGreaterOrEqual
+    JmpIfLess = 0x47,         //JumpIfLess
+    JmpIfLessEqual = 0x48,    //JumpIfLessOrEqual
+    JmpIfAbove = 0x49,        //JumpIfAbove
+    JmpIfAboveEqual = 0x4A,   //JumpIfAboveOrEqual
+    JmpIfBelow = 0x4B,        //JumpIfBelow
+    JmpIfBelowEqual = 0x4C,   //JumpIfBelowOrEqual
+    JmpIfNotZero = 0x4D,      //JumpIfNotZero
+    JmpIfZero = 0x4E,         //JumpIfZero
+    JmpIfOverflow = 0x4F,     //JumpIfOverflow
+    JmpIfNotOverflow = 0x50,  //JumpIfNotOverflow
+    JmpIfPositive = 0x51,     //JumpIfPositive
+    JmpIfNegative = 0x52,     //JumpIfNegative
+
+    Call = 0x53, //Call
+    Ret = 0x54,  //Ret
+    Cmp = 0x55,  //Cmp
+    Test = 0x56, //Test
+    //0x57 - 0x5F : Réservé pour les futures instructions de controle de flux
+
+    // Call = 0x52, //Call
+    // Ret = 0x53, //Ret
+    // Cmp = 0x54, //Cmp
+    // Test = 0x55, //Test
+    //0x56 - 0x5F : Réservé pour les futures instructions de controle de flux
 
     // Instructions d'accès mémoire (0x60 - 0x7F)
     Load = 0x60,
     Store = 0x61,
-    LoadB = 0x62, //load byte
+    LoadB = 0x62,  //load byte
     StoreB = 0x63, //store byte
-    LoadW = 0x64, //load word (16 bits)
+    LoadW = 0x64,  //load word (16 bits)
     StoreW = 0x65, //store word (16 bits)
-    LoadD = 0x66, //load double word (32 bits)
+    LoadD = 0x66,  //load double word (32 bits)
     StoreD = 0x67, //store double word (32 bits)
     Push = 0x68,
     Pop = 0x69,
@@ -62,13 +85,11 @@ pub enum Opcode{
     Extended = 0xF0,
     //0xF1 - 0xFF : Réservé pour les futures instructions etendues
     // Invalid = 0xFF, // Instruction invalide
-
 }
-
 
 /// Catégorie d'opcode
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum OpcodeCategory{
+pub enum OpcodeCategory {
     Alu,
     Logical,
     ControlFlow,
@@ -76,7 +97,6 @@ pub enum OpcodeCategory{
     Special,
     Extended,
     Unknown,
-
 }
 
 impl Opcode {
@@ -106,11 +126,33 @@ impl Opcode {
             0x40 => Some(Self::Jmp),
             0x41 => Some(Self::JmpIf),
             0x42 => Some(Self::JmpIfNot),
-            0x43 => Some(Self::Call),
-            0x44 => Some(Self::Ret),
-            0x45 => Some(Self::Cmp),
-            0x46 => Some(Self::Test),
+            0x43 => Some(Self::JmpIfEqual),
+            0x44 => Some(Self::JmpIfNotEqual),
+            0x45 => Some(Self::JmpIfGreater),
+            0x46 => Some(Self::JmpIfGreaterEqual),
+            0x47 => Some(Self::JmpIfLess),
+            0x48 => Some(Self::JmpIfLessEqual),
+            0x49 => Some(Self::JmpIfAbove),
+            0x4A => Some(Self::JmpIfAboveEqual),
+            0x4B => Some(Self::JmpIfBelow),
+            0x4C => Some(Self::JmpIfBelowEqual),
+            0x4D => Some(Self::JmpIfZero),
+            0x4E => Some(Self::JmpIfNotZero),
+            0x4F => Some(Self::JmpIfOverflow),
+            0x50 => Some(Self::JmpIfNotOverflow),
+            0x51 => Some(Self::JmpIfPositive),
+            0x52 => Some(Self::JmpIfNegative),
 
+            0x53 => Some(Self::Call),
+            0x54 => Some(Self::Ret),
+            0x55 => Some(Self::Cmp),
+            0x56 => Some(Self::Test),
+
+            //
+            // 0x52 => Some(Self::Call),
+            // 0x53 => Some(Self::Ret),
+            // 0x54 => Some(Self::Cmp),
+            // 0x55 => Some(Self::Test),
             0x60 => Some(Self::Load),
             0x61 => Some(Self::Store),
             0x62 => Some(Self::LoadB),
@@ -138,15 +180,35 @@ impl Opcode {
     }
 
     /// Retourne la taille d'opcode en bytes
-    pub fn size(&self) -> usize{
-        1   //Tous les opcodes font 1 byte
+    pub fn size(&self) -> usize {
+        1 //Tous les opcodes font 1 byte
     }
 
     /// Indique si l'opcode est une instruction de controle de flux
     pub fn is_branch(&self) -> bool {
         matches!(
             self,
-            Self::Jmp | Self::JmpIf | Self::JmpIfNot | Self::Call | Self::Ret
+            Self::Jmp
+                | Self::JmpIf
+                | Self::JmpIfNot
+                | Self::JmpIfEqual
+                | Self::JmpIfNotEqual
+                | Self::JmpIfGreater
+                | Self::JmpIfGreaterEqual
+                | Self::JmpIfLess
+                | Self::JmpIfLessEqual
+                | Self::JmpIfAbove
+                | Self::JmpIfAboveEqual
+                | Self::JmpIfBelow
+                | Self::JmpIfBelowEqual
+                | Self::JmpIfNotZero
+                | Self::JmpIfZero
+                | Self::JmpIfOverflow
+                | Self::JmpIfNotOverflow
+                | Self::JmpIfPositive
+                | Self::JmpIfNegative
+                | Self::Call
+                | Self::Ret
         )
     }
 
@@ -163,9 +225,7 @@ impl Opcode {
             _ => OpcodeCategory::Unknown,
         }
     }
-
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -205,6 +265,24 @@ mod tests {
         assert!(Opcode::JmpIf.is_branch());
         assert!(Opcode::Call.is_branch());
         assert!(Opcode::Ret.is_branch());
+        assert!(Opcode::JmpIfNot.is_branch());
+
+        assert!(Opcode::JmpIfEqual.is_branch());
+        assert!(Opcode::JmpIfNotEqual.is_branch());
+        assert!(Opcode::JmpIfGreater.is_branch());
+        assert!(Opcode::JmpIfGreaterEqual.is_branch());
+        assert!(Opcode::JmpIfLess.is_branch());
+        assert!(Opcode::JmpIfLessEqual.is_branch());
+        assert!(Opcode::JmpIfAbove.is_branch());
+        assert!(Opcode::JmpIfAboveEqual.is_branch());
+        assert!(Opcode::JmpIfBelow.is_branch());
+        assert!(Opcode::JmpIfBelowEqual.is_branch());
+        assert!(Opcode::JmpIfNotZero.is_branch());
+        assert!(Opcode::JmpIfZero.is_branch());
+        assert!(Opcode::JmpIfOverflow.is_branch());
+        assert!(Opcode::JmpIfNotOverflow.is_branch());
+        assert!(Opcode::JmpIfPositive.is_branch());
+        assert!(Opcode::JmpIfNegative.is_branch());
 
         // Instructions non-branchement
         assert!(!Opcode::Add.is_branch());
@@ -249,7 +327,6 @@ mod tests {
         }
     }
 }
-
 
 // Test unitaire pour les Opcodes
 // #[cfg(test)]

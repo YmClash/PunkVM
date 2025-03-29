@@ -1,0 +1,66 @@
+flowchart LR
+    subgraph SOURCE["Source PunkLang"]
+        LANG_CODE["Code Source"]
+    end
+    
+    subgraph COMPILER["Compilateur PunkLang"]
+        LEXER["Lexer"]
+        PARSER["Parser"]
+        AST["AST"]
+        IR["Représentation\nIntermédiaire"]
+        BYTECODE_GEN["Générateur\nde Bytecode"]
+        
+        LEXER --> PARSER
+        PARSER --> AST
+        AST --> IR
+        IR --> BYTECODE_GEN
+    end
+    
+    subgraph VM["PunkVM"]
+        subgraph LOADER["Chargeur de Bytecode"]
+            VALIDATOR["Validateur"]
+            OPTIMIZER["Optimiseur"]
+            LOADER_CORE["Chargeur"]
+        end
+        
+        subgraph PIPELINE["Pipeline d'Exécution"]
+            FETCH["Fetch"] --> DECODE["Decode"]
+            DECODE --> EXECUTE["Execute"]
+            EXECUTE --> MEMORY["Memory"]
+            MEMORY --> WRITEBACK["Writeback"]
+        end
+        
+        subgraph EXECUTION_UNITS["Unités d'Exécution"]
+            ALU_BLOCK["ALU"]
+            LSU["Load/Store Unit"]
+            BRU["Branch Unit"]
+        end
+        
+        subgraph MEMORY_SYSTEM["Système Mémoire"]
+            REG_FILE["Fichier de Registres"]
+            CACHE_L1["Cache L1"]
+            MAIN_MEM["Mémoire Principale"]
+        end
+        
+        LOADER_CORE --> PIPELINE
+        EXECUTE <--> EXECUTION_UNITS
+        MEMORY <--> MEMORY_SYSTEM
+        EXECUTION_UNITS <--> REG_FILE
+    end
+    
+    subgraph EXTENSIONS["Extensions Futures"]
+        JIT["Compilateur JIT\n(Cranelift)"]
+        NEURAL["Unité Neuronale"]
+        PROFILER["Profiler"]
+    end
+    
+    LANG_CODE --> LEXER
+    BYTECODE_GEN -->|"Bytecode\nFormat"| VALIDATOR
+    VALIDATOR --> OPTIMIZER
+    OPTIMIZER --> LOADER_CORE
+    
+    PIPELINE -->|"Profilage\nd'Exécution"| JIT
+    JIT -->|"Code Natif\nOptimisé"| PIPELINE
+    
+    PIPELINE <-->|"Apprentissage\nMotifs d'Exécution"| NEURAL
+    PIPELINE <-->|"Métriques\nd'Exécution"| PROFILER

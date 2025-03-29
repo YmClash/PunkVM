@@ -2,23 +2,28 @@
 
 use crate::bytecode::instructions::{ArgValue, Instruction};
 use crate::bytecode::opcodes::Opcode;
-use crate::pipeline::{FetchDecodeRegister, DecodeExecuteRegister, /*stage::PipelineStage*/};
+use crate::pipeline::{DecodeExecuteRegister /*stage::PipelineStage*/, FetchDecodeRegister};
+use crate::pvm::branch_predictor::{BranchPredictor, PredictorType};
 
 /// implementation de l'étage Decode du pipeline
 pub struct DecodeStage {
     // Registre intermédiaire Decode -> Execute
     // pub decode_register: Option<DecodeExecuteRegister>,
     //données de l'état interne si nécessaire
+    pub branch_predictor: BranchPredictor,
 }
-
 
 impl DecodeStage {
     /// Crée un nouvel étage Decode
+
     pub fn new() -> Self {
-        Self {}
+        Self {
+            branch_predictor: BranchPredictor::new(PredictorType::Dynamic),
+        }
     }
 
     /// Effectue le décodage :
+    ///
     /// - détermine rs1_index, rs2_index, rd_index
     /// - lit rs1_value, rs2_value dans la banque de registres (si applicable)
     /// - calcule un éventuel immediate
@@ -26,7 +31,11 @@ impl DecodeStage {
     /// - retourne un DecodeExecuteRegister
 
     /// Traite l'étage Decode directement
-    pub fn process_direct(&mut self, fd_reg: &FetchDecodeRegister, registers: &[u64]) -> Result<DecodeExecuteRegister, String> {
+    pub fn process_direct(
+        &mut self,
+        fd_reg: &FetchDecodeRegister,
+        registers: &[u64],
+    ) -> Result<DecodeExecuteRegister, String> {
         let instruction = &fd_reg.instruction;
 
         // Extraction des registres source et destination
@@ -42,10 +51,10 @@ impl DecodeStage {
             }
         });
 
-        let rs2_value = rs2_index.map_or(0,|ix|{
-            if ix < registers.len(){
+        let rs2_value = rs2_index.map_or(0, |ix| {
+            if ix < registers.len() {
                 registers[ix]
-            }else {
+            } else {
                 // On pourrait renvoyer une erreur, ou 0. Au choix.
                 0
             }
@@ -59,12 +68,17 @@ impl DecodeStage {
         let branch_addr = self.calculate_branch_address(instruction, fd_reg.pc)?;
         println!("Adresse de branchement calculée: {:?}", branch_addr);
 
+        // si c'est une instruction de branchement, utiliser le prédicteur de branchement
+        let mut prediction = None;
+        if instruction.opcode.is_branch() && branch_addr.is_some() {
+            // prédire l'adresse de branchement
+            prediction = Some(self.branch_predictor.predict(fd_reg.pc as u64));
+            println!("Branch prediction at PC={:X}: {:?}", fd_reg.pc, prediction);
+        }
 
         // Calcul de l'adresse mémoire (si instruction mémoire)
         let mem_addr = self.calculate_memory_address(instruction, registers)?;
         println!("Adresse mémoire calculée: {:?}", mem_addr);
-
-
 
         Ok(DecodeExecuteRegister {
             instruction: instruction.clone(),
@@ -76,17 +90,19 @@ impl DecodeStage {
             rs2_value,
             immediate,
             branch_addr,
+            branch_prediction: prediction,
             mem_addr,
         })
     }
 
-
     /// Extrait les registres source et destination
-    fn extract_registers(&self, instruction: &Instruction) -> Result<(Option<usize>, Option<usize>, Option<usize>), String> {
+    fn extract_registers(
+        &self,
+        instruction: &Instruction,
+    ) -> Result<(Option<usize>, Option<usize>, Option<usize>), String> {
         let mut rs1 = None;
         let mut rs2 = None;
         let mut rd = None;
-
 
         // Vérifier d'abord si nous avons une instruction à trois registres
         // en essayant d'extraire un troisième argument
@@ -113,9 +129,18 @@ impl DecodeStage {
         // Extraction en fonction du type d'instruction
         match instruction.opcode {
             // Instructions à deux registres (destination = premier argument)
-            Opcode::Add | Opcode::Sub | Opcode::Mul | Opcode::Div |
-            Opcode::And | Opcode::Or | Opcode::Xor | Opcode::Shl |
-            Opcode::Shr | Opcode::Sar | Opcode::Rol | Opcode::Ror => {
+            Opcode::Add
+            | Opcode::Sub
+            | Opcode::Mul
+            | Opcode::Div
+            | Opcode::And
+            | Opcode::Or
+            | Opcode::Xor
+            | Opcode::Shl
+            | Opcode::Shr
+            | Opcode::Sar
+            | Opcode::Rol
+            | Opcode::Ror => {
                 if let Ok(ArgValue::Register(r)) = instruction.get_arg1_value() {
                     rd = Some(r as usize);
                     rs1 = Some(r as usize); // Dans certaines architectures, rd est aussi rs1
@@ -124,7 +149,7 @@ impl DecodeStage {
                 if let Ok(ArgValue::Register(r)) = instruction.get_arg2_value() {
                     rs2 = Some(r as usize);
                 }
-            },
+            }
 
             // Instructions à un registre (destination = premier argument)
             Opcode::Inc | Opcode::Dec | Opcode::Neg | Opcode::Not => {
@@ -132,7 +157,7 @@ impl DecodeStage {
                     rd = Some(r as usize);
                     rs1 = Some(r as usize); // Le registre est à la fois source et destination
                 }
-            },
+            }
 
             // Instructions de comparaison (pas de registre destination)
             Opcode::Cmp | Opcode::Test => {
@@ -145,7 +170,7 @@ impl DecodeStage {
                     rs2 = Some(r as usize);
                     println!("DecodeStage: Registre source 2 pour CMP: {:?}", rs2);
                 }
-            },
+            }
 
             // Instructions de charge (load)
             Opcode::Load | Opcode::LoadB | Opcode::LoadW | Opcode::LoadD => {
@@ -159,7 +184,7 @@ impl DecodeStage {
                     rs1 = Some(r as usize);
                     println!("Registre base 1: {:?}", rs1);
                 }
-            },
+            }
 
             // Instructions de stockage (store)
             Opcode::Store | Opcode::StoreB | Opcode::StoreW | Opcode::StoreD => {
@@ -173,7 +198,7 @@ impl DecodeStage {
                     rs2 = Some(r as usize);
                     println!("Registre base 2: {:?}", rs2);
                 }
-            },
+            }
 
             // Instructions de pile
             Opcode::Push => {
@@ -181,25 +206,42 @@ impl DecodeStage {
                     rs1 = Some(r as usize);
                     println!("Registre source pour PUSH: {:?}", rs1);
                 }
-            },
+            }
 
             Opcode::Pop => {
                 if let Ok(ArgValue::Register(r)) = instruction.get_arg1_value() {
                     rd = Some(r as usize);
                     println!("Registre destination pour POP: {:?}", rd);
                 }
-            },
+            }
 
             // Instructions de branchement conditionnel
-            Opcode::JmpIf | Opcode::JmpIfNot => {
+            Opcode::Jmp
+            | Opcode::JmpIf
+            | Opcode::JmpIfNot
+            | Opcode::JmpIfEqual
+            | Opcode::JmpIfNotEqual
+            | Opcode::JmpIfGreater
+            | Opcode::JmpIfGreaterEqual
+            | Opcode::JmpIfLess
+            | Opcode::JmpIfLessEqual
+            | Opcode::JmpIfAbove
+            | Opcode::JmpIfAboveEqual
+            | Opcode::JmpIfBelow
+            | Opcode::JmpIfBelowEqual
+            | Opcode::JmpIfNotZero
+            | Opcode::JmpIfZero
+            | Opcode::JmpIfOverflow
+            | Opcode::JmpIfNotOverflow
+            | Opcode::JmpIfPositive
+            | Opcode::JmpIfNegative => {
                 // Ces instructions n'utilisent pas explicitement de registres,
                 // mais se basent sur les flags définis par les instructions précédentes
-            },
+            }
 
             // Instructions de Mov
             Opcode::Mov => {
                 if let Ok(ArgValue::Register(r)) = instruction.get_arg1_value() {
-
                     rd = Some(r as usize);
                     println!("Registre destination pour MOV: {:?}", rd);
                 }
@@ -210,21 +252,21 @@ impl DecodeStage {
                     // alors arg1=Register, arg2=Immediate8
                     // => le decode saura stocker l'immediate dans un champ (plus tard).
                     println!("Valeur immédiate pour MOV: {:?}", imm);
-
                 }
-            },
+            }
             // Instructions d'arret
             Opcode::Halt => {
                 // Pas de registre à extraire
                 println!("Instruction HALT détectée");
-
-            },
-
+            }
 
             // Autres instructions (par défaut)
             _ => {
-                return Err(format!("Instruction non prise en charge: {:?}", instruction.opcode));
-            },
+                return Err(format!(
+                    "Instruction non prise en charge: {:?}",
+                    instruction.opcode
+                ));
+            }
         }
 
         Ok((rs1, rs2, rd))
@@ -235,15 +277,15 @@ impl DecodeStage {
         // Recherche d'une valeur immédiate dans les arguments
         match instruction.get_arg1_value() {
             Ok(ArgValue::Immediate(imm)) => return Ok(Some(imm)),
-            _ => {},
+            _ => {}
         }
         match instruction.get_arg2_value() {
             Ok(ArgValue::Immediate(imm)) => return Ok(Some(imm)),
-            _ => {},
+            _ => {}
         }
         match instruction.get_arg3_value() {
             Ok(ArgValue::Immediate(imm)) => return Ok(Some(imm)),
-            _ => {},
+            _ => {}
         }
         Ok(None)
 
@@ -260,11 +302,14 @@ impl DecodeStage {
         //     return Ok(Some(imm));
         // }
         // Ok(None)
-
     }
 
     /// Calcule l'adresse de branchement (si instruction de branchement)
-    fn calculate_branch_address(&self, instruction: &Instruction, pc: u32) -> Result<Option<u32>, String> {
+    fn calculate_branch_address(
+        &mut self,
+        instruction: &Instruction,
+        pc: u32,
+    ) -> Result<Option<u32>, String> {
         // Vérifier si c'est une instruction de branchement
         if !instruction.opcode.is_branch() {
             return Ok(None);
@@ -275,27 +320,59 @@ impl DecodeStage {
             Opcode::Jmp => {
                 match instruction.get_arg2_value() {
                     Ok(ArgValue::AbsoluteAddr(addr)) => Ok(Some(addr as u32)),
-                    Ok(ArgValue::RelativeAddr(offset)) => Ok(Some((pc as i64 + offset as i64) as u32)),
+                    // Ok(ArgValue::RelativeAddr(offset)) => Ok(Some((pc as i64  + offset as i64) as u32)),
+                    Ok(ArgValue::RelativeAddr(offset)) => {
+                        // Attention: pour un saut relatif, l'offset doit être calculé
+                        // à partir de l'adresse de l'instruction SUIVANTE (pc + instruction.total_size())
+                        let pc = pc + instruction.total_size() as u32;
+                        let next_pc = pc + offset as u32;
+                        println!("Branch address: next_pc = {}, offset = {}", next_pc, offset);
+                        // Ok(Some((next_pc as i64 + offset as i64) as u32))
+                        Ok(Some(next_pc))
+                    }
+
                     _ => Err("Format d'adresse de saut invalide".to_string()),
                 }
-            },
-
+            }
             // Saut conditionnel
-            Opcode::JmpIf | Opcode::JmpIfNot => {
+            Opcode::JmpIf
+            | Opcode::JmpIfNot
+            |Opcode::JmpIfEqual
+            | Opcode::JmpIfNotEqual
+            | Opcode::JmpIfGreater
+            | Opcode::JmpIfGreaterEqual
+            | Opcode::JmpIfLess
+            | Opcode::JmpIfLessEqual
+            | Opcode::JmpIfAbove
+            | Opcode::JmpIfAboveEqual
+            | Opcode::JmpIfBelow
+            | Opcode::JmpIfBelowEqual
+            | Opcode::JmpIfZero
+            | Opcode::JmpIfNotZero
+            | Opcode::JmpIfOverflow
+            | Opcode::JmpIfNotOverflow
+            | Opcode::JmpIfPositive
+            | Opcode::JmpIfNegative => {
                 match instruction.get_arg2_value() {
                     Ok(ArgValue::AbsoluteAddr(addr)) => Ok(Some(addr as u32)),
-                    Ok(ArgValue::RelativeAddr(offset)) => Ok(Some((pc as i64 + offset as i64) as u32)),
+                    Ok(ArgValue::RelativeAddr(offset)) => {
+                        // Attention: pour un saut relatif, l'offset doit être calculé
+                        // à partir de l'adresse de l'instruction SUIVANTE (pc + instruction.total_size())
+                        let pc = pc + instruction.total_size() as u32;
+                        let next_pc = pc + offset as u32;
+                        println!("Branch address: next_pc = {}, offset = {}", next_pc, offset);
+                        // Ok(Some((next_pc as i64 + offset as i64) as u32))
+                        Ok(Some(next_pc))
+                    }
                     _ => Err("Format d'adresse de saut conditionnel invalide".to_string()),
                 }
-            },
+            }
 
             // Appel de fonction
-            Opcode::Call => {
-                match instruction.get_arg2_value() {
-                    Ok(ArgValue::AbsoluteAddr(addr)) => Ok(Some(addr as u32)),
-                    Ok(ArgValue::RelativeAddr(offset)) => Ok(Some((pc as i64 + offset as i64) as u32)),
-                    _ => Err("Format d'adresse d'appel invalide".to_string()),
-                }
+            Opcode::Call => match instruction.get_arg2_value() {
+                Ok(ArgValue::AbsoluteAddr(addr)) => Ok(Some(addr as u32)),
+                Ok(ArgValue::RelativeAddr(offset)) => Ok(Some((pc as i64 + offset as i64) as u32)),
+                _ => Err("Format d'adresse d'appel invalide".to_string()),
             },
 
             // Retour de fonction (pas d'adresse explicite)
@@ -307,11 +384,21 @@ impl DecodeStage {
     }
 
     /// Calcule l'adresse mémoire (si instruction mémoire)
-    fn calculate_memory_address(&self, instruction: &Instruction, registers: &[u64]) -> Result<Option<u32>, String> {
+    fn calculate_memory_address(
+        &self,
+        instruction: &Instruction,
+        registers: &[u64],
+    ) -> Result<Option<u32>, String> {
         // Vérifier si c'est une instruction mémoire
         match instruction.opcode {
-            Opcode::Load | Opcode::LoadB | Opcode::LoadW | Opcode::LoadD |
-            Opcode::Store | Opcode::StoreB | Opcode::StoreW | Opcode::StoreD => {
+            Opcode::Load
+            | Opcode::LoadB
+            | Opcode::LoadW
+            | Opcode::LoadD
+            | Opcode::Store
+            | Opcode::StoreB
+            | Opcode::StoreW
+            | Opcode::StoreD => {
                 // On suppose que l'adresse est dans arg2
                 match instruction.get_arg2_value() {
                     Ok(ArgValue::AbsoluteAddr(addr)) => Ok(Some(addr as u32)),
@@ -337,7 +424,7 @@ impl DecodeStage {
                     }
                     _ => Err("Adresse mémoire invalide".to_owned()),
                 }
-            },
+            }
             _ => Ok(None),
         }
     }
@@ -348,16 +435,21 @@ impl DecodeStage {
     }
 }
 
+fn compute_target(pc: u32, offset: i32) -> u32 {
+    println!("DecodeStage: Calcul de l'adresse cible pour le saut");
+    // Calculer l'adresse cible
+    (pc as i64 + offset as i64) as u32
+}
 
 // Test unitaire pour l'étage Decode
 #[cfg(test)]
 mod tests {
-    use crate::bytecode::format;
     use super::*;
-    use crate::bytecode::opcodes::Opcode;
-    use crate::bytecode::instructions::Instruction;
-    use crate::bytecode::format::InstructionFormat;
+    use crate::bytecode::format;
     use crate::bytecode::format::ArgType;
+    use crate::bytecode::format::InstructionFormat;
+    use crate::bytecode::instructions::Instruction;
+    use crate::bytecode::opcodes::Opcode;
 
     #[test]
     fn test_decode_stage_creation() {
@@ -394,7 +486,7 @@ mod tests {
         assert!(result.is_ok());
 
         let (rs1, rs2, rd) = result.unwrap();
-        assert_eq!(rd, Some(2));  // R2 est le registre destination
+        assert_eq!(rd, Some(2)); // R2 est le registre destination
         assert_eq!(rs1, Some(0)); // R0 est le premier registre source
         assert_eq!(rs2, Some(1)); // R1 est le deuxième registre source
     }
@@ -413,23 +505,52 @@ mod tests {
         assert_eq!(immediate, Some(5));
     }
 
+    // #[test]
+    // fn test_decode_stage_calculate_branch_address() {
+    //     let mut decode = DecodeStage::new();
+    //
+    //     // Instruction de saut relatif (JMP +8)
+    //     let jmp_instruction = Instruction::new(
+    //         Opcode::Jmp,
+    //         InstructionFormat::new(ArgType::None, ArgType::RelativeAddr, ArgType::None),
+    //         vec![8, 0, 0, 0] // Saut relatif de 8 bytes
+    //     );
+    //
+    //     let pc = 100;
+    //     let instruction_size = jmp_instruction.total_size() as u32;
+    //     let result = decode.calculate_branch_address(&jmp_instruction, pc);
+    //     assert!(result.is_ok());
+    //
+    //     let branch_addr = result.unwrap();
+    //     assert_eq!(branch_addr, Some(pc + instruction_size + 8)); // PC + taille_instruction + 8
+    // }
+
     #[test]
     fn test_decode_stage_calculate_branch_address() {
-        let decode = DecodeStage::new();
+        let mut decode = DecodeStage::new();
 
         // Instruction de saut relatif (JMP +8)
         let jmp_instruction = Instruction::new(
             Opcode::Jmp,
             InstructionFormat::new(ArgType::None, ArgType::RelativeAddr, ArgType::None),
-            vec![8, 0, 0, 0] // Saut relatif de 8 bytes
+            vec![8, 0, 0, 0], // Saut relatif de 8 bytes
         );
 
         let pc = 100;
+        let instruction_size = jmp_instruction.total_size() as u32;
+        println!(
+            "PC: {},Instruction size: {}, Offset:8",
+            pc, instruction_size
+        );
         let result = decode.calculate_branch_address(&jmp_instruction, pc);
         assert!(result.is_ok());
+        println!("Result: {:?}", result);
 
         let branch_addr = result.unwrap();
-        assert_eq!(branch_addr, Some(108)); // PC + 8
+        println!("Calculated Branch Address: {:?}", branch_addr);
+
+        //PC(100) + Instruction_size(8) + Offset(8) = 100 + 8 + 8 = 116
+        assert_eq!(branch_addr, Some(116)); // PC + taille_instruction + 8
     }
 
     #[test]
@@ -440,7 +561,7 @@ mod tests {
         let load_instruction = Instruction::new(
             Opcode::Load,
             InstructionFormat::new(ArgType::Register, ArgType::RegisterOffset, ArgType::None),
-            vec![0, 1, 4] // R0 = Mem[R1+4]
+            vec![0, 1, 4], // R0 = Mem[R1+4]
         );
 
         // Initialiser les registres
@@ -553,15 +674,24 @@ mod tests {
 
         // Format à trois registres: ADD R2, R0, R1
         let add_three_reg = Instruction::create_reg_reg_reg(Opcode::Add, 2, 0, 1);
-        let fd_reg_add3 = FetchDecodeRegister { instruction: add_three_reg, pc: 100 };
+        let fd_reg_add3 = FetchDecodeRegister {
+            instruction: add_three_reg,
+            pc: 100,
+        };
 
         // Format à deux registres: SUB R3, R2
         let sub_two_reg = Instruction::create_reg_reg(Opcode::Sub, 3, 2);
-        let fd_reg_sub2 = FetchDecodeRegister { instruction: sub_two_reg, pc: 108 };
+        let fd_reg_sub2 = FetchDecodeRegister {
+            instruction: sub_two_reg,
+            pc: 108,
+        };
 
         // Format à un registre: INC R4
         let inc_one_reg = Instruction::create_single_reg(Opcode::Inc, 4);
-        let fd_reg_inc1 = FetchDecodeRegister { instruction: inc_one_reg, pc: 112 };
+        let fd_reg_inc1 = FetchDecodeRegister {
+            instruction: inc_one_reg,
+            pc: 112,
+        };
 
         // Vérifier le décodage des trois formats
         let result_add3 = decode.process_direct(&fd_reg_add3, &registers);
@@ -583,7 +713,7 @@ mod tests {
         let de_reg_inc1 = result_inc1.unwrap();
         assert_eq!(de_reg_inc1.rd, Some(4));
         assert_eq!(de_reg_inc1.rs1, Some(4)); // Le registre est à la fois source et destination
-        assert_eq!(de_reg_inc1.rs2, None);    // Pas de second registre source
+        assert_eq!(de_reg_inc1.rs2, None); // Pas de second registre source
     }
 
     #[test]
@@ -607,7 +737,7 @@ mod tests {
         assert!(result.is_ok());
 
         let (rs1, rs2, rd) = result.unwrap();
-        assert_eq!(rd, Some(2));  // R2 est le registre destination
+        assert_eq!(rd, Some(2)); // R2 est le registre destination
         assert_eq!(rs1, Some(0)); // R0 est le premier registre source
         assert_eq!(rs2, Some(1)); // R1 est le deuxième registre source
     }
@@ -635,9 +765,9 @@ mod tests {
         // Vérifier le résultat
         let de_reg = result.unwrap();
         assert_eq!(de_reg.pc, 100);
-        assert_eq!(de_reg.rs1, Some(0));  // Premier registre source
-        assert_eq!(de_reg.rs2, Some(1));  // Deuxième registre source
-        assert_eq!(de_reg.rd, Some(2));   // Registre destination
+        assert_eq!(de_reg.rs1, Some(0)); // Premier registre source
+        assert_eq!(de_reg.rs2, Some(1)); // Deuxième registre source
+        assert_eq!(de_reg.rd, Some(2)); // Registre destination
         assert_eq!(de_reg.immediate, None);
         assert_eq!(de_reg.branch_addr, None);
         assert_eq!(de_reg.mem_addr, None);
@@ -676,7 +806,7 @@ mod tests {
         let (rs1_inc, rs2_inc, rd_inc) = result_inc.unwrap();
         assert_eq!(rd_inc, Some(5));
         assert_eq!(rs1_inc, Some(5)); // Le registre est à la fois source et destination
-        assert_eq!(rs2_inc, None);    // Pas de deuxième registre source
+        assert_eq!(rs2_inc, None); // Pas de deuxième registre source
     }
 
     #[test]
@@ -738,11 +868,17 @@ mod tests {
 
         // ADD R2, R0, R1  (R2 = R0 + R1, format à trois registres)
         let add_instruction = Instruction::create_reg_reg_reg(Opcode::Add, 2, 0, 1);
-        let fd_reg_add = FetchDecodeRegister { instruction: add_instruction, pc: 100 };
+        let fd_reg_add = FetchDecodeRegister {
+            instruction: add_instruction,
+            pc: 100,
+        };
 
         // MUL R3, R2, 2   (R3 = R2 * 2, format à deux registres avec immédiat)
         let mul_instruction = Instruction::create_reg_imm8(Opcode::Mul, 3, 2);
-        let fd_reg_mul = FetchDecodeRegister { instruction: mul_instruction, pc: 108 };
+        let fd_reg_mul = FetchDecodeRegister {
+            instruction: mul_instruction,
+            pc: 108,
+        };
 
         // Décoder la première instruction
         let result_add = decode.process_direct(&fd_reg_add, &registers);
@@ -761,7 +897,6 @@ mod tests {
         assert_eq!(de_reg_mul.immediate, Some(2));
     }
 }
-
 
 //
 // impl<'a> PipelineStage<'a> for DecodeStage {

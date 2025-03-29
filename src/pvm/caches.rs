@@ -2,11 +2,10 @@
 
 use std::collections::HashMap;
 
-
 /// Taille de line Cache
 pub const DEFAULT_LINE_SIZE: usize = 64;
 
-#[derive(Debug, Clone,Copy,PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CacheLine {
     // pub tag: u32,            // Tag de la ligne
     // pub data: Vec<u8>,      // Données de la ligne
@@ -27,29 +26,20 @@ pub enum CacheState {
     Invalid,   // Ligne invalide
 }
 
-
-
-
-
-
 /// Cache L1 pour la mémoire
 pub struct L1Cache {
-    size: usize,             // Taille totale de la cache en bytes
-    lines_count: usize,            // Nombre de lignes
-    line_size: usize,        // Taille de chaque ligne en bytes
+    size: usize,        // Taille totale de la cache en bytes
+    lines_count: usize, // Nombre de lignes
+    line_size: usize,   // Taille de chaque ligne en bytes
 
     /// Stockage principal : clé = adresse de base alignée, valeur = ligne de cache
-    data: HashMap<u32,CacheLine>, // Données de la cache (addresse -> données)
+    data: HashMap<u32, CacheLine>, // Données de la cache (addresse -> données)
 
     // lru: HashMap<u32, u64>, // LRU  counter pour chaque ligne
-
     lru_counter: u64, // Compteur LRU global
-
 }
 
-
 impl L1Cache {
-
     pub fn new(size: usize) -> Self {
         // Taille de ligne fixée à 64 bytes (typique pour les caches L1)
         let line_size = DEFAULT_LINE_SIZE;
@@ -152,8 +142,6 @@ impl L1Cache {
     //     }
     // }
 
-
-
     /// Nettoyer le cache
     pub fn clear(&mut self) {
         // println!("L1Cache::clear() - début");
@@ -166,17 +154,14 @@ impl L1Cache {
     /// Calcule l'adresse de la ligne de cache pour une adresse donnée
     pub fn get_line_addr(&self, addr: u32) -> u32 {
         // addr - (addr % self.line_size as u32)
-        addr & !(self.line_size- 1) as u32
+        addr & !(self.line_size - 1) as u32
     }
 
     /// Calcule l'offset dans la ligne pour une adresse mémoire
     pub fn get_offset(&self, addr: u32) -> usize {
         (addr % self.line_size as u32) as usize
     }
-
 }
-
-
 
 #[cfg(test)]
 mod tests {
@@ -333,10 +318,6 @@ mod tests {
     }
 }
 
-
-
-
-
 //
 // // // Tests unitaire pour le cache L1
 // #[cfg(test)]
@@ -454,19 +435,6 @@ mod tests {
 //         assert_eq!(cache.lookup_byte(0x101), Some(44));
 //     }
 // }
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 //
 // use crate::pvm::vm_errors::{VMError, VMResult,};

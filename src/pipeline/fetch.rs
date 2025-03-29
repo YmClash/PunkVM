@@ -1,12 +1,10 @@
 //src/pipeline/fetch.rs
-
-
-use std::collections::VecDeque;
 use crate::bytecode::instructions::Instruction;
-use crate::pipeline::{FetchDecodeRegister,/* stage::PipelineStage*/};
+use crate::pipeline::{FetchDecodeRegister /* stage::PipelineStage*/};
+use std::collections::VecDeque;
 
 /// implementation de l'étage Fetch du pipeline
-pub struct  FetchStage{
+pub struct FetchStage {
     fetch_buffer: VecDeque<(u32, Instruction)>,
     buffer_size: usize,
 }
@@ -50,12 +48,14 @@ impl FetchStage {
         let mut addr = pc;
         for idx in current_index..instructions.len() {
             if self.fetch_buffer.len() >= self.buffer_size {
+                println!("Buffer plein, arrêt du préchargement");
                 break;
             }
 
             // Ne pas ajouter l'instruction si elle est déjà dans le buffer
             if !self.fetch_buffer.iter().any(|(a, _)| *a == addr) {
-                self.fetch_buffer.push_back((addr, instructions[idx].clone()));
+                self.fetch_buffer
+                    .push_back((addr, instructions[idx].clone()));
             }
 
             addr += instructions[idx].total_size() as u32;
@@ -63,7 +63,11 @@ impl FetchStage {
     }
 
     /// Traite l'étage Fetch de manière directe
-    pub fn process_direct(&mut self, pc: u32, instructions: &[Instruction]) -> Result<FetchDecodeRegister, String> {
+    pub fn process_direct(
+        &mut self,
+        pc: u32,
+        instructions: &[Instruction],
+    ) -> Result<FetchDecodeRegister, String> {
         // Si le buffer est vide ou ne contient pas l'instruction à PC, le remplir
         if self.fetch_buffer.is_empty() || !self.fetch_buffer.iter().any(|(addr, _)| *addr == pc) {
             self.fetch_buffer.clear();
@@ -77,35 +81,30 @@ impl FetchStage {
             // Précharger davantage d'instructions si nécessaire
             self.prefetch(pc + instruction.total_size() as u32, instructions);
 
-            Ok(FetchDecodeRegister {
-                instruction,
-                pc,
-            })
+            println!("Instruction récupérée à l'adresse 0x{:08X}", pc);
+
+            println!("Fetched Instruction: {:?}", instruction);
+
+            Ok(FetchDecodeRegister { instruction, pc })
         } else {
             Err(format!("Instruction non trouvée à l'adresse 0x{:08X}", pc))
         }
     }
 
-
     /// Réinitialise l'étage Fetch
     pub fn reset(&mut self) {
         self.fetch_buffer.clear();
     }
-
 }
-
-
-
-
 
 // Test unitaire pour l'étage Fetch
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bytecode::opcodes::Opcode;
-    use crate::bytecode::instructions::{ArgValue, Instruction};
-    use crate::bytecode::format::InstructionFormat;
     use crate::bytecode::format::ArgType;
+    use crate::bytecode::format::InstructionFormat;
+    use crate::bytecode::instructions::{ArgValue, Instruction};
+    use crate::bytecode::opcodes::Opcode;
 
     #[test]
     fn test_fetch_stage_creation() {
@@ -149,7 +148,10 @@ mod tests {
         assert_eq!(fetch.fetch_buffer.len(), 3);
         assert_eq!(fetch.fetch_buffer[0].0, 0); // Première instruction à l'adresse 0
         assert_eq!(fetch.fetch_buffer[1].0, instructions[0].total_size() as u32); // Deuxième instruction
-        assert_eq!(fetch.fetch_buffer[2].0, instructions[0].total_size() as u32 + instructions[1].total_size() as u32); // Troisième instruction
+        assert_eq!(
+            fetch.fetch_buffer[2].0,
+            instructions[0].total_size() as u32 + instructions[1].total_size() as u32
+        ); // Troisième instruction
     }
 
     #[test]
@@ -257,9 +259,9 @@ mod tests {
 
         // Créer une séquence d'instructions avec différents formats
         let add3 = Instruction::create_reg_reg_reg(Opcode::Add, 2, 0, 1); // ADD R2, R0, R1 (format à 3 registres)
-        let sub2 = Instruction::create_reg_reg(Opcode::Sub, 3, 2);       // SUB R3, R2 (format à 2 registres)
-        let mov1 = Instruction::create_single_reg(Opcode::Inc, 4);       // INC R4 (format à 1 registre)
-        let nop0 = Instruction::create_no_args(Opcode::Nop);             // NOP (format sans registre)
+        let sub2 = Instruction::create_reg_reg(Opcode::Sub, 3, 2); // SUB R3, R2 (format à 2 registres)
+        let mov1 = Instruction::create_single_reg(Opcode::Inc, 4); // INC R4 (format à 1 registre)
+        let nop0 = Instruction::create_no_args(Opcode::Nop); // NOP (format sans registre)
 
         let instructions = vec![add3.clone(), sub2.clone(), mov1.clone(), nop0.clone()];
 
@@ -300,8 +302,8 @@ mod tests {
 
         // Créer une séquence d'instructions représentant un petit programme
         // qui effectue: R3 = R0 + R1 * R2
-        let mul = Instruction::create_reg_reg_reg(Opcode::Mul, 4, 1, 2);  // R4 = R1 * R2
-        let add = Instruction::create_reg_reg_reg(Opcode::Add, 3, 0, 4);  // R3 = R0 + R4
+        let mul = Instruction::create_reg_reg_reg(Opcode::Mul, 4, 1, 2); // R4 = R1 * R2
+        let add = Instruction::create_reg_reg_reg(Opcode::Add, 3, 0, 4); // R3 = R0 + R4
 
         let instructions = vec![mul.clone(), add.clone()];
 
@@ -330,15 +332,16 @@ mod tests {
         let mut fetch = FetchStage::new(16);
 
         // Créer des instructions avec différentes tailles
-        let nop = Instruction::create_no_args(Opcode::Nop);                       // Petite instruction
-        let add = Instruction::create_reg_reg_reg(Opcode::Add, 2, 0, 1);          // Instruction moyenne
+        let nop = Instruction::create_no_args(Opcode::Nop); // Petite instruction
+        let add = Instruction::create_reg_reg_reg(Opcode::Add, 2, 0, 1); // Instruction moyenne
 
         // Instruction plus grande avec un format personnalisé et des arguments immédiats
-        let format = InstructionFormat::new(ArgType::Register, ArgType::Register, ArgType::Immediate32);
+        let format =
+            InstructionFormat::new(ArgType::Register, ArgType::Register, ArgType::Immediate32);
         let custom = Instruction::new(
             Opcode::Add,
             format,
-            vec![3, 4, 0xFF, 0xFF, 0xFF, 0xFF]  // R3, R4, valeur immédiate 0xFFFFFFFF
+            vec![3, 4, 0xFF, 0xFF, 0xFF, 0xFF], // R3, R4, valeur immédiate 0xFFFFFFFF
         );
 
         let instructions = vec![nop.clone(), add.clone(), custom.clone()];
@@ -358,13 +361,7 @@ mod tests {
         // Vérifier que le fetch buffer est maintenant vide (toutes les instructions traitées)
         assert_eq!(fetch.fetch_buffer.len(), 0);
     }
-
-
 }
-
-
-
-
 
 //
 //

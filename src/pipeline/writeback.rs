@@ -3,27 +3,27 @@
 use crate::pipeline::MemoryWritebackRegister;
 // use crate::pipeline::stage::PipelineStage;
 
-
-
 pub struct WritebackStage {
     // pub wb_buffer: Vec<usize>,
     //pas d'etat interne
 }
 
-
-
-impl WritebackStage{
+impl WritebackStage {
     /// Crée un nouvel étage Writeback
     pub fn new() -> Self {
         Self {}
     }
 
     /// Traite l'étage Writeback directement
-    pub fn process_direct(&mut self, wb_reg: &MemoryWritebackRegister, registers: &mut [u64]) -> Result<(), String> {
+    pub fn process_direct(
+        &mut self,
+        wb_reg: &MemoryWritebackRegister,
+        registers: &mut [u64],
+    ) -> Result<(), String> {
         // Si un registre destination est spécifié, y écrire le résultat
         if let Some(rd) = wb_reg.rd {
             if rd < registers.len() {
-                registers[rd] = wb_reg.result ;
+                registers[rd] = wb_reg.result;
 
                 println!("Writeback: rd={:?}, result={}", wb_reg.rd, wb_reg.result);
             } else {
@@ -34,22 +34,18 @@ impl WritebackStage{
         Ok(())
     }
 
-
     /// Réinitialise l'étage Writeback
     pub fn reset(&mut self) {
         // self.reset();
     }
-
 }
-
-
 
 // Test unitaire pour les writeback
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bytecode::opcodes::Opcode;
     use crate::bytecode::instructions::Instruction;
+    use crate::bytecode::opcodes::Opcode;
     use crate::pipeline::MemoryWritebackRegister;
 
     #[test]
@@ -59,7 +55,6 @@ mod tests {
         // On s'assure simplement que l'instance est créée
         assert!(true);
     }
-
 
     #[test]
     fn test_writeback_stage_reset() {
@@ -140,8 +135,6 @@ mod tests {
             assert_eq!(registers[i], i as u64 * 10);
         }
     }
-
-
 
     #[test]
     fn test_writeback_simple_register_write() {
@@ -239,10 +232,10 @@ mod tests {
         assert_eq!(registers[4], 100);
 
         // Vérifier l'état final des registres
-        assert_eq!(registers[0], 5);   // Inchangé
-        assert_eq!(registers[1], 10);  // Inchangé
-        assert_eq!(registers[2], 15);  // ADD R2, R0, R1
-        assert_eq!(registers[3], 10);  // SUB R3, R2, R0
+        assert_eq!(registers[0], 5); // Inchangé
+        assert_eq!(registers[1], 10); // Inchangé
+        assert_eq!(registers[2], 15); // ADD R2, R0, R1
+        assert_eq!(registers[3], 10); // SUB R3, R2, R0
         assert_eq!(registers[4], 100); // MUL R4, R3, R1
     }
 
@@ -339,7 +332,9 @@ mod tests {
             result: 15, // 5 + 10
             rd: Some(2),
         };
-        writeback.process_direct(&wb_reg_add, &mut registers).unwrap();
+        writeback
+            .process_direct(&wb_reg_add, &mut registers)
+            .unwrap();
 
         // Format à un registre: INC R2
         let inc_instruction = Instruction::create_single_reg(Opcode::Inc, 2);
@@ -348,7 +343,9 @@ mod tests {
             result: 16, // 15 + 1
             rd: Some(2),
         };
-        writeback.process_direct(&wb_reg_inc, &mut registers).unwrap();
+        writeback
+            .process_direct(&wb_reg_inc, &mut registers)
+            .unwrap();
 
         // Format à deux registres: MOV R3, R2
         let mov_instruction = Instruction::create_reg_reg(Opcode::Mov, 3, 2);
@@ -357,7 +354,9 @@ mod tests {
             result: 16, // Valeur de R2
             rd: Some(3),
         };
-        writeback.process_direct(&wb_reg_mov, &mut registers).unwrap();
+        writeback
+            .process_direct(&wb_reg_mov, &mut registers)
+            .unwrap();
 
         // Vérifier les résultats
         assert_eq!(registers[2], 16); // Valeur après INC

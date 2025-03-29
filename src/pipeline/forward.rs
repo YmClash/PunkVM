@@ -1,7 +1,7 @@
 // src/pipeline/forward.rs
 
-use crate::pipeline::{DecodeExecuteRegister, ExecuteMemoryRegister, MemoryWritebackRegister};
 use crate::bytecode::opcodes::Opcode;
+use crate::pipeline::{DecodeExecuteRegister, ExecuteMemoryRegister, MemoryWritebackRegister};
 
 /// Unité de forwarding
 pub struct ForwardingUnit {
@@ -16,7 +16,6 @@ pub enum ForwardingSource {
     // Memory,
     ExecuteMemory,
     Writeback,
-
     // None,
 }
 
@@ -30,9 +29,7 @@ pub struct ForwardingInfo {
 impl ForwardingUnit {
     /// Crée une nouvelle unité de forwarding
     pub fn new() -> Self {
-        Self {
-            forwards_count: 0,
-        }
+        Self { forwards_count: 0 }
     }
 
     /// Effectue le forwarding des données et retourne les informations sur le forwarding effectué
@@ -43,8 +40,7 @@ impl ForwardingUnit {
         decode_reg: &mut DecodeExecuteRegister,
         mem_reg: &Option<ExecuteMemoryRegister>,
         wb_reg: &Option<MemoryWritebackRegister>,
-    ) -> Vec<ForwardingInfo>
-    {
+    ) -> Vec<ForwardingInfo> {
         let mut info_list = Vec::new();
 
         let rs1_idx = decode_reg.rs1;
@@ -68,7 +64,7 @@ impl ForwardingUnit {
                     info_list.push(ForwardingInfo {
                         source: ForwardingSource::ExecuteMemory,
                         register: rd_mem,
-                        value: mem_val
+                        value: mem_val,
                     });
                     println!("Forwarding: MEM->rs1  R{} = {}", rd_mem, mem_val);
                 }
@@ -79,7 +75,7 @@ impl ForwardingUnit {
                     info_list.push(ForwardingInfo {
                         source: ForwardingSource::ExecuteMemory,
                         register: rd_mem,
-                        value: mem_val
+                        value: mem_val,
                     });
                     println!("Forwarding: MEM->rs2  R{} = {}", rd_mem, mem_val);
                 }
@@ -96,28 +92,32 @@ impl ForwardingUnit {
                 // Vérifier rs1
                 if rs1_idx == Some(rd_wb) {
                     // S'assurer qu'on n'a pas déjà forwardé pour rs1
-                    let already_forwarded = info_list.iter().any(|fi| fi.register == rd_wb && fi.source == ForwardingSource::ExecuteMemory);
+                    let already_forwarded = info_list.iter().any(|fi| {
+                        fi.register == rd_wb && fi.source == ForwardingSource::ExecuteMemory
+                    });
                     if !already_forwarded {
                         decode_reg.rs1_value = wb_val;
                         self.forwards_count += 1;
                         info_list.push(ForwardingInfo {
                             source: ForwardingSource::Writeback,
                             register: rd_wb,
-                            value: wb_val
+                            value: wb_val,
                         });
                         println!("Forwarding: WB->rs1 R{} = {}", rd_wb, wb_val);
                     }
                 }
                 // Vérifier rs2
                 if rs2_idx == Some(rd_wb) {
-                    let already_forwarded = info_list.iter().any(|fi| fi.register == rd_wb && fi.source == ForwardingSource::ExecuteMemory);
+                    let already_forwarded = info_list.iter().any(|fi| {
+                        fi.register == rd_wb && fi.source == ForwardingSource::ExecuteMemory
+                    });
                     if !already_forwarded {
                         decode_reg.rs2_value = wb_val;
                         self.forwards_count += 1;
                         info_list.push(ForwardingInfo {
                             source: ForwardingSource::Writeback,
                             register: rd_wb,
-                            value: wb_val
+                            value: wb_val,
                         });
                         println!("Forwarding: WB->rs2 R{} = {}", rd_wb, wb_val);
                     }
@@ -130,13 +130,18 @@ impl ForwardingUnit {
         //    (ou on laisse la detection d'un hazard "LoadUse" forcer un stall).
         if let Some(mem) = mem_reg {
             if let Some(rd) = mem.rd {
-                let is_load = matches!(mem.instruction.opcode,
+                let is_load = matches!(
+                    mem.instruction.opcode,
                     Opcode::Load | Opcode::LoadB | Opcode::LoadW | Opcode::LoadD
                 );
                 if is_load && (rs1_idx == Some(rd) || rs2_idx == Some(rd)) {
                     // On retire les entries correspondantes
-                    info_list.retain(|fi| !(fi.register == rd && fi.source == ForwardingSource::ExecuteMemory));
-                    println!("LoadUse hazard : cannot forward from MEM for a load not yet finished");
+                    info_list.retain(|fi| {
+                        !(fi.register == rd && fi.source == ForwardingSource::ExecuteMemory)
+                    });
+                    println!(
+                        "LoadUse hazard : cannot forward from MEM for a load not yet finished"
+                    );
                 }
             }
         }
@@ -166,8 +171,6 @@ impl ForwardingUnit {
     }
 }
 
-
-
 /// Tests pour l'unité de forwarding
 #[cfg(test)]
 mod forwarding_tests {
@@ -184,7 +187,11 @@ mod forwarding_tests {
     #[test]
     fn test_forwarding_unit_creation() {
         let unit = ForwardingUnit::new();
-        assert_eq!(unit.get_forwards_count(), 0, "Unité de forwarding devrait commencer à 0");
+        assert_eq!(
+            unit.get_forwards_count(),
+            0,
+            "Unité de forwarding devrait commencer à 0"
+        );
     }
 
     #[test]
@@ -193,7 +200,11 @@ mod forwarding_tests {
         // Simuler un forward
         unit.forwards_count = 3;
         unit.reset();
-        assert_eq!(unit.get_forwards_count(), 0, "Après reset, le compteur doit être 0");
+        assert_eq!(
+            unit.get_forwards_count(),
+            0,
+            "Après reset, le compteur doit être 0"
+        );
     }
 
     #[test]
@@ -211,13 +222,18 @@ mod forwarding_tests {
             rs2_value: 0,
             immediate: None,
             branch_addr: None,
+            branch_prediction: None,
             mem_addr: None,
         };
 
         // Pas de mem_reg, pas de wb_reg
         unit.forward(&mut ex_reg, &None, &None);
 
-        assert_eq!(unit.get_forwards_count(), 0, "Aucun forwarding ne doit avoir lieu");
+        assert_eq!(
+            unit.get_forwards_count(),
+            0,
+            "Aucun forwarding ne doit avoir lieu"
+        );
         assert_eq!(ex_reg.rs1_value, 0);
         assert_eq!(ex_reg.rs2_value, 0);
     }
@@ -237,6 +253,7 @@ mod forwarding_tests {
             rs2_value: 10, // Valeur "originale" R1
             immediate: None,
             branch_addr: None,
+            branch_prediction: None,
             mem_addr: None,
         };
 
@@ -249,6 +266,7 @@ mod forwarding_tests {
             mem_addr: None,
             branch_target: None,
             branch_taken: false,
+            branch_prediction_correct: Option::from(false),
             halted: false,
         };
 
@@ -276,6 +294,7 @@ mod forwarding_tests {
             rs2_value: 7, // R2
             immediate: None,
             branch_addr: None,
+            branch_prediction: None,
             mem_addr: None,
         };
 
@@ -288,6 +307,7 @@ mod forwarding_tests {
             mem_addr: None,
             branch_target: None,
             branch_taken: false,
+            branch_prediction_correct: Option::from(false),
             halted: false,
         };
 
@@ -298,7 +318,7 @@ mod forwarding_tests {
         assert_eq!(infos[0].value, 20);
         assert_eq!(infos[0].register, 1);
         assert_eq!(ex_reg.rs1_value, 20); // R1
-        assert_eq!(ex_reg.rs2_value, 7);  // R2 inchangé
+        assert_eq!(ex_reg.rs2_value, 7); // R2 inchangé
     }
 
     #[test]
@@ -316,6 +336,7 @@ mod forwarding_tests {
             rs2_value: 10, // R1
             immediate: None,
             branch_addr: None,
+            branch_prediction: None,
             mem_addr: None,
         };
 
@@ -347,6 +368,7 @@ mod forwarding_tests {
             rs2_value: 10,
             immediate: None,
             branch_addr: None,
+            branch_prediction: None,
             mem_addr: None,
         };
 
@@ -358,6 +380,7 @@ mod forwarding_tests {
             mem_addr: None,
             branch_target: None,
             branch_taken: false,
+            branch_prediction_correct: Option::from(false),
             halted: false,
         };
 
@@ -370,7 +393,10 @@ mod forwarding_tests {
         // memory dit R1=42, writeback dit R1=24 => la source prioritaire est memory
         let infos = unit.forward_with_info(&mut ex_reg, &Some(mem_reg), &Some(wb_reg));
         assert_eq!(unit.get_forwards_count(), 1, "Un seul forward prioritaire");
-        assert_eq!(ex_reg.rs2_value, 42, "valeur prioritaire=42 (Memory) et pas 24 (WB)");
+        assert_eq!(
+            ex_reg.rs2_value, 42,
+            "valeur prioritaire=42 (Memory) et pas 24 (WB)"
+        );
 
         assert_eq!(infos.len(), 1);
         assert_eq!(infos[0].value, 42);
@@ -388,21 +414,23 @@ mod forwarding_tests {
             rs2: Some(1),
             rd: Some(3),
             rs1_value: 5,
-            rs2_value: 0,  // Valeur initiale
+            rs2_value: 0, // Valeur initiale
             immediate: None,
             branch_addr: None,
+            branch_prediction: None,
             mem_addr: None,
         };
 
         // Créer un registre memory avec un LOAD qui va écrire dans R1
         let mem_reg = ExecuteMemoryRegister {
             instruction: Instruction::create_reg_imm8(Opcode::Load, 1, 0),
-            alu_result: 10,  // Cette valeur sera initialement forwardée
+            alu_result: 10, // Cette valeur sera initialement forwardée
             rd: Some(1),
             store_value: None,
             mem_addr: Some(0x100),
             branch_target: None,
             branch_taken: false,
+            branch_prediction_correct: Option::from(false),
             halted: false,
         };
 
@@ -423,11 +451,18 @@ mod forwarding_tests {
 
         // Mais la liste d'informations de forwarding devrait être vide
         // car le load-use hazard est détecté après
-        assert!(info.is_empty(), "La liste d'info de forwarding devrait être vide après détection du load-use hazard");
+        assert!(
+            info.is_empty(),
+            "La liste d'info de forwarding devrait être vide après détection du load-use hazard"
+        );
 
         // Vérifier que le compteur a bien augmenté car le forwarding a été effectué
         // mais l'entrée a été retirée de la liste d'info
-        assert_eq!(unit.get_forwards_count(), 1, "Un forward a été comptabilisé");
+        assert_eq!(
+            unit.get_forwards_count(),
+            1,
+            "Un forward a été comptabilisé"
+        );
     }
 
     #[test]
@@ -444,6 +479,7 @@ mod forwarding_tests {
             mem_addr: None,
             branch_target: None,
             branch_taken: false,
+            branch_prediction_correct: Option::from(false),
             halted: false,
         };
 
@@ -453,10 +489,11 @@ mod forwarding_tests {
             rs1: Some(5),
             rs2: Some(3),
             rd: Some(4),
-            rs1_value: 0,  // R5 original=?
-            rs2_value: 3,  // R3=3
+            rs1_value: 0, // R5 original=?
+            rs2_value: 3, // R3=3
             immediate: None,
             branch_addr: None,
+            branch_prediction: None,
             mem_addr: None,
         };
 
@@ -486,6 +523,7 @@ mod forwarding_tests {
             rs2_value: 0,
             immediate: None,
             branch_addr: None,
+            branch_prediction: None,
             mem_addr: None,
         };
 
@@ -498,6 +536,7 @@ mod forwarding_tests {
             mem_addr: None,
             branch_target: None,
             branch_taken: false,
+            branch_prediction_correct: Option::from(false),
             halted: false,
         };
 
