@@ -556,6 +556,11 @@ impl ExecuteStage {
 
     pub fn update_branch_predictor(&mut self, pc: u64, taken: bool, prediction: BranchPrediction) {
         // Met à jour le prédicteur de branchement
+        // println!(
+        //     "Updating branch predictor: PC = {}, Taken = {}, Prediction = {:?}",
+        //     pc, taken, prediction
+        // );
+
         // self.branch_predictor.update(pc, taken, prediction);
     }
 
