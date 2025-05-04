@@ -276,7 +276,7 @@ impl ALU {
                 // let overflow =  (a_sign == 1) && (result_sign == 0);
                 //////////
 
-                let overflow = (a_sign == 0) && (result_sign == 1) && (a == 0x8000_0000_0000_0000);
+                let overflow = (a_sign == 1) && (result_sign == 0) && (a == 0x8000_0000_0000_0000);
 
                 // let overflow = ((a as i64) - 1) != (result as i64);
                 self.flags.carry = carry;
