@@ -125,15 +125,16 @@ impl PunkVM {
             program: None,
             cycles: 0,
             instructions_executed: 0,
-
-            tracer: Option::from(PipelineTracer::new(Default::default())),
+            tracer: None, // Pas de traçage par défaut
+            // tracer: Option::from(PipelineTracer::new(Default::default())),
         }
     }
 
     // Active le traçage
     pub fn enable_tracing(&mut self, config: TracerConfig) {
         if self.config.enable_tracing {
-            self.tracer = Some(PipelineTracer::new(config))
+            // self.tracer = Some(PipelineTracer::new(config))
+            self.tracer = Some(PipelineTracer::new(Default::default()));
         } else {
             println!("Tracing is disabled");
         }
@@ -236,12 +237,12 @@ impl PunkVM {
         }
 
         // Incrementer le compteur de cycles
-        self.cycles += 1;
+        // self.cycles += 1;
 
         //mise a jour du cycle du traceur
-        if let Some(tracer) = &mut self.tracer {
-            tracer.start_cycle(self.cycles)
-        }
+        // if let Some(tracer) = &mut self.tracer {
+        //     tracer.start_cycle(self.cycles)
+        // }
 
         // Exécution d'un cycle pipeline
         let program_code = &self.program.as_ref().unwrap().code;
@@ -269,6 +270,11 @@ impl PunkVM {
         // Mise à jour compteurs
         self.cycles += 1;
         self.instructions_executed += pipeline_state.instructions_completed as u64;
+
+        // Mise à jour du compteur de cycles du traceur
+        if let Some(tracer) = &mut self.tracer {
+            tracer.start_cycle(self.cycles)
+        }
 
         // Vérifier s'il y a un halt
         if pipeline_state.halted {
@@ -316,11 +322,8 @@ impl PunkVM {
             memory_misses: self.memory.stats().misses,
             branch_flush: self.pipeline.stats().branch_flush,
             branch_predictor: self.pipeline.stats().branch_predictions,
-            branch_prediction_rate: self.pipeline.stats().branch_predictor_rate, // branch_prediction_rate: if self.cycles > 0 {
-                                                                                 //     self.pipeline.stats().branch_predictions as f64 / self.cycles as f64
-                                                                                 // } else {
-                                                                                 //     0.0
-                                                                                 // },
+            branch_prediction_rate: self.pipeline.stats().branch_predictor_rate,
+
         }
     }
 
