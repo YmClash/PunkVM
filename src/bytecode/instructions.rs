@@ -394,13 +394,13 @@ impl Instruction {
     /// Crée une instruction de stockage mémoire avec registre + offset
     pub fn create_reg_reg_offset(opcode: Opcode, reg_src: u8, reg_base: u8, offset: i8) -> Self {
         let fmt = InstructionFormat::reg_reg_imm8(); // (Register, RegisterOffset, None)?
-        let mut args = vec![reg_src & 0x0F, reg_base & 0x0F, offset as u8];
+        let  args = vec![reg_src & 0x0F, reg_base & 0x0F, offset as u8];
         // let mut args = Vec::with_capacity(3);
-        args.push(reg_src & 0x0F);
-        // args.push(reg_base);
-        args.push(reg_base & 0x0F);
-        // args.push(reg_src);
-        args.push(offset as u8);
+        // args.push(reg_src & 0x0F);
+        // // args.push(reg_base);
+        // args.push(reg_base & 0x0F);
+        // // args.push(reg_src);
+        // args.push(offset as u8);
 
         Self::new(opcode, fmt, args)
     }
