@@ -642,3 +642,135 @@ impl PipelineTracer {
         summary
     }
 }
+
+
+/// Test pour le module de traçage
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_pipeline_tracer_basic_functionality() {
+        // Configuration de base
+        let config = TracerConfig {
+            enabled: true,
+            log_to_console: false,
+            log_to_file: false,
+            log_file_path: None,
+            trace_fetch: true,
+            trace_decode: true,
+            trace_execute: true,
+            trace_memory: true,
+            trace_writeback: true,
+            trace_hazards: true,
+            trace_branches: true,
+            trace_registers: true,
+        };
+
+        // Création du traceur
+        let mut tracer = PipelineTracer::new(config);
+
+        // Test du cycle
+        tracer.start_cycle(1);
+        assert_eq!(tracer.current_cycle, 1);
+
+        // Test d'un événement Fetch
+        let fetch_event = TraceEvent::Fetch {
+            cycle: 1,
+            pc: 0x1000,
+            instruction: None,
+        };
+        tracer.trace(fetch_event);
+        assert_eq!(tracer.trace_events.len(), 1);
+
+        // Test d'un événement Decode
+        let decode_event = TraceEvent::Decode {
+            cycle: 1,
+            pc: 0x1000,
+            instruction: None,
+            rs1: Some(1),
+            rs2: Some(2),
+            rd: Some(3),
+        };
+        tracer.trace(decode_event);
+        assert_eq!(tracer.trace_events.len(), 2);
+
+        // Test d'un événement de mise à jour de registre
+        tracer.trace_register_update(1, 0, 42, "EXEC");
+        assert_eq!(tracer.trace_events.len(), 3);
+
+        // Vérification du dernier événement
+        if let TraceEvent::RegisterUpdate {
+            register,
+            old_value,
+            new_value,
+            source,
+            ..
+        } = &tracer.trace_events[2] {
+            assert_eq!(*register, 1);
+            assert_eq!(*old_value, 0);
+            assert_eq!(*new_value, 42);
+            assert_eq!(source, "EXEC");
+        } else {
+            panic!("Le dernier événement n'est pas un RegisterUpdate");
+        }
+    }
+
+    #[test]
+    fn test_pipeline_tracer_disabled() {
+        // Configuration désactivée
+        let config = TracerConfig {
+            enabled: false,
+            ..Default::default()
+        };
+
+        let mut tracer = PipelineTracer::new(config);
+
+        // Test avec traceur désactivé
+        let fetch_event = TraceEvent::Fetch {
+            cycle: 1,
+            pc: 0x1000,
+            instruction: None,
+        };
+        tracer.trace(fetch_event);
+
+        // Vérifier qu'aucun événement n'est enregistré
+        assert_eq!(tracer.trace_events.len(), 0);
+    }
+
+    #[test]
+    fn test_pipeline_tracer_filtering() {
+        // Configuration avec certains types de trace désactivés
+        let config = TracerConfig {
+            enabled: true,
+            trace_fetch: false,
+            trace_decode: true,
+            ..Default::default()
+        };
+
+        let mut tracer = PipelineTracer::new(config);
+
+        // Événement Fetch (devrait être filtré)
+        let fetch_event = TraceEvent::Fetch {
+            cycle: 1,
+            pc: 0x1000,
+            instruction: None,
+        };
+        tracer.trace(fetch_event);
+        assert_eq!(tracer.trace_events.len(), 0);
+
+        // Événement Decode (devrait être tracé)
+        let decode_event = TraceEvent::Decode {
+            cycle: 1,
+            pc: 0x1000,
+            instruction: None,
+            rs1: None,
+            rs2: None,
+            rd: None,
+        };
+        tracer.trace(decode_event);
+        assert_eq!(tracer.trace_events.len(), 1);
+    }
+}
+
+
