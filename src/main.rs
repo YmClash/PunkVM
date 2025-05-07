@@ -5,6 +5,7 @@
 use std::collections::HashMap;
 use std::time::Instant;
 use PunkVM::bytecode::files::{BytecodeFile, BytecodeVersion, SegmentMetadata, SegmentType};
+use PunkVM::bytecode::files::SegmentType::Data;
 use PunkVM::bytecode::format::{ArgType, InstructionFormat};
 use PunkVM::bytecode::instructions::Instruction;
 use PunkVM::bytecode::opcodes::Opcode;
@@ -31,7 +32,8 @@ fn main() -> VMResult<()> {
         enable_tracing: true,          // Activer le traçage
     };
 
-    let tracer = PipelineTracer::new(Default::default());
+    let mut tracer = PipelineTracer::new(Default::default());
+
 
     // Créer une VM avec la configuration spécifiée
     println!("Initialisation de la VM...");
@@ -52,6 +54,10 @@ fn main() -> VMResult<()> {
 
     let program= create_simple_test_program();
     // let program = create_conditional_branch_test_program();
+
+    // let program = momo_program();
+
+
 
     // Charger le programme dans la VM
     println!("Chargement du programme...");
@@ -546,7 +552,7 @@ pub fn create_hazard_detection_test_program() -> BytecodeFile {
 
     // Créer un segment de données
     let data_size = 256;
-    let data_segment = SegmentMetadata::new(SegmentType::Data, 0, data_size, 0x1000);
+    let data_segment = SegmentMetadata::new(Data, 0, data_size, 0x1000);
     program.segments.push(data_segment);
     program.data = vec![0; data_size as usize];
 
@@ -841,8 +847,16 @@ pub fn create_simple_test_program() -> BytecodeFile {
         "Programme testant différents types de branchements",
     );
 
+
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 5)); // R0 = 5
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 0)); // R1 = 10
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 2, 0, 1)); // R2 = R0 + R1
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 100));  //R3 = 100
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4,10));  //R4 = 50
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Mul, 5, 3, 4)); //  R5 = R3 * R4
+
     // R0 = 1
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 10));
 
     // Jmp +2 (sauter par-dessus l'instruction suivante)
     // Calculez l'offset pour sauter à l'instruction R1 = 42
@@ -853,6 +867,14 @@ pub fn create_simple_test_program() -> BytecodeFile {
 
     // R1 = 42 (devrait être exécuté après le saut)
     program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 42));
+
+    // Access memoire multiple consecutif
+    program.add_instruction(Instruction::create_reg_reg_offset(Opcode::Store,1,0,0)); // MEM[R0] = R1
+    program.add_instruction(Instruction::create_reg_reg_offset(Opcode::Store,0,1,0)); // MEM[R1] = R0
+    program.add_instruction(Instruction::create_load_reg_offset(6,0,0)); // R6 = MEM[R0]
+    program.add_instruction(Instruction::create_load_reg_offset(7,1,0)); // R7 = MEM[R1]
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add,8,6,7)); // R8 = R6 + R7
+
 
     // HALT
     program.add_instruction(Instruction::create_no_args(Opcode::Halt));
@@ -1142,4 +1164,53 @@ fn print_stats(vm: &VM) {
     println!("\n===== TEST TERMINÉ =====");
     println!("=====PunkVM=By=YmC======\n");
 }
+
+fn momo_program() -> BytecodeFile{
+    let mut program = BytecodeFile::new();
+    program.version = BytecodeVersion::new(0, 1, 0, 0);
+    program.add_metadata("name", "Momo Test Program");
+    program.add_metadata("description", "Programme de test Momo");
+
+    //instruction
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov,0,10));
+
+
+    // Halt
+    program.add_instruction(Instruction::create_no_args(Opcode::Halt));
+
+    let total_size = program.code.iter().map(|instr|instr.total_size() as u32).sum();
+    program.segments = vec![SegmentMetadata::new(SegmentType::Code,0,total_size,0)];
+
+    let data_size = 256;
+    let data_segement = SegmentMetadata::new(Data,0,data_size,0);
+    program.segments.push(data_segement);
+    program.data = vec![0; data_size as usize];
+
+    // Carte des Instruction
+    let mut addr = 0;
+    for (idx,instr)in program.code.iter().enumerate(){
+        let size = instr.total_size();
+        println!(
+            "Instruction {}: Adresse 0x{:04X}-0x{:04X} (taille {}): {:?}",
+            idx,
+            addr,
+            addr + size - 1,
+            size,
+            instr.opcode
+        );
+        addr += size;
+    }
+
+
+    program
+
+
+
+}
+
+
+
+
+
+
 /////////////////////////////////////////////////////////////////////////////////////////////////////
