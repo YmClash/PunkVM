@@ -1,6 +1,6 @@
 //src/bytecode/instructions.rs
 
-use crate::bytecode::calculate_branch_offset;
+
 use crate::bytecode::decode_errors::DecodeError;
 use crate::bytecode::format::{ArgType, InstructionFormat};
 use crate::bytecode::opcodes::Opcode;
@@ -444,7 +444,8 @@ impl Instruction {
 
         // Calculer l'offset relatif : target - (current + instruction_size)
         let next_pc = from_addr + instr_size;
-        let offset = (to_addr as i64 - next_pc as i64) as i32;
+        // let offset = (to_addr as i64 - next_pc as i64) as i32;
+        let offset = calculate_branch_offset(from_addr, to_addr, instr_size);
 
         println!("DEBUG: create_jump_to_address - from=0x{:X}, to=0x{:X}, instr_size={}, next_pc=0x{:X}, offset={}",
                  from_addr, to_addr, instr_size, next_pc, offset);
@@ -477,8 +478,8 @@ impl Instruction {
 
         // Calculer l'offset relatif : target - (current + instruction_size)
         let next_pc = from_addr + instr_size;
-        let offset = (to_addr as i64 - next_pc as i64) as i32;
-
+        // let offset = (to_addr as i64 - next_pc as i64) as i32;
+        let offset = calculate_branch_offset(from_addr, to_addr, instr_size);
         println!("DEBUG: create_jump_to_address - from=0x{:X}, to=0x{:X}, instr_size={}, next_pc=0x{:X}, offset={}",
                  from_addr, to_addr, instr_size, next_pc, offset);
 
@@ -510,8 +511,8 @@ impl Instruction {
 
         // Calculer l'offset relatif : target - (current + instruction_size)
         let next_pc = from_addr + instr_size;
-        let offset = (to_addr as i64 - next_pc as i64) as i32;
-
+        // let offset = (to_addr as i64 - next_pc as i64) as i32;
+        let offset = calculate_branch_offset(from_addr, to_addr, instr_size);
         println!("DEBUG: create_jump_if_not - from=0x{:X}, to=0x{:X}, instr_size={}, next_pc=0x{:X}, offset={}",
                  from_addr, to_addr, instr_size, next_pc, offset);
 
@@ -542,8 +543,8 @@ impl Instruction {
 
         // Calculer l'offset relatif : target - (current + instruction_size)
         let next_pc = from_addr + instr_size;
-        let offset = (to_addr as i64 - next_pc as i64) as i32;
-
+        // let offset = (to_addr as i64 - next_pc as i64) as i32;
+        let offset = calculate_branch_offset(from_addr, to_addr, instr_size);
         println!("DEBUG: create_jump_if_equal - from=0x{:X}, to=0x{:X}, instr_size={}, next_pc=0x{:X}, offset={}",
                  from_addr, to_addr, instr_size, next_pc, offset);
 
@@ -575,8 +576,8 @@ impl Instruction {
 
         // Calculer l'offset relatif : target - (current + instruction_size)
         let next_pc = from_addr + instr_size;
-        let offset = (to_addr as i64 - next_pc as i64) as i32;
-
+        // let offset = (to_addr as i64 - next_pc as i64) as i32;
+        let offset = calculate_branch_offset(from_addr, to_addr, instr_size);
         println!("DEBUG: create_jump_if_not_equal - from=0x{:X}, to=0x{:X}, instr_size={}, next_pc=0x{:X}, offset={}",
                  from_addr, to_addr, instr_size, next_pc, offset);
 
@@ -607,7 +608,8 @@ impl Instruction {
 
         // Calculer l'offset relatif : target - (current + instruction_size)
         let next_pc = from_addr + instr_size;
-        let offset = (to_addr as i64 - next_pc as i64) as i32;
+        // let offset = (to_addr as i64 - next_pc as i64) as i32;
+        let offset = calculate_branch_offset(from_addr, to_addr, instr_size);
 
         println!("DEBUG: create_jump_if_greater - from=0x{:X}, to=0x{:X}, instr_size={}, next_pc=0x{:X}, offset={}",
                  from_addr, to_addr, instr_size, next_pc, offset);
@@ -907,6 +909,7 @@ impl Instruction {
         // Calculer l'offset relatif : target - (current + instruction_size)
         let next_pc = from_addr + instr_size;
         // let offset = (to_addr as i64 - next_pc as i64) as i32;
+
         let offset = calculate_branch_offset(from_addr, to_addr, instr_size);
         println!("DEBUG: create_jump_if_zero - from=0x{:X}, to=0x{:X}, instr_size={}, next_pc=0x{:X}, offset={}",
                  from_addr, to_addr, instr_size, next_pc, offset);
@@ -972,7 +975,8 @@ impl Instruction {
 
         // Calculer l'offset relatif : target - (current + instruction_size)
         let next_pc = from_addr + instr_size;
-        let offset = (to_addr as i64 - next_pc as i64) as i32;
+        // let offset = (to_addr as i64 - next_pc as i64) as i32;
+        let offset = calculate_branch_offset(from_addr, to_addr, instr_size);
 
         println!("DEBUG: create_jump_if_not_overflow - from=0x{:X}, to=0x{:X}, instr_size={}, next_pc=0x{:X}, offset={}",
                  from_addr, to_addr, instr_size, next_pc, offset);
@@ -1006,7 +1010,7 @@ impl Instruction {
         let next_pc = from_addr + instr_size;
         // let offset = (to_addr as i64 - next_pc as i64) as i32;
         let offset = calculate_branch_offset(from_addr, to_addr, instr_size);
-
+        let offset = calculate_branch_offset(from_addr, to_addr, instr_size);
 
         println!("DEBUG: create_jump_if_positive - from=0x{:X}, to=0x{:X}, instr_size={}, next_pc=0x{:X}, offset={}",
                  from_addr, to_addr, instr_size, next_pc, offset);
@@ -1038,8 +1042,8 @@ impl Instruction {
         // Calculer l'offset relatif : target - (current + instruction_size)
         let next_pc = from_addr + instr_size;
         // let offset = (to_addr as i64 - next_pc as i64) as i32;
+        // let offset = calculate_branch_offset(from_addr, to_addr, instr_size);
         let offset = calculate_branch_offset(from_addr, to_addr, instr_size);
-
         println!("DEBUG: create_jump_if_negative - from=0x{:X}, to=0x{:X}, instr_size={}, next_pc=0x{:X}, offset={}",
                  from_addr, to_addr, instr_size, next_pc, offset);
 
@@ -1063,14 +1067,27 @@ impl Instruction {
         );
 
         let instr_size = instr.total_size() as u32;
+        // let offset = calculate_branch_offset(from_addr, to_addr, instr_size);
         let offset = calculate_branch_offset(from_addr, to_addr, instr_size);
-
         Self::new(
             opcode,
             InstructionFormat::new(ArgType::None, ArgType::RelativeAddr, ArgType::None),
             offset.to_le_bytes()[0..4].to_vec(),
         )
     }
+
+
+
+
+    /// Calcule l'offset de branchement correct entre deux adresses
+    /// en tenant compte de la taille de l'instruction
+    pub fn calculate_branch_offset(from_addr:u32,to_addr:u32,instr_size:u32) -> i32{
+        // l'offset est calcule depuis l'adresse de l'instruction suivante
+        let next_pc = from_addr + instr_size;
+        (to_addr as i32) - (next_pc as i32)
+    }
+
+
 
 
     /// Helper pour calculer l'adresse actuelle dans un programme en construction
@@ -1095,8 +1112,11 @@ impl Instruction {
     }
 }
 
-
-
+pub fn calculate_branch_offset(from_addr:u32,to_addr:u32,instr_size:u32) -> i32{
+    // l'offset est calcule depuis l'adresse de l'instruction suivante
+    let next_pc = from_addr + instr_size;
+    (to_addr as i32) - (next_pc as i32)
+}
 
 // // Test unitaire pour les instructions
 // #[cfg(test)]
