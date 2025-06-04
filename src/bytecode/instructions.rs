@@ -397,12 +397,6 @@ impl Instruction {
     pub fn create_reg_reg_offset(opcode: Opcode, reg_src: u8, reg_base: u8, offset: i8) -> Self {
         let fmt = InstructionFormat::reg_reg_imm8(); // (Register, RegisterOffset, None)?
         let  args = vec![reg_src & 0x0F, reg_base & 0x0F, offset as u8];
-        // let mut args = Vec::with_capacity(3);
-        // args.push(reg_src & 0x0F);
-        // // args.push(reg_base);
-        // args.push(reg_base & 0x0F);
-        // // args.push(reg_src);
-        // args.push(offset as u8);
 
         Self::new(opcode, fmt, args)
     }
@@ -1009,7 +1003,7 @@ impl Instruction {
         // Calculer l'offset relatif : target - (current + instruction_size)
         let next_pc = from_addr + instr_size;
         // let offset = (to_addr as i64 - next_pc as i64) as i32;
-        let offset = calculate_branch_offset(from_addr, to_addr, instr_size);
+        // let offset = calculate_branch_offset(from_addr, to_addr, instr_size);
         let offset = calculate_branch_offset(from_addr, to_addr, instr_size);
 
         println!("DEBUG: create_jump_if_positive - from=0x{:X}, to=0x{:X}, instr_size={}, next_pc=0x{:X}, offset={}",
@@ -1117,6 +1111,32 @@ pub fn calculate_branch_offset(from_addr:u32,to_addr:u32,instr_size:u32) -> i32{
     let next_pc = from_addr + instr_size;
     (to_addr as i32) - (next_pc as i32)
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 // // Test unitaire pour les instructions
 // #[cfg(test)]
