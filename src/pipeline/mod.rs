@@ -415,28 +415,6 @@ impl Pipeline {
 
 
 
-            // CORRECTION IMPORTANTE:
-
-            //c'est icici  que le probleme dois etre  mais  lorsque  j'efface cette  ligne  le programme
-            // tombe dans une boucle infinie car le PC ne change pas et si je le laisse le PC change mais
-            //Erreur lors de l'exécution: ExecutionError: Erreur pipeline: Instruction non trouvée à l'adresse 0x.....
-            if !mem_reg.branch_taken && mem_reg.instruction.opcode.is_branch() {
-                if state.next_pc == pc {
-                    state.next_pc = pc + mem_reg.instruction.total_size() as u32 - mem_reg.instruction.total_size() as u32;
-                    println!(
-                        "Branchement non pris, avancement à PC = 0x{:08X}",
-                        state.next_pc
-                    );
-                    // todo!("Branchement non pris, mais pas de target définie");
-                }
-
-                // panic!("Branchement non pris,Panic ici car le !!!!BUG!!! devrai se trouver ici .la machine tombe dans boucle infinie");
-
-
-
-             println!("Branchement non pris, on rest  à PC = 0x{:08X}", state.next_pc);
-            }
-
             state.execute_memory = Some(mem_reg);
         } else {
             state.execute_memory = None;

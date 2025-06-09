@@ -6,6 +6,7 @@ use std::time::Instant;
 use PunkVM::bytecode::files::{BytecodeFile, BytecodeVersion, SegmentMetadata, SegmentType};
 use PunkVM::bytecode::instructions::{ArgValue, Instruction};
 use PunkVM::bytecode::opcodes::Opcode;
+use PunkVM::bytecode::format::ArgType; // Added import
 use PunkVM::debug::PipelineTracer;
 use PunkVM::pvm::vm::{PunkVM as VM, VMConfig, VMState};
 use PunkVM::pvm::vm_errors::VMResult;
@@ -56,7 +57,8 @@ fn main() -> VMResult<()> {
     // let program = momo_program();
     // let program = punk_program_fixed();
     //
-    let program = punk_program_3();
+    // let program = punk_program_3();
+    let program = test_branch_not_taken_fix();
     // let program = punk_program_4();
     // let program =  punk_program_debug();
     // let program = punk_program_5();
@@ -583,10 +585,152 @@ pub fn punk_program_3() -> BytecodeFile {
     program
 }
 
+pub fn test_branch_not_taken_fix() -> BytecodeFile {
+    let mut program = BytecodeFile::new();
+    program.version = BytecodeVersion::new(0, 1, 0, 0);
+    program.add_metadata("name", "PunkVM Test Branch Not Taken Fix");
+    program.add_metadata("description", "Minimal test for a non-taken conditional branch (JmpIfEqual).");
+    program.add_metadata("author", "PunkVM Team");
+    program.add_metadata("test_categories", "JmpIfEqual, NonTakenBranch");
 
+    let mut address_counter: u32 = 0; // Corrected syntax
 
+    // MOV R0, 10
+    let mov_r0_instr = Instruction::create_reg_imm8(Opcode::Mov, 0, 10);
+    program.add_instruction(mov_r0_instr.clone());
+    address_counter += mov_r0_instr.total_size() as u32;
 
+    // MOV R1, 20
+    let mov_r1_instr = Instruction::create_reg_imm8(Opcode::Mov, 1, 20);
+    program.add_instruction(mov_r1_instr.clone());
+    address_counter += mov_r1_instr.total_size() as u32;
 
+    // CMP R0, R1 (10 == 20 is false, so ZF will be 0)
+    let cmp_instr = Instruction::create_reg_reg(Opcode::Cmp, 0, 1);
+    program.add_instruction(cmp_instr.clone());
+    address_counter += cmp_instr.total_size() as u32;
+
+    // Address of the JmpIfEqual instruction itself
+    let jie_addr = address_counter;
+
+    // Placeholder for JmpIfEqual to get its size
+    let jie_placeholder = Instruction::create_jump_if_equal(0, 0);
+    let jie_size = jie_placeholder.total_size() as u32;
+
+    // MOV R2, 42 (This should be executed)
+    let mov_r2_instr = Instruction::create_reg_imm8(Opcode::Mov, 2, 42);
+    let mov_r2_size = mov_r2_instr.total_size() as u32;
+
+    // HALT (Normal successful halt)
+    let halt_instr = Instruction::create_no_args(Opcode::Halt);
+    let halt_size = halt_instr.total_size() as u32;
+
+    // Target address if JmpIfEqual is (wrongly) taken:
+    // It should skip MOV R2, 42 and the normal HALT.
+    // Target = JIE_addr + JIE_size + MOV_R2_size + HALT_size
+    let fail_target_addr = jie_addr + jie_size + mov_r2_size + halt_size;
+
+    // JmpIfEqual FAIL_TARGET_ADDR (Should NOT be taken)
+    // The first argument to create_jump_if_equal is the address of the jump instruction itself.
+    let jie_instr = Instruction::create_jump_if_equal(jie_addr, fail_target_addr);
+    program.add_instruction(jie_instr.clone());
+    address_counter += jie_instr.total_size() as u32; // Should be jie_size
+
+    // MOV R2, 42 (This should be executed if branch is NOT taken)
+    program.add_instruction(mov_r2_instr.clone());
+    address_counter += mov_r2_size;
+
+    // HALT (End of normal execution)
+    program.add_instruction(halt_instr.clone());
+    address_counter += halt_size;
+
+    // Instructions for the fail case (if JmpIfEqual is wrongly taken)
+    // This is where fail_target_addr should point.
+    // MOV R2, 0xFF (Marker for failure: branch taken when it shouldn't have)
+    let mov_r2_fail_instr = Instruction::create_reg_imm8(Opcode::Mov, 2, 0xFF);
+    program.add_instruction(mov_r2_fail_instr.clone());
+    address_counter += mov_r2_fail_instr.total_size() as u32;
+
+    // HALT (End of program if branch wrongly taken)
+    program.add_instruction(halt_instr.clone());
+    // address_counter for map printing will be implicitly handled by the loop sum
+
+    // Calculate total code size and create code segment
+    let total_code_size: u32 = program.code.iter().map(|instr| instr.total_size() as u32).sum();
+    program.segments = vec![SegmentMetadata::new(SegmentType::Code, 0, total_code_size, 0)];
+
+    // Add an empty data segment
+    let data_size = 256;
+    let data_segment = SegmentMetadata::new(SegmentType::Data, 0, data_size, 0x1000);
+    program.segments.push(data_segment);
+    program.data = vec![0; data_size as usize];
+
+    println!("
+--- Instruction Map for test_branch_not_taken_fix ---");
+    let mut map_addr = 0u32;
+    for (idx, instr) in program.code.iter().enumerate() {
+        let size = instr.total_size() as u32;
+        println!(
+            "Instruction {:2}: [{:?}] Adresse 0x{:04X}-0x{:04X} (taille {:2})",
+            idx,
+            instr.opcode,
+            map_addr,
+            map_addr + size.saturating_sub(1), // Avoid underflow if size is 0
+            size
+        );
+        if instr.opcode.is_branch() {
+            // Attempt to get the target address argument.
+            // This depends on how create_jump_if_equal stores its arguments.
+            // Assuming arg1 (index 1) might be the target address if it's an absolute jump.
+            // For branch instructions, try to print the target address.
+            // Jumps created with create_jump_if_equal(from, to) store a relative offset.
+            // This offset is typically the second argument.
+            if instr.format.arg2_type == ArgType::RelativeAddr {
+                if let Ok(ArgValue::RelativeAddr(offset)) = instr.get_arg2_value() {
+                    // The offset is relative to the PC of the *next* instruction.
+                    let target_pc = (map_addr as i64 + size as i64 + offset as i64) as u32;
+                    println!("      -> Branch relative: offset = {:+}, target_calc = 0x{:04X}", offset, target_pc);
+                } else {
+                    println!("      -> Branch target: (Could not interpret arg2 as RelativeAddr)");
+                }
+            } else if instr.format.arg2_type == ArgType::AbsoluteAddr {
+                 if let Ok(ArgValue::AbsoluteAddr(target_abs)) = instr.get_arg2_value() {
+                    println!("      -> Branch absolute (arg2): target=0x{:04X}", target_abs);
+                } else {
+                    println!("      -> Branch target: (Could not interpret arg2 as AbsoluteAddr)");
+                }
+            } else if instr.format.arg1_type == ArgType::RelativeAddr { // Fallback to arg1 if arg2 is not relative/absolute
+                if let Ok(ArgValue::RelativeAddr(offset)) = instr.get_arg1_value() {
+                    let target_pc = (map_addr as i64 + size as i64 + offset as i64) as u32;
+                    println!("      -> Branch relative (arg1): offset = {:+}, target_calc = 0x{:04X}", offset, target_pc);
+                } else {
+                     println!("      -> Branch target: (Could not interpret arg1 as RelativeAddr)");
+                }
+            } else if instr.format.arg1_type == ArgType::AbsoluteAddr {
+                if let Ok(ArgValue::AbsoluteAddr(target_abs)) = instr.get_arg1_value() {
+                    println!("      -> Branch absolute (arg1): target=0x{:04X}", target_abs);
+                } else {
+                    println!("      -> Branch target: (Could not interpret arg1 as AbsoluteAddr)");
+                }
+            }
+            else {
+                println!("      -> Branch target: (Arg1/Arg2 not RelativeAddr or AbsoluteAddr, or format unknown for printing)");
+            }
+        }
+        map_addr += size;
+    }
+    println!("Total code size: {} bytes, {} instructions", map_addr, program.code.len());
+    println!("--- End of Instruction Map ---");
+
+    println!("
+Expected outcome for test_branch_not_taken_fix:");
+    println!("R0 = 10");
+    println!("R1 = 20");
+    println!("R2 = 42 (if JmpIfEqual is NOT taken and program halts successfully after that)");
+    println!("Program halts at the first HALT instruction.");
+
+    program
+}
 
 
 pub fn punk_program_5() -> BytecodeFile {
