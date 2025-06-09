@@ -1,4 +1,7 @@
-//src/bytecode/instructions.rs
+
+
+///////////////////////////////////////////////////////////
+// src/bytecode/instructions.rs
 
 use crate::bytecode::decode_errors::DecodeError;
 use crate::bytecode::format::{ArgType, InstructionFormat};
@@ -30,6 +33,7 @@ pub enum ArgValue {
     RelativeAddr(i32),
     AbsoluteAddr(u64),
     RegisterOffset(u8, i8),
+    Label(String), // Pour les labels, si besoin
 }
 
 impl Instruction {
@@ -458,6 +462,8 @@ impl Instruction {
         println!("DEBUG: create_jump_if_not - from=0x{:X}, to=0x{:X}, instr_size={}, next_pc=0x{:X}, offset={}",
                  from_addr, to_addr, instr_size, next_pc, offset);
 
+        println!("DEBUG: create_jump_if_not - offset length={} bytes", offset.to_le_bytes().len());
+
         Self::new(
             Opcode::JmpIfNot,
             InstructionFormat::jump_if_not(),
@@ -480,6 +486,8 @@ impl Instruction {
         println!("DEBUG: create_jump_if_equal - from=0x{:X}, to=0x{:X}, instr_size={}, next_pc=0x{:X}, offset={}",
                  from_addr, to_addr, instr_size, next_pc, offset);
 
+        println!("DEBUG: create_jump_if_equal - offset length={} bytes", offset.to_le_bytes().len());
+
         Self::new(
             Opcode::JmpIfEqual,
             InstructionFormat::jump_if_equal(),
@@ -501,6 +509,8 @@ impl Instruction {
         let offset = calculate_branch_offset(from_addr, to_addr, instr_size);
         println!("DEBUG: create_jump_if_not_equal - from=0x{:X}, to=0x{:X}, instr_size={}, next_pc=0x{:X}, offset={}",
                  from_addr, to_addr, instr_size, next_pc, offset);
+
+        println!("DEBUG: create_jump_if_not_equal - offset length={} bytes", offset.to_le_bytes().len());
 
         Self::new(
             Opcode::JmpIfNotEqual,
@@ -526,6 +536,8 @@ impl Instruction {
         println!("DEBUG: create_jump_if_greater - from=0x{:X}, to=0x{:X}, instr_size={}, next_pc=0x{:X}, offset={}",
                  from_addr, to_addr, instr_size, next_pc, offset);
 
+        println!("DEBUG: create_jump_if_greater - offset length={} bytes", offset.to_le_bytes().len());
+
         Self::new(
             Opcode::JmpIfGreater,
             InstructionFormat::jump_if_greater(),
@@ -550,6 +562,8 @@ impl Instruction {
         println!("DEBUG: create_jump_if_greater_equal - from=0x{:X}, to=0x{:X}, instr_size={}, next_pc=0x{:X}, offset={}",
                  from_addr, to_addr, instr_size, next_pc, offset);
 
+        println!("DEBUG: create_jump_if_greater_equal - offset length={} bytes", offset.to_le_bytes().len());
+
         Self::new(
             Opcode::JmpIfGreaterEqual,
             InstructionFormat::jump(),
@@ -572,6 +586,8 @@ impl Instruction {
 
         println!("DEBUG: create_jump_if_less - from=0x{:X}, to=0x{:X}, instr_size={}, next_pc=0x{:X}, offset={}",
                  from_addr, to_addr, instr_size, next_pc, offset);
+
+        println!("DEBUG: create_jump_if_less - offset length={} bytes", offset.to_le_bytes().len());
 
         Self::new(
             Opcode::JmpIfLess,
@@ -596,6 +612,8 @@ impl Instruction {
         println!("DEBUG: create_jump_if_less_equal - from=0x{:X}, to=0x{:X}, instr_size={}, next_pc=0x{:X}, offset={}",
                  from_addr, to_addr, instr_size, next_pc, offset);
 
+        println!("DEBUG: create_jump_if_less_equal - offset length={} bytes", offset.to_le_bytes().len());
+
         Self::new(
             Opcode::JmpIfLessEqual,
             InstructionFormat::jump_if_lessequal(),
@@ -617,6 +635,8 @@ impl Instruction {
         let offset = calculate_branch_offset(from_addr, to_addr, instr_size);
         println!("DEBUG: create_jump_if_less_equal - from=0x{:X}, to=0x{:X}, instr_size={}, next_pc=0x{:X}, offset={}",
                  from_addr, to_addr, instr_size, next_pc, offset);
+
+        println!("DEBUG: create_jump_if_above - offset length={} bytes", offset.to_le_bytes().len());
 
         Self::new(
             Opcode::JmpIfLessEqual,
@@ -640,6 +660,8 @@ impl Instruction {
         println!("DEBUG: create_jump_if_above_equal - from=0x{:X}, to=0x{:X}, instr_size={}, next_pc=0x{:X}, offset={}",
                  from_addr, to_addr, instr_size, next_pc, offset);
 
+        println!("DEBUG: create_jump_if_above_equal - offset length={} bytes", offset.to_le_bytes().len());
+
         Self::new(
             Opcode::JmpIfAboveEqual,
             InstructionFormat::jump_if_aboveequal(),
@@ -662,6 +684,8 @@ impl Instruction {
 
         println!("DEBUG: create_jump_below - from=0x{:X}, to=0x{:X}, instr_size={}, next_pc=0x{:X}, offset={}",
                  from_addr, to_addr, instr_size, next_pc, offset);
+
+        println!("DEBUG: create_jump_below - offset length={} bytes", offset.to_le_bytes().len());
 
         Self::new(
             Opcode::JmpIfBelow,
@@ -687,6 +711,8 @@ impl Instruction {
         println!("DEBUG: create_jump_if_below_equal - from=0x{:X}, to=0x{:X}, instr_size={}, next_pc=0x{:X}, offset={}",
                  from_addr, to_addr, instr_size, next_pc, offset);
 
+        println!("DEBUG: create_jump_if_below_equal - offset length={} bytes", offset.to_le_bytes().len());
+
         Self::new(
             Opcode::JmpIfBelowEqual,
             InstructionFormat::jump_if_belowequal(),
@@ -709,6 +735,8 @@ impl Instruction {
 
         println!("DEBUG: create_jump_if_not_zero - from=0x{:X}, to=0x{:X}, instr_size={}, next_pc=0x{:X}, offset={}",
                  from_addr, to_addr, instr_size, next_pc, offset);
+
+        println!("DEBUG: create_jump_if_not_zero - offset length={} bytes", offset.to_le_bytes().len());
 
         Self::new(
             Opcode::JmpIfNotZero,
@@ -733,6 +761,8 @@ impl Instruction {
         println!("DEBUG: create_jump_if_zero - from=0x{:X}, to=0x{:X}, instr_size={}, next_pc=0x{:X}, offset={}",
                  from_addr, to_addr, instr_size, next_pc, offset);
 
+        println!("DEBUG: create_jump_if_zero - offset length={} bytes", offset.to_le_bytes().len());
+
         Self::new(
             Opcode::JmpIfZero,
             InstructionFormat::jump_if_zero(),
@@ -756,6 +786,8 @@ impl Instruction {
         println!("DEBUG: create_jump_if_overflow - from=0x{:X}, to=0x{:X}, instr_size={}, next_pc=0x{:X}, offset={}",
                  from_addr, to_addr, instr_size, next_pc, offset);
 
+        println!("DEBUG: create_jump_if_overflow - offset length={} bytes", offset.to_le_bytes().len());
+
         Self::new(
             Opcode::JmpIfOverflow,
             InstructionFormat::jump_if_overflow(),
@@ -778,6 +810,8 @@ impl Instruction {
 
         println!("DEBUG: create_jump_if_not_overflow - from=0x{:X}, to=0x{:X}, instr_size={}, next_pc=0x{:X}, offset={}",
                  from_addr, to_addr, instr_size, next_pc, offset);
+
+        println!("DEBUG: create_jump_if_not_overflow - offset length={} bytes", offset.to_le_bytes().len());
 
         Self::new(
             Opcode::JmpIfNotOverflow,
@@ -803,6 +837,8 @@ impl Instruction {
         println!("DEBUG: create_jump_if_positive - from=0x{:X}, to=0x{:X}, instr_size={}, next_pc=0x{:X}, offset={}",
                  from_addr, to_addr, instr_size, next_pc, offset);
 
+        println!("DEBUG: create_jump_if_positive - offset length={} bytes", offset.to_le_bytes().len());
+
         Self::new(
             Opcode::JmpIfPositive,
             InstructionFormat::jump_if_positive(),
@@ -826,6 +862,8 @@ impl Instruction {
         println!("DEBUG: create_jump_if_negative - from=0x{:X}, to=0x{:X}, instr_size={}, next_pc=0x{:X}, offset={}",
                  from_addr, to_addr, instr_size, next_pc, offset);
 
+        println!("DEBUG: create_jump_if_negative - offset length={} bytes", offset.to_le_bytes().len());
+
         Self::new(
             Opcode::JmpIfNegative,
             InstructionFormat::jump_if_negative(),
@@ -848,6 +886,13 @@ impl Instruction {
         let instr_size = instr.total_size() as u32;
         // let offset = calculate_branch_offset(from_addr, to_addr, instr_size);
         let offset = calculate_branch_offset(from_addr, to_addr, instr_size);
+
+        println!("DEBUG: create_relative_jump - from=0x{:X}, to=0x{:X}, instr_size={}, offset={}",
+                 from_addr, to_addr, instr_size, offset);
+        // Convertir l'offset en bytes
+        // let offset_bytes = offset.to_le_bytes();
+        // Créer l'instruction avec l'offset
+        println!("DEBUG: create_relative_jump - offset length={} bytes", offset.to_le_bytes().len());
         Self::new(
             opcode,
             InstructionFormat::new(ArgType::None, ArgType::RelativeAddr, ArgType::None),
@@ -892,6 +937,9 @@ pub fn calculate_branch_offset(from_addr:u32,to_addr:u32,instr_size:u32) -> i32{
     (to_addr as i32) - (next_pc as i32)
 }
 
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
 
 // tests/branch_instructions_test.rs
 
