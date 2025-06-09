@@ -165,22 +165,7 @@ impl InstructionFormat {
 
     // Format pout les instructions de saut
     pub fn jump() -> Self {
-        Self::new(ArgType::None, ArgType::RelativeAddr, ArgType::None)
-        // Self {
-        //     arg1_type: ArgType::None,
-        //     arg2_type: ArgType::Immediate32, // offset relatif sur 32 bits
-        //     arg3_type: ArgType::None,
-        // }
-    }
-
-    // pub fn jump() -> Self {
-    //     Self::new(ArgType::None, ArgType::Flag, ArgType::None)
-    //     // Self {
-    //     //     arg1_type: ArgType::None,
-    //     //     arg2_type: ArgType::Immediate32, // offset relatif sur 32 bits
-    //     //     arg3_type: ArgType::None,
-    //     // }
-    // }
+        Self::new(ArgType::None, ArgType::RelativeAddr, ArgType::None)}
 
     pub fn jumpif() -> Self {
         Self::new(ArgType::None, ArgType::RelativeAddr, ArgType::None)
