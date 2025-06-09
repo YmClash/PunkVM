@@ -56,11 +56,7 @@ pub enum Opcode {
     Test = 0x56, //Test
     //0x57 - 0x5F : Réservé pour les futures instructions de controle de flux
 
-    // Call = 0x52, //Call
-    // Ret = 0x53, //Ret
-    // Cmp = 0x54, //Cmp
-    // Test = 0x55, //Test
-    //0x56 - 0x5F : Réservé pour les futures instructions de controle de flux
+
 
     // Instructions d'accès mémoire (0x60 - 0x7F)
     Load = 0x60,

@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum PredictorType {
     Static,
@@ -184,6 +185,7 @@ impl BranchPredictor {
             self.metrics.correct_predictions as f64 / self.metrics.total_branches as f64
         }
     }
+
 }
 
 #[cfg(test)]
