@@ -550,8 +550,6 @@ pub enum BranchCondition {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bytecode::instructions::Instruction;
-    use crate::bytecode::opcodes::Opcode;
 
     #[test]
     fn test_alu_flags_default() {
