@@ -7,7 +7,7 @@ use PunkVM::bytecode::files::{BytecodeFile, BytecodeVersion, SegmentMetadata, Se
 use PunkVM::bytecode::instructions::{ArgValue, Instruction};
 use PunkVM::bytecode::opcodes::Opcode;
 use PunkVM::debug::PipelineTracer;
-use PunkVM::pvm::vm::{PunkVM as VM, VMConfig};
+use PunkVM::pvm::vm::{PunkVM as VM, VMConfig, VMState};
 use PunkVM::pvm::vm_errors::VMResult;
 
 
@@ -60,6 +60,7 @@ fn main() -> VMResult<()> {
     // let program = punk_program_4();
     // let program =  punk_program_debug();
     // let program = punk_program_5();
+    // let program = punk_program_test();
 
 
 
@@ -78,6 +79,8 @@ fn main() -> VMResult<()> {
     } else {
         println!("Programme exécuté avec succès en {:?}", duration);
     }
+
+
 
     // Afficher l'état final des registres
     println!("\nÉtat final des registres:");
@@ -686,6 +689,413 @@ pub fn punk_program_5() -> BytecodeFile {
 
 
 
+pub fn create_reg_reg_reg_test_program() -> BytecodeFile {
+    let mut program = BytecodeFile::new();
+    // Version du programme
+    program.version = BytecodeVersion::new(0, 1, 0, 0);
+    // Métadonnées (optionnel)
+    program.add_metadata("name", "Test reg_reg_reg");
+    program.add_metadata(
+        "description",
+        "Programme testant les instructions à trois registres.",
+    );
+
+    // Initialiser R0 et R1 avec des valeurs immédiates via MOV (instructions immédiates)
+    // Ici, on utilise create_reg_imm8 (qui utilise un format MOV avec immediate) pour initialiser les registres
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 5)); // R0 = 5
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 10)); // R1 = 10
+
+    // Opérations à trois registres
+    // R2 = R0 + R1  --> 5 + 10 = 15
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 2, 0, 1));
+    // R3 = R2 - R0  --> 15 - 5 = 10
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Sub, 3, 2, 0));
+    // R4 = R3 * R1  --> 10 * 10 = 100
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Mul, 4, 3, 1));
+    // R5 = R4 / R0  --> 100 / 5 = 20
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Div, 5, 4, 0));
+    // R6 = R2 + R4  --> 15 + 100 = 115
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 6, 2, 4));
+    // R7 = R6 - R5  --> 115 - 20 = 95
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Sub, 7, 6, 5));
+    // R8 = R7 + R2  --> 95 + 15 = 110
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 8, 7, 2));
+
+    // Fin du programme : HALT
+    program.add_instruction(Instruction::create_no_args(Opcode::Halt));
+
+    // Calculer la taille totale du code et créer le segment de code
+    let total_size: u32 = program
+        .code
+        .iter()
+        .map(|instr| instr.total_size() as u32)
+        .sum();
+    program.segments = vec![SegmentMetadata::new(SegmentType::Code, 0, total_size, 0)];
+
+    // Ajout d'un segment de données vide
+    let data_size = 256;
+    let data_segment = SegmentMetadata::new(SegmentType::Data, 0, data_size, 0x1000);
+    program.segments.push(data_segment);
+    program.data = vec![0; data_size as usize];
+
+    println!("\n--- Carte des instructions du programme de test des branchements ---");
+    let mut addr = 0;
+    for (idx, instr) in program.code.iter().enumerate() {
+        let size = instr.total_size();
+        println!(
+            "Instruction {}: Adresse 0x{:04X}-0x{:04X} (taille {}): {:?}",
+            idx,
+            addr,
+            addr + size - 1,
+            size,
+            instr.opcode
+        );
+
+
+        if instr.opcode.is_branch() {
+            if let Ok(ArgValue::RelativeAddr(offset)) = instr.get_arg2_value() {
+                let target = (addr as u32 + size as u32) as i64 + offset as i64;
+                println!("      -> Branchement relatif: offset={:+}, target=0x{:04X}", offset, target);
+            }
+        }
+        addr += size;
+    }
+    println!("--- Fin de la carte des instructions ---");
+
+
+    program
+
+
+}
+
+//
+//
+// pub fn punk_program_test() -> BytecodeFile {
+//     let mut program = BytecodeFile::new();
+//     // Version du programme
+//     program.version = BytecodeVersion::new(0, 1, 0, 0);
+//     // Métadonnées (optionnel)
+//     program.add_metadata("name", "bug test ");
+//     program.add_metadata(
+//         "description",
+//         "Bug test .",
+//     );
+//
+//
+//     let mut current_addr = 0u32;
+//
+//     println!("=== CRÉATION DU PROGRAMME DE TEST PUNKVM ===");
+//
+//     // ==========================================
+//     // SECTION 1: INITIALISATION DES REGISTRES
+//     // ==========================================
+//     println!("=== SECTION 1: INITIALISATION ===");
+//
+//     // MOV R0, 10    - Valeur pour les tests
+//     program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 10));
+//     current_addr += program.last().unwrap().total_size() as u32;
+//
+//     // MOV R1, 5     - Compteur de boucle
+//     program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 5));
+//     current_addr += program.last().unwrap().total_size() as u32;
+//
+//     // MOV R2, 0     - Accumulateur
+//     program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 0));
+//     current_addr += program.last().unwrap().total_size() as u32;
+//
+//     // MOV R3, 1     - Incrément
+//     program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 1));
+//     current_addr += program.last().unwrap().total_size() as u32;
+//
+//     // ==========================================
+//     // SECTION 2: TEST OPÉRATIONS ALU
+//     // ==========================================
+//     println!("=== SECTION 2: TESTS ALU ===");
+//
+//     // ADD R2, R0    - R2 = 0 + 10 = 10
+//     program.add_instruction(Instruction::create_reg_reg(Opcode::Add, 2, 0));
+//     current_addr += program.last().unwrap().total_size() as u32;
+//
+//     // SUB R2, R3    - R2 = 10 - 1 = 9
+//     program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 2, 3));
+//     current_addr += program.last().unwrap().total_size() as u32;
+//
+//     // ==========================================
+//     // SECTION 3: TEST BRANCHEMENT CONDITIONNEL
+//     // ==========================================
+//     println!("=== SECTION 3: TEST BRANCHEMENT ===");
+//
+//     // CMP R1, R3    - Compare compteur avec 1
+//     program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 3));
+//     current_addr += program.last().unwrap().total_size() as u32;
+//
+//     // Calculer l'adresse de saut (après la prochaine instruction)
+//     let jump_instruction_addr = current_addr;
+//     let skip_instruction_size = 6; // Taille de l'instruction MOV suivante
+//     let target_addr = current_addr + 8 + skip_instruction_size; // Après JmpIfEqual + MOV
+//
+//     // JmpIfEqual target - Si R1 == 1, sauter l'instruction suivante
+//     program.add_instruction(Instruction::create_relative_jump(
+//         Opcode::JmpIfEqual,
+//         jump_instruction_addr,
+//         target_addr
+//     ));
+//     current_addr += program.last().unwrap().total_size() as u32;
+//
+//     // MOV R4, 255   - Cette instruction sera sautée si R1 == 1
+//     program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 255));
+//     current_addr += program.last().unwrap().total_size() as u32;
+//
+//     // ==========================================
+//     // SECTION 4: BOUCLE CONTRÔLÉE (5 ITÉRATIONS)
+//     // ==========================================
+//     println!("=== SECTION 4: BOUCLE CONTRÔLÉE ===");
+//
+//     // Marquer le début de la boucle
+//     let loop_start = current_addr;
+//
+//     // ADD R2, R3    - Accumulateur += 1
+//     program.add_instruction(Instruction::create_reg_reg(Opcode::Add, 2, 3));
+//     current_addr += program.last().unwrap().total_size() as u32;
+//
+//     // SUB R1, R3    - Décrémenter le compteur
+//     program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 1, 3));
+//     current_addr += program.last().unwrap().total_size() as u32;
+//
+//     // CMP R1, R3    - Comparer avec 1 (condition d'arrêt)
+//     program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 3));
+//     current_addr += program.last().unwrap().total_size() as u32;
+//
+//     // JmpIfGreater loop_start - Si R1 > 1, retourner au début
+//     let jump_back_addr = current_addr;
+//     program.add_instruction(Instruction::create_relative_jump(
+//         Opcode::JmpIfGreater,
+//         jump_back_addr,
+//         loop_start
+//     ));
+//     current_addr += program.last().unwrap().total_size() as u32;
+//
+//     // ==========================================
+//     // SECTION 5: TEST BRANCHEMENT INCONDITIONNEL
+//     // ==========================================
+//     println!("=== SECTION 5: SAUT INCONDITIONNEL ===");
+//
+//     // JMP vers la finalisation (sauter l'instruction piège)
+//     let jmp_addr = current_addr;
+//     let final_section_addr = current_addr + 8 + 6; // Après JMP + instruction piège
+//     program.add_instruction(Instruction::create_relative_jump(
+//         Opcode::Jmp,
+//         jmp_addr,
+//         final_section_addr
+//     ));
+//     current_addr += program.last().unwrap().total_size() as u32;
+//
+//     // MOV R5, 255   - Instruction piège (ne devrait jamais s'exécuter)
+//     program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 255));
+//     current_addr += program.last().unwrap().total_size() as u32;
+//
+//     // ==========================================
+//     // SECTION 6: FINALISATION ET VALIDATION
+//     // ==========================================
+//     println!("=== SECTION 6: FINALISATION ===");
+//
+//     // MOV R10, 42   - Marqueur de succès
+//     program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 42));
+//     current_addr += program.last().unwrap().total_size() as u32;
+//
+//     // ADD R2, R10   - R2 devrait contenir la somme finale
+//     program.add_instruction(Instruction::create_reg_reg(Opcode::Add, 2, 10));
+//     current_addr += program.last().unwrap().total_size() as u32;
+//
+//     // HALT - Fin du programme
+//     program.add_instruction(Instruction::create_no_args(Opcode::Halt));
+//
+//     // ==========================================
+//     // RÉSUMÉ DU PROGRAMME
+//     // ==========================================
+//     println!("\n=== RÉSUMÉ DU PROGRAMME ===");
+//     println!("Total d'instructions: {}", program.code.len());
+//
+//     let mut addr = 0;
+//     for (i, instr) in program.code.iter().enumerate() {
+//         println!("Instruction {}: Adresse 0x{:04X} - {:?}",
+//                  i, addr, instr.opcode);
+//         addr += instr.total_size() as u32;
+//     }
+//
+//     println!("\n=== RÉSULTATS ATTENDUS ===");
+//     println!("R0  = 10   (valeur initiale)");
+//     println!("R1  = 1    (compteur final)");
+//     println!("R2  = 55   (9 + 4*1 + 42 = accumulateur + boucle + succès)");
+//     println!("R3  = 1    (incrément)");
+//     println!("R4  = 0    (saut réussi, pas d'exécution de MOV R4, 255)");
+//     println!("R5  = 0    (saut inconditionnel réussi)");
+//     println!("R10 = 42   (marqueur de succès)");
+//     println!("Autres registres = 0");
+//
+//     program
+// }
+//
+// // Version simplifiée pour debug initial
+// pub fn create_simple_test_program() -> Vec<Instruction> {
+//     let mut program = Vec::new();
+//     let mut current_addr = 0u32;
+//
+//     println!("=== PROGRAMME DE TEST SIMPLE ===");
+//
+//     // MOV R0, 10
+//     program.push(Instruction::create_reg_imm8(Opcode::Mov, 0, 10));
+//     current_addr += program.last().unwrap().total_size() as u32;
+//
+//     // MOV R1, 10
+//     program.push(Instruction::create_reg_imm8(Opcode::Mov, 1, 10));
+//     current_addr += program.last().unwrap().total_size() as u32;
+//
+//     // CMP R0, R1
+//     program.push(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+//     current_addr += program.last().unwrap().total_size() as u32;
+//
+//     // JmpIfEqual vers HALT (saut +6 bytes)
+//     let jump_addr = current_addr;
+//     let halt_addr = current_addr + 8 + 6; // Après jump + MOV
+//     program.push(Instruction::create_relative_jump(
+//         Opcode::JmpIfEqual,
+//         jump_addr,
+//         halt_addr
+//     ));
+//     current_addr += program.last().unwrap().total_size() as u32;
+//
+//     // MOV R2, 255  (ne devrait pas s'exécuter)
+//     program.push(Instruction::create_reg_imm8(Opcode::Mov, 2, 255));
+//     current_addr += program.last().unwrap().total_size() as u32;
+//
+//     // HALT
+//     program.push(Instruction::create_no_args(Opcode::Halt));
+//
+//     println!("Résultats attendus: R0=10, R1=10, R2=0 (saut réussi), autres=0");
+//
+//     program
+// }
+
+// Test de boucle très simple
+// pub fn create_minimal_loop_test() -> Vec<Instruction> {
+//     let mut program = Vec::new();
+//     let mut current_addr = 0u32;
+//
+//     println!("=== TEST BOUCLE MINIMALE ===");
+//
+//     // MOV R0, 3    - Compteur
+//     program.push(Instruction::create_reg_imm8(Opcode::Mov, 0, 3));
+//     current_addr += program.last().unwrap().total_size() as u32;
+//
+//     // MOV R1, 1    - Décrément
+//     program.push(Instruction::create_reg_imm8(Opcode::Mov, 1, 1));
+//     current_addr += program.last().unwrap().total_size() as u32;
+//
+//     // Début de boucle
+//     let loop_start = current_addr;
+//
+//     // SUB R0, R1   - Décrémenter
+//     program.push(Instruction::create_reg_reg(Opcode::Sub, 0, 1));
+//     current_addr += program.last().unwrap().total_size() as u32;
+//
+//     // CMP R0, R1   - Comparer avec 1
+//     program.push(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+//     current_addr += program.last().unwrap().total_size() as u32;
+//
+//     // JmpIfGreater loop_start
+//     let jump_addr = current_addr;
+//     program.push(Instruction::create_relative_jump(
+//         Opcode::JmpIfGreater,
+//         jump_addr,
+//         loop_start
+//     ));
+//     current_addr += program.last().unwrap().total_size() as u32;
+//
+//     // MOV R2, 42   - Succès
+//     program.push(Instruction::create_reg_imm8(Opcode::Mov, 2, 42));
+//     current_addr += program.last().unwrap().total_size() as u32;
+//
+//     // HALT
+//     program.push(Instruction::create_no_args(Opcode::Halt));
+//
+//     println!("Résultats attendus: R0=1, R1=1, R2=42, boucle 2 itérations");
+//
+//     // ici les instructions sont créées avec des valeurs immédiates
+//
+//
+//
+//     // Calculer la taille totale du code et créer le segment de code
+//     let total_size: u32 = program
+//         .code
+//         .iter()
+//         .map(|instr| instr.total_size() as u32)
+//         .sum();
+//     program.segments = vec![SegmentMetadata::new(SegmentType::Code, 0, total_size, 0)];
+//
+//     // Ajout d'un segment de données vide
+//     let data_size = 256;
+//     let data_segment = SegmentMetadata::new(SegmentType::Data, 0, data_size, 0x1000);
+//     program.segments.push(data_segment);
+//     program.data = vec![0; data_size as usize];
+//
+//     println!("\n--- Carte des instructions du programme de test des branchements ---");
+//     let mut addr = 0;
+//     for (idx, instr) in program.code.iter().enumerate() {
+//         let size = instr.total_size();
+//         println!(
+//             "Instruction {}: Adresse 0x{:04X}-0x{:04X} (taille {}): {:?}",
+//             idx,
+//             addr,
+//             addr + size - 1,
+//             size,
+//             instr.opcode
+//         );
+//
+//
+//         if instr.opcode.is_branch() {
+//             if let Ok(ArgValue::RelativeAddr(offset)) = instr.get_arg2_value() {
+//                 let target = (addr as u32 + size as u32) as i64 + offset as i64;
+//                 println!("      -> Branchement relatif: offset={:+}, target=0x{:04X}", offset, target);
+//             }
+//         }
+//         addr += size;
+//     }
+//     println!("--- Fin de la carte des instructions ---");
+//
+//
+//     program
+//
+//
+// }
+//
+//
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 /*
 /// Crée un programme complexe qui teste plusieurs aspects de la VM:
 /// - Dépendances de données
@@ -983,57 +1393,6 @@ fn create_reg_reg_offset(opcode: Opcode, rs: u8, rb: u8, offset: i8) -> Instruct
     )
 }
 
-pub fn create_reg_reg_reg_test_program() -> BytecodeFile {
-    let mut program = BytecodeFile::new();
-    // Version du programme
-    program.version = BytecodeVersion::new(0, 1, 0, 0);
-    // Métadonnées (optionnel)
-    program.add_metadata("name", "Test reg_reg_reg");
-    program.add_metadata(
-        "description",
-        "Programme testant les instructions à trois registres.",
-    );
-
-    // Initialiser R0 et R1 avec des valeurs immédiates via MOV (instructions immédiates)
-    // Ici, on utilise create_reg_imm8 (qui utilise un format MOV avec immediate) pour initialiser les registres
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 5)); // R0 = 5
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 10)); // R1 = 10
-
-    // Opérations à trois registres
-    // R2 = R0 + R1  --> 5 + 10 = 15
-    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 2, 0, 1));
-    // R3 = R2 - R0  --> 15 - 5 = 10
-    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Sub, 3, 2, 0));
-    // R4 = R3 * R1  --> 10 * 10 = 100
-    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Mul, 4, 3, 1));
-    // R5 = R4 / R0  --> 100 / 5 = 20
-    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Div, 5, 4, 0));
-    // R6 = R2 + R4  --> 15 + 100 = 115
-    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 6, 2, 4));
-    // R7 = R6 - R5  --> 115 - 20 = 95
-    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Sub, 7, 6, 5));
-    // R8 = R7 + R2  --> 95 + 15 = 110
-    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 8, 7, 2));
-
-    // Fin du programme : HALT
-    program.add_instruction(Instruction::create_no_args(Opcode::Halt));
-
-    // Calculer la taille totale du code et créer le segment de code
-    let total_size: u32 = program
-        .code
-        .iter()
-        .map(|instr| instr.total_size() as u32)
-        .sum();
-    program.segments = vec![SegmentMetadata::new(SegmentType::Code, 0, total_size, 0)];
-
-    // (Optionnel) Créer un segment de données si nécessaire
-    let data_size = 256;
-    let data_segment = SegmentMetadata::new(SegmentType::Data, 0, data_size, 0x1000);
-    program.segments.push(data_segment);
-    program.data = vec![0; data_size as usize];
-
-    program
-}
 
 pub fn create_hazard_detection_test_program() -> BytecodeFile {
     let mut program = BytecodeFile::new();
