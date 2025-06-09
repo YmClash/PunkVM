@@ -1,17 +1,15 @@
-// src/pipeline/hazard.rs
+//src/pipeline/hazard.rs
 
 use crate::bytecode::opcodes::Opcode;
 use crate::pipeline::PipelineState;
 
 /// Unité de détection de hazards
-#[derive(Debug)] // Ajout de Debug pour l'affichage
 pub struct HazardDetectionUnit {
-    /// Compteur de hazards détectés (peut indiquer un stall ou juste une dépendance)
+    // Compteur de hazards détectés
     pub hazards_count: u64,
-    // Retrait de branch_stall_cycles, la logique est simplifiée
+    branch_stall_cycles: u32,
 }
 
-// Note: HazardType est conservé tel quel, car vous l'utilisiez.
 #[derive(Debug, PartialEq)]
 pub enum HazardType {
     None,
@@ -22,7 +20,6 @@ pub enum HazardType {
     StructuralHazard,
 }
 
-// HazardResult est conservé tel quel
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum HazardResult {
     None,
@@ -38,51 +35,44 @@ impl HazardDetectionUnit {
     pub fn new() -> Self {
         Self {
             hazards_count: 0,
-            // branch_stall_cycles: 0, // Retiré
+            branch_stall_cycles: 0,
         }
     }
 
-    /// Détecte les hazards dans le pipeline et retourne le type détecté.
-    /// L'ordre des vérifications définit la priorité si plusieurs hazards sont présents.
+    /// Détecte les hazards dans le pipeline et retourne le type détecté
     pub fn detect_hazards_with_type(&mut self, state: &PipelineState) -> HazardResult {
-        // Priorité 1: Load-Use Hazard (nécessite quasi toujours un stall)
-        if self.is_load_use_hazards(state) {
-            println!("Hazard Detected: Load-Use");
-            self.hazards_count += 1; // Incrémenter lors de la détection
-            return HazardResult::LoadUse; // Le contrôleur décidera du stall
-
-        }
-
-        // Priorité 2: Control Hazard (branchement non résolu dans EX)
-        // Si un branchement est en EX, on a un hazard potentiel jusqu'à sa résolution.
-        if self.is_control_hazard(state) {
-            println!("Hazard Detected: Control (Branch in EX stage)");
-            self.hazards_count += 1; // Incrémenter lors de la détection
-            return HazardResult::ControlHazard; // Le contrôleur gérera (stall/flush si mispredict)
-        }
-
-        // Priorité 3: Structural Hazard (conflit de ressource)
-        if self.is_structural_hazard(state) {
-            println!("Hazard Detected: Structural");
-            self.hazards_count += 1; // Incrémenter lors de la détection
-            return HazardResult::StructuralHazard; // Nécessite un stall
-        }
-
-        // Priorité 4: Data Hazard (RAW classique - peut être résolu par forwarding)
-        // On le détecte après les stalls obligatoires car le forwarding pourrait le masquer.
+        // 1. Data Hazards (RAW - Read After Write)
         if self.is_data_hazard(state) {
-            println!("Hazard Detected: Data Dependency (RAW)");
-            // Note: On incrémente hazards_count ici, même si le forwarding peut le résoudre.
-            // C'est discutable, on pourrait vouloir ne compter que les hazards *non résolus*.
-            // Pour l'instant, on suit la logique précédente: compter à la détection.
+            println!("Data hazard detected");
             self.hazards_count += 1;
             return HazardResult::DataDependency;
         }
 
-        // Priorité 5: Store-Load Hazard (peut être résolu par forwarding mémoire/SB)
+        // 2. Load-Use Hazards (cas spécial de Data Hazard)
+        if self.is_load_use_hazards(state) {
+            println!("Load-Use hazard detected");
+            self.hazards_count += 1;
+            return HazardResult::LoadUse;
+        }
+
+        // 3. Control Hazards
+        if self.is_control_hazard(state) {
+            println!("Control hazard detected");
+            self.hazards_count += 1;
+            return HazardResult::ControlHazard;
+        }
+
+        // 4. Structural Hazards
+        if self.is_structural_hazard(state) {
+            println!("Structural hazard detected");
+            self.hazards_count += 1;
+            return HazardResult::StructuralHazard;
+        }
+
+        // 5. Store-Load Hazards
         if self.is_store_load_hazard(state) {
-            println!("Hazard Detected: Store-Load");
-            self.hazards_count += 1; // Compter à la détection
+            println!("Store-Load hazard detected");
+            self.hazards_count += 1;
             return HazardResult::StoreLoad;
         }
 
@@ -90,59 +80,86 @@ impl HazardDetectionUnit {
         HazardResult::None
     }
 
-    /// Détecte s'il y a *un* hazard (quel qu'il soit).
-    /// Fonction conservée pour la compatibilité.
+    /// Détecte les hazards dans le pipeline
+    /// Méthode principale : détecte s'il y a un hazard (et lequel) dans l'état pipeline
+    /// Renvoie un HazardType
+    // pub fn detect_hazard(&mut self, state: &PipelineState) -> HazardType {
+    //     // On va tester dans un ordre de priorité
+    //     // (On pourrait inverser l'ordre, c'est un choix d'implémentation.)
+    //
+    //     // 1. Load-Use hazard (cas particulier, souvent prioritaire)
+    //     // if self.is_load_use_hazards(state) {
+    //     //     self.hazards_count += 1;
+    //     //     return HazardType::LoadUse;
+    //     // }
+    //     //
+    //     // // 2. Data hazard "classique"
+    //     // if self.is_data_hazard(state) {
+    //     //     self.hazards_count += 1;
+    //     //     return HazardType::DataDependency;
+    //     // }
+    //     //
+    //     // // 3. Store-Load hazard
+    //     // if self.is_store_load_hazard(state) {
+    //     //     self.hazards_count += 1;
+    //     //     return HazardType::StoreLoad;
+    //     // }
+    //     //
+    //     // // 4. Control hazard
+    //     // if self.is_control_hazard(state) {
+    //     //     self.hazards_count += 1;
+    //     //     return HazardType::ControlHazard;
+    //     // }
+    //     //
+    //     // // 5. Structural hazard
+    //     // if self.is_structural_hazard(state) {
+    //     //     self.hazards_count += 1;
+    //     //     return HazardType::StructuralHazard;
+    //     // }
+    //     //
+    //     // HazardType::None
+    // }
+
     pub fn detect_hazards(&mut self, state: &PipelineState) -> bool {
-        // On réutilise detect_hazards_with_type pour la logique
-        let hazard_type = self.detect_hazards_with_type(state);
-        // On retourne true si un hazard (autre que None) a été détecté.
-        hazard_type != HazardResult::None
+        let h = self.detect_hazards_with_type(state);
+        h != HazardResult::None
     }
 
-    /// Détecte les hazards de données (RAW - Read After Write).
-    /// Vérifie si l'instruction en Decode lit un registre écrit par Execute ou Memory.
+    /// Détecte les hazards de données (RAW - Read After Write)
+    // Vérifie un hazard data "classique" (RAW)
     fn is_data_hazard(&self, state: &PipelineState) -> bool {
         let decode_reg = match &state.decode_execute {
             Some(reg) => reg,
-            None => return false, // Pas d'instruction en Decode
+
+            None => return false,
         };
         let (rs1, rs2) = (decode_reg.rs1, decode_reg.rs2);
 
-        // Si pas de registres source, pas de dépendance
         if rs1.is_none() && rs2.is_none() {
             return false;
         }
 
-        // Vérifier dépendance avec Execute (EX/MEM)
+        // Check Execute stage
         if let Some(ex_reg) = &state.execute_memory {
             if let Some(rd_ex) = ex_reg.rd {
-                // Si l'instruction en EX est un Load, ce n'est pas un hazard RAW classique
-                // géré par forwarding ALU, c'est un Load-Use (vérifié ailleurs).
-                let is_load_in_ex = matches!(
-                    ex_reg.instruction.opcode,
-                    Opcode::Load | Opcode::LoadB | Opcode::LoadW | Opcode::LoadD | Opcode::Pop
-                );
-                if !is_load_in_ex { // Ne vérifier que pour les non-loads
-                    if rs1 == Some(rd_ex) || rs2 == Some(rd_ex) {
-                        println!("   [Hazard Check] Data hazard (RAW): Decode needs R{} written by non-Load in Execute", rd_ex);
-                        return true;
-                    }
+                // Si decode a besoin du rd_ex de execute
+                if rs1 == Some(rd_ex) || rs2 == Some(rd_ex) {
+                    println!("Data hazard (RAW) : decode needs R{}", rd_ex);
+
+                    return true;
                 }
             }
         }
 
-        // Vérifier dépendance avec Memory (MEM/WB)
+        // Check Memory stage
         if let Some(mem_reg) = &state.memory_writeback {
             if let Some(rd_mem) = mem_reg.rd {
-                // Éviter double détection si EX écrit aussi rd_mem (priorité à EX)
-                if let Some(ex_reg) = &state.execute_memory {
-                    if ex_reg.rd == Some(rd_mem) {
-                        return false; // Conflit déjà géré/détecté avec EX
-                    }
-                }
-                // Si conflit avec MEM/WB
                 if rs1 == Some(rd_mem) || rs2 == Some(rd_mem) {
-                    println!("   [Hazard Check] Data hazard (RAW): Decode needs R{} written by Memory stage", rd_mem);
+                    println!(
+                        "Data hazard (RAW) : decode needs R{} (written in Memory stage)",
+                        rd_mem
+                    );
+
                     return true;
                 }
             }
@@ -151,35 +168,48 @@ impl HazardDetectionUnit {
         false
     }
 
-    /// Détecte les hazards de type Load-Use.
-    /// Vérifie si Decode lit le résultat d'un Load en Execute.
+    /// Détecte les hazards de type Load-Use
     fn is_load_use_hazards(&self, state: &PipelineState) -> bool {
-        if let Some(ex_reg) = &state.execute_memory {
-            let is_load_in_ex = matches!(
-                ex_reg.instruction.opcode,
-                Opcode::Load | Opcode::LoadB | Opcode::LoadW | Opcode::LoadD | Opcode::Pop
-            );
+        // Si l'étage Decode n'a pas d'instruction, pas de hazard possible
+        let decode_reg = match &state.decode_execute {
+            Some(reg) => reg,
+            None => return false,
+        };
 
-            if is_load_in_ex {
-                if let Some(rd_load) = ex_reg.rd {
-                    // Vérifier si Decode utilise rd_load
-                    if let Some(decode_reg) = &state.decode_execute {
-                        if decode_reg.rs1 == Some(rd_load) || decode_reg.rs2 == Some(rd_load) {
-                            println!(
-                                "   [Hazard Check] Load-Use hazard: Decode reads R{} from Load/Pop in Execute.",
-                                rd_load
-                            );
-                            return true; // Stall nécessaire
-                        }
-                    }
+        // Registres sources de l'instruction dans l'étage Decode
+        let rs1 = decode_reg.rs1;
+        let rs2 = decode_reg.rs2;
+
+        // Aucun registre source, pas de hazard possible
+        if rs1.is_none() && rs2.is_none() {
+            return false;
+        }
+
+        // Cas particulier pour les instructions mémoire (Load-Use Hazard)
+        if let Some(ex_reg) = &state.execute_memory {
+            // Si l'instruction dans Execute est un Load et que son registre destination est utilisé dans Decode
+            let is_load = matches!(
+            ex_reg.instruction.opcode,
+            Opcode::Load | Opcode::LoadB | Opcode::LoadW | Opcode::LoadD
+        );
+
+            if is_load && ex_reg.rd.is_some() {
+                let rd_ex = ex_reg.rd.unwrap();
+                if rs1.map_or(false, |r| r == rd_ex) || rs2.map_or(false, |r| r == rd_ex) {
+                    // Hazard Load-Use: on doit attendre que le Load finisse avant de lire
+                    println!("Load-Use hazard detected: Decode stage needs register R{}, which is being loaded in Execute stage",
+                             if rs1.map_or(false, |r| r == rd_ex) { rs1.unwrap() } else { rs2.unwrap() });
+                    // return Some(true);
+                    return true;
                 }
             }
         }
+
         false
     }
 
-    /// Détecte les hazards de type Store-Load.
-    /// Vérifie si Decode (Load) lit une adresse écrite par Execute (Store).
+    /// Détecte les hazards de type Store-Load (quand une écriture suivie d'une lecture à la même adresse)
+    /// Vérifie store-load hazard (écriture en Execute, lecture en Decode, même adresse)
     fn is_store_load_hazard(&self, state: &PipelineState) -> bool {
         let ex_reg = match &state.execute_memory {
             Some(r) => r,
@@ -191,59 +221,94 @@ impl HazardDetectionUnit {
         };
 
         let exe_is_store = matches!(
-            ex_reg.instruction.opcode,
-            Opcode::Store | Opcode::StoreB | Opcode::StoreW | Opcode::StoreD | Opcode::Push
-        );
+        ex_reg.instruction.opcode,
+        Opcode::Store | Opcode::StoreB | Opcode::StoreW | Opcode::StoreD
+    );
         let dec_is_load = matches!(
-            decode_reg.instruction.opcode,
-            Opcode::Load | Opcode::LoadB | Opcode::LoadW | Opcode::LoadD | Opcode::Pop
-        );
-
+        decode_reg.instruction.opcode,
+        Opcode::Load | Opcode::LoadB | Opcode::LoadW | Opcode::LoadD
+    );
         if exe_is_store && dec_is_load {
-            // Comparaison d'adresse possible seulement pour Store/Load explicites
-            // car l'adresse pour Push/Pop n'est calculée qu'en MEM.
-            if ex_reg.mem_addr.is_some() && decode_reg.mem_addr.is_some() {
-                if ex_reg.mem_addr == decode_reg.mem_addr {
-                    println!(
-                        "   [Hazard Check] Store-Load hazard: Store(EX) and Load(DE) on same address 0x{:X}",
-                        ex_reg.mem_addr.unwrap()
-                    );
-                    return true; // Dépendance détectée
+            if let (Some(addr_store), Some(addr_load)) = (ex_reg.mem_addr, decode_reg.mem_addr) {
+                if addr_store == addr_load {
+                    println!("Store-Load hazard :Store(EX) and Load(DE) on same address 0x{:X}", addr_store);
+                    return true;
                 }
             }
-            // On pourrait considérer une dépendance si les adresses sont inconnues,
-            // mais cela peut être trop pessimiste.
         }
         false
     }
 
-    /// Détecte les hazards de contrôle (branchement en cours d'exécution).
-    /// Simplifié : retourne true si une instruction de branchement est dans EX/MEM.
+    /// Détecte les hazards de contrôle (branchements)
+    /// Vérifie control hazard
     fn is_control_hazard(&mut self, state: &PipelineState) -> bool {
-        // Le hazard principal survient quand une instruction de branchement est
-        // dans l'étage Execute (registre EX/MEM) car son issue (taken/not taken)
-        // et sa cible ne sont déterminées qu'à la fin de cet étage.
-        // Le Fetch a pu continuer (spéculativement ou non) sans connaître le bon chemin.
-        if let Some(ex_reg) = &state.execute_memory {
-            if ex_reg.instruction.opcode.is_branch() {
+
+        let ex_reg = match &state.execute_memory {
+            Some(r) => r,
+            None => {
+                self.branch_stall_cycles = 0; // Réinitialiser le compteur
+                return false;
+            }
+        };
+
+        if ex_reg.instruction.opcode.is_branch() {
+            if self.branch_stall_cycles == 0 {
+                // Premier cycle avec cette instruction de branchement
+                self.branch_stall_cycles += 1;
                 println!(
                     "   [Hazard Check] Control hazard: Branch ({:?}) in Execute stage.",
                     ex_reg.instruction.opcode
                 );
-                return true; // Signalement du hazard de contrôle potentiel
+                return true;
+            } else {
+                // Cette instruction de branchement a déjà été détectée
+                self.branch_stall_cycles += 1;
+                println!(
+                    "Control hazard : branch in execute stage (stall cycle {})",
+                    self.branch_stall_cycles
+                );
+                return false;
             }
+        } else {
+            self.branch_stall_cycles = 0; // Réinitialiser le compteur
+            return false;
         }
-        false
     }
 
-    /// Détecte les hazards structurels.
-    /// Dans ce pipeline, on suppose que seule l'unité Memory est une ressource critique unique.
-    /// Le conflit survient si EX et MEM tentent d'accéder simultanément (ce qui n'arrive pas ici).
+    /// Détecte les hazards structurels (conflits de ressources)
+    /// Vérifie structural hazard
+    /// (par ex. 2 instructions mem dans ex & mem)
     fn is_structural_hazard(&self, state: &PipelineState) -> bool {
-        // Voir les commentaires dans la version précédente. Dans ce design de pipeline
-        // où l'accès mémoire est strictement dans l'étage MEM, il n'y a pas de
-        // conflit structurel entre EX et MEM sur le port mémoire.
-        // La fonction est conservée pour la structure, mais retourne false.
+        let (ex_stage, mem_stage) = (&state.execute_memory, &state.memory_writeback);
+        if let (Some(ex_reg), Some(mem_reg)) = (ex_stage, mem_stage) {
+            let ex_is_mem_op = matches!(
+            ex_reg.instruction.opcode,
+            Opcode::Load
+                | Opcode::LoadB
+                | Opcode::LoadW
+                | Opcode::LoadD
+                | Opcode::Store
+                | Opcode::StoreB
+                | Opcode::StoreW
+                | Opcode::StoreD
+        );
+            let mem_is_mem_op = matches!(
+            mem_reg.instruction.opcode,
+            Opcode::Load
+                | Opcode::LoadB
+                | Opcode::LoadW
+                | Opcode::LoadD
+                | Opcode::Store
+                | Opcode::StoreB
+                | Opcode::StoreW
+                | Opcode::StoreD
+        );
+            if ex_is_mem_op && mem_is_mem_op {
+                println!("Structural hazard : mem ops in both EX & MEM");
+
+                return true;
+            }
+        }
         false
     }
 
@@ -251,16 +316,285 @@ impl HazardDetectionUnit {
     pub fn reset(&mut self) {
         println!("Resetting hazards count to 0.");
         self.hazards_count = 0;
+        self.branch_stall_cycles = 0;
     }
 
-    /// Retourne le nombre de hazards détectés.
-    /// Note: Ce nombre reflète les détections, pas nécessairement les stalls finaux.
+    /// Retourne le nombre de hazards détectés
     pub fn get_hazards_count(&self) -> u64 {
+        // println!("Hazards count: {}", self.hazards_count);
         println!("Total hazards detected (may include forwarded): {}", self.hazards_count);
         self.hazards_count
     }
+
 }
 
+
+/////////////////////////////////////////////
+// // src/pipeline/hazard.rs
+//
+// use crate::bytecode::opcodes::Opcode;
+// use crate::pipeline::PipelineState;
+//
+// /// Unité de détection de hazards
+// #[derive(Debug)] // Ajout de Debug pour l'affichage
+// pub struct HazardDetectionUnit {
+//     /// Compteur de hazards détectés (peut indiquer un stall ou juste une dépendance)
+//     pub hazards_count: u64,
+//     // Retrait de branch_stall_cycles, la logique est simplifiée
+// }
+//
+// // Note: HazardType est conservé tel quel, car vous l'utilisiez.
+// #[derive(Debug, PartialEq)]
+// pub enum HazardType {
+//     None,
+//     LoadUse,
+//     StoreLoad,
+//     DataDependency,
+//     ControlHazard,
+//     StructuralHazard,
+// }
+//
+// // HazardResult est conservé tel quel
+// #[derive(Debug, Clone, Copy, PartialEq)]
+// pub enum HazardResult {
+//     None,
+//     StoreLoad,
+//     LoadUse,
+//     DataDependency,
+//     ControlHazard,
+//     StructuralHazard,
+// }
+//
+// impl HazardDetectionUnit {
+//     /// Crée une nouvelle unité de détection de hazards
+//     pub fn new() -> Self {
+//         Self {
+//             hazards_count: 0,
+//             // branch_stall_cycles: 0, // Retiré
+//         }
+//     }
+//
+//     /// Détecte les hazards dans le pipeline et retourne le type détecté.
+//     /// L'ordre des vérifications définit la priorité si plusieurs hazards sont présents.
+//     pub fn detect_hazards_with_type(&mut self, state: &PipelineState) -> HazardResult {
+//         // Priorité 1: Load-Use Hazard (nécessite quasi toujours un stall)
+//         if self.is_load_use_hazards(state) {
+//             println!("Hazard Detected: Load-Use");
+//             self.hazards_count += 1; // Incrémenter lors de la détection
+//             return HazardResult::LoadUse; // Le contrôleur décidera du stall
+//
+//         }
+//
+//         // Priorité 2: Control Hazard (branchement non résolu dans EX)
+//         // Si un branchement est en EX, on a un hazard potentiel jusqu'à sa résolution.
+//         if self.is_control_hazard(state) {
+//             println!("Hazard Detected: Control (Branch in EX stage)");
+//             self.hazards_count += 1; // Incrémenter lors de la détection
+//             return HazardResult::ControlHazard; // Le contrôleur gérera (stall/flush si mispredict)
+//         }
+//
+//         // Priorité 3: Structural Hazard (conflit de ressource)
+//         if self.is_structural_hazard(state) {
+//             println!("Hazard Detected: Structural");
+//             self.hazards_count += 1; // Incrémenter lors de la détection
+//             return HazardResult::StructuralHazard; // Nécessite un stall
+//         }
+//
+//         // Priorité 4: Data Hazard (RAW classique - peut être résolu par forwarding)
+//         // On le détecte après les stalls obligatoires car le forwarding pourrait le masquer.
+//         if self.is_data_hazard(state) {
+//             println!("Hazard Detected: Data Dependency (RAW)");
+//             // Note: On incrémente hazards_count ici, même si le forwarding peut le résoudre.
+//             // C'est discutable, on pourrait vouloir ne compter que les hazards *non résolus*.
+//             // Pour l'instant, on suit la logique précédente: compter à la détection.
+//             self.hazards_count += 1;
+//             return HazardResult::DataDependency;
+//         }
+//
+//         // Priorité 5: Store-Load Hazard (peut être résolu par forwarding mémoire/SB)
+//         if self.is_store_load_hazard(state) {
+//             println!("Hazard Detected: Store-Load");
+//             self.hazards_count += 1; // Compter à la détection
+//             return HazardResult::StoreLoad;
+//         }
+//
+//         // Aucun hazard détecté
+//         HazardResult::None
+//     }
+//
+//     /// Détecte s'il y a *un* hazard (quel qu'il soit).
+//     /// Fonction conservée pour la compatibilité.
+//     pub fn detect_hazards(&mut self, state: &PipelineState) -> bool {
+//         // On réutilise detect_hazards_with_type pour la logique
+//         let hazard_type = self.detect_hazards_with_type(state);
+//         // On retourne true si un hazard (autre que None) a été détecté.
+//         hazard_type != HazardResult::None
+//     }
+//
+//     /// Détecte les hazards de données (RAW - Read After Write).
+//     /// Vérifie si l'instruction en Decode lit un registre écrit par Execute ou Memory.
+//     fn is_data_hazard(&self, state: &PipelineState) -> bool {
+//         let decode_reg = match &state.decode_execute {
+//             Some(reg) => reg,
+//             None => return false, // Pas d'instruction en Decode
+//         };
+//         let (rs1, rs2) = (decode_reg.rs1, decode_reg.rs2);
+//
+//         // Si pas de registres source, pas de dépendance
+//         if rs1.is_none() && rs2.is_none() {
+//             return false;
+//         }
+//
+//         // Vérifier dépendance avec Execute (EX/MEM)
+//         if let Some(ex_reg) = &state.execute_memory {
+//             if let Some(rd_ex) = ex_reg.rd {
+//                 // Si l'instruction en EX est un Load, ce n'est pas un hazard RAW classique
+//                 // géré par forwarding ALU, c'est un Load-Use (vérifié ailleurs).
+//                 let is_load_in_ex = matches!(
+//                     ex_reg.instruction.opcode,
+//                     Opcode::Load | Opcode::LoadB | Opcode::LoadW | Opcode::LoadD | Opcode::Pop
+//                 );
+//                 if !is_load_in_ex { // Ne vérifier que pour les non-loads
+//                     if rs1 == Some(rd_ex) || rs2 == Some(rd_ex) {
+//                         println!("   [Hazard Check] Data hazard (RAW): Decode needs R{} written by non-Load in Execute", rd_ex);
+//                         return true;
+//                     }
+//                 }
+//             }
+//         }
+//
+//         // Vérifier dépendance avec Memory (MEM/WB)
+//         if let Some(mem_reg) = &state.memory_writeback {
+//             if let Some(rd_mem) = mem_reg.rd {
+//                 // Éviter double détection si EX écrit aussi rd_mem (priorité à EX)
+//                 if let Some(ex_reg) = &state.execute_memory {
+//                     if ex_reg.rd == Some(rd_mem) {
+//                         return false; // Conflit déjà géré/détecté avec EX
+//                     }
+//                 }
+//                 // Si conflit avec MEM/WB
+//                 if rs1 == Some(rd_mem) || rs2 == Some(rd_mem) {
+//                     println!("   [Hazard Check] Data hazard (RAW): Decode needs R{} written by Memory stage", rd_mem);
+//                     return true;
+//                 }
+//             }
+//         }
+//
+//         false
+//     }
+//
+//     /// Détecte les hazards de type Load-Use.
+//     /// Vérifie si Decode lit le résultat d'un Load en Execute.
+//     fn is_load_use_hazards(&self, state: &PipelineState) -> bool {
+//         if let Some(ex_reg) = &state.execute_memory {
+//             let is_load_in_ex = matches!(
+//                 ex_reg.instruction.opcode,
+//                 Opcode::Load | Opcode::LoadB | Opcode::LoadW | Opcode::LoadD | Opcode::Pop
+//             );
+//
+//             if is_load_in_ex {
+//                 if let Some(rd_load) = ex_reg.rd {
+//                     // Vérifier si Decode utilise rd_load
+//                     if let Some(decode_reg) = &state.decode_execute {
+//                         if decode_reg.rs1 == Some(rd_load) || decode_reg.rs2 == Some(rd_load) {
+//                             println!(
+//                                 "   [Hazard Check] Load-Use hazard: Decode reads R{} from Load/Pop in Execute.",
+//                                 rd_load
+//                             );
+//                             return true; // Stall nécessaire
+//                         }
+//                     }
+//                 }
+//             }
+//         }
+//         false
+//     }
+//
+//     /// Détecte les hazards de type Store-Load.
+//     /// Vérifie si Decode (Load) lit une adresse écrite par Execute (Store).
+//     fn is_store_load_hazard(&self, state: &PipelineState) -> bool {
+//         let ex_reg = match &state.execute_memory {
+//             Some(r) => r,
+//             None => return false,
+//         };
+//         let decode_reg = match &state.decode_execute {
+//             Some(r) => r,
+//             None => return false,
+//         };
+//
+//         let exe_is_store = matches!(
+//             ex_reg.instruction.opcode,
+//             Opcode::Store | Opcode::StoreB | Opcode::StoreW | Opcode::StoreD | Opcode::Push
+//         );
+//         let dec_is_load = matches!(
+//             decode_reg.instruction.opcode,
+//             Opcode::Load | Opcode::LoadB | Opcode::LoadW | Opcode::LoadD | Opcode::Pop
+//         );
+//
+//         if exe_is_store && dec_is_load {
+//             // Comparaison d'adresse possible seulement pour Store/Load explicites
+//             // car l'adresse pour Push/Pop n'est calculée qu'en MEM.
+//             if ex_reg.mem_addr.is_some() && decode_reg.mem_addr.is_some() {
+//                 if ex_reg.mem_addr == decode_reg.mem_addr {
+//                     println!(
+//                         "   [Hazard Check] Store-Load hazard: Store(EX) and Load(DE) on same address 0x{:X}",
+//                         ex_reg.mem_addr.unwrap()
+//                     );
+//                     return true; // Dépendance détectée
+//                 }
+//             }
+//             // On pourrait considérer une dépendance si les adresses sont inconnues,
+//             // mais cela peut être trop pessimiste.
+//         }
+//         false
+//     }
+//
+//     /// Détecte les hazards de contrôle (branchement en cours d'exécution).
+//     /// Simplifié : retourne true si une instruction de branchement est dans EX/MEM.
+//     fn is_control_hazard(&mut self, state: &PipelineState) -> bool {
+//         // Le hazard principal survient quand une instruction de branchement est
+//         // dans l'étage Execute (registre EX/MEM) car son issue (taken/not taken)
+//         // et sa cible ne sont déterminées qu'à la fin de cet étage.
+//         // Le Fetch a pu continuer (spéculativement ou non) sans connaître le bon chemin.
+//         if let Some(ex_reg) = &state.execute_memory {
+//             if ex_reg.instruction.opcode.is_branch() {
+//                 println!(
+//                     "   [Hazard Check] Control hazard: Branch ({:?}) in Execute stage.",
+//                     ex_reg.instruction.opcode
+//                 );
+//                 return true; // Signalement du hazard de contrôle potentiel
+//             }
+//         }
+//         false
+//     }
+//
+//     /// Détecte les hazards structurels.
+//     /// Dans ce pipeline, on suppose que seule l'unité Memory est une ressource critique unique.
+//     /// Le conflit survient si EX et MEM tentent d'accéder simultanément (ce qui n'arrive pas ici).
+//     fn is_structural_hazard(&self, state: &PipelineState) -> bool {
+//         // Voir les commentaires dans la version précédente. Dans ce design de pipeline
+//         // où l'accès mémoire est strictement dans l'étage MEM, il n'y a pas de
+//         // conflit structurel entre EX et MEM sur le port mémoire.
+//         // La fonction est conservée pour la structure, mais retourne false.
+//         false
+//     }
+//
+//     /// Réinitialise l'unité de détection de hazards
+//     pub fn reset(&mut self) {
+//         println!("Resetting hazards count to 0.");
+//         self.hazards_count = 0;
+//     }
+//
+//     /// Retourne le nombre de hazards détectés.
+//     /// Note: Ce nombre reflète les détections, pas nécessairement les stalls finaux.
+//     pub fn get_hazards_count(&self) -> u64 {
+//         println!("Total hazards detected (may include forwarded): {}", self.hazards_count);
+//         self.hazards_count
+//     }
+// }
+
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Tests pour l'unité de détection de hazards
 #[cfg(test)]
 mod hazard_tests {
