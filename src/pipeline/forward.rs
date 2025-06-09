@@ -1,3 +1,179 @@
+// // src/pipeline/forward.rs
+//
+// use crate::bytecode::opcodes::Opcode;
+// use crate::pipeline::{DecodeExecuteRegister, ExecuteMemoryRegister, MemoryWritebackRegister};
+//
+// /// Unité de forwarding
+// pub struct ForwardingUnit {
+//     /// Compteur de forwarding
+//     pub forwards_count: u64,
+// }
+//
+// /// Représente une source de forwarding
+// #[derive(Debug, Clone, Copy, PartialEq)]
+// pub enum ForwardingSource {
+//     // Execute,
+//     // Memory,
+//     ExecuteMemory,
+//     Writeback,
+//     // None,
+// }
+//
+// #[derive(Debug, Clone)]
+// pub struct ForwardingInfo {
+//     pub source: ForwardingSource,
+//     pub value: u64,
+//     pub register: usize,
+// }
+//
+// impl ForwardingUnit {
+//     /// Crée une nouvelle unité de forwarding
+//     pub fn new() -> Self {
+//         Self { forwards_count: 0 }
+//     }
+//
+//     /// Effectue le forwarding des données et retourne les informations sur le forwarding effectué
+//     /// Méthode principale de forwarding
+//     /// On renvoie un Vec<ForwardingInfo> pour tracer ce qui a été forwardé
+//     pub fn forward_with_info(
+//         &mut self,
+//         decode_reg: &mut DecodeExecuteRegister,
+//         mem_reg: &Option<ExecuteMemoryRegister>,
+//         wb_reg: &Option<MemoryWritebackRegister>,
+//     ) -> Vec<ForwardingInfo> {
+//         let mut info_list = Vec::new();
+//
+//         let rs1_idx = decode_reg.rs1;
+//         let rs2_idx = decode_reg.rs2;
+//
+//         // S'il n'y a pas de registres source, on ne fait rien
+//         if rs1_idx.is_none() && rs2_idx.is_none() {
+//             return info_list;
+//         }
+//
+//         // 1. Forwarding depuis l'étage Memory (Execute->MemoryRegister)
+//         if let Some(mem) = mem_reg {
+//             if let Some(rd_mem) = mem.rd {
+//                 // On veut forwarder la valeur mem.alu_result
+//                 let mem_val = mem.alu_result;
+//
+//                 // si decode_reg.rs1 == rd_mem => forward
+//                 if rs1_idx == Some(rd_mem) {
+//                     decode_reg.rs1_value = mem_val;
+//                     self.forwards_count += 1;
+//                     info_list.push(ForwardingInfo {
+//                         source: ForwardingSource::ExecuteMemory,
+//                         register: rd_mem,
+//                         value: mem_val,
+//                     });
+//                     println!("Forwarding: MEM->rs1  R{} = {}", rd_mem, mem_val);
+//                 }
+//                 // si decode_reg.rs2 == rd_mem => forward
+//                 if rs2_idx == Some(rd_mem) {
+//                     decode_reg.rs2_value = mem_val;
+//                     self.forwards_count += 1;
+//                     info_list.push(ForwardingInfo {
+//                         source: ForwardingSource::ExecuteMemory,
+//                         register: rd_mem,
+//                         value: mem_val,
+//                     });
+//                     println!("Forwarding: MEM->rs2  R{} = {}", rd_mem, mem_val);
+//                 }
+//             }
+//         }
+//
+//         // 2. Forwarding depuis Writeback
+//         //    On ne forward que si on n'a pas déjà forwardé depuis MEM
+//         //    (sinon on écraserait la valeur plus récente)
+//         if let Some(wb) = wb_reg {
+//             if let Some(rd_wb) = wb.rd {
+//                 let wb_val = wb.result;
+//
+//                 // Vérifier rs1
+//                 if rs1_idx == Some(rd_wb) {
+//                     // S'assurer qu'on n'a pas déjà forwardé pour rs1
+//                     let already_forwarded = info_list.iter().any(|fi| {
+//                         fi.register == rd_wb && fi.source == ForwardingSource::ExecuteMemory
+//                     });
+//                     if !already_forwarded {
+//                         decode_reg.rs1_value = wb_val;
+//                         self.forwards_count += 1;
+//                         info_list.push(ForwardingInfo {
+//                             source: ForwardingSource::Writeback,
+//                             register: rd_wb,
+//                             value: wb_val,
+//                         });
+//                         println!("Forwarding: WB->rs1 R{} = {}", rd_wb, wb_val);
+//                     }
+//                 }
+//                 // Vérifier rs2
+//                 if rs2_idx == Some(rd_wb) {
+//                     let already_forwarded = info_list.iter().any(|fi| {
+//                         fi.register == rd_wb && fi.source == ForwardingSource::ExecuteMemory
+//                     });
+//                     if !already_forwarded {
+//                         decode_reg.rs2_value = wb_val;
+//                         self.forwards_count += 1;
+//                         info_list.push(ForwardingInfo {
+//                             source: ForwardingSource::Writeback,
+//                             register: rd_wb,
+//                             value: wb_val,
+//                         });
+//                         println!("Forwarding: WB->rs2 R{} = {}", rd_wb, wb_val);
+//                     }
+//                 }
+//             }
+//         }
+//
+//         // 3. Cas spécial : si l'étage MEM est un load => la donnée n'est pas encore disponible
+//         //    On peut décider qu'on retire le forwarding
+//         //    (ou on laisse la detection d'un hazard "LoadUse" forcer un stall).
+//         if let Some(mem) = mem_reg {
+//             if let Some(rd) = mem.rd {
+//                 let is_load = matches!(
+//                 mem.instruction.opcode,
+//                 Opcode::Load | Opcode::LoadB | Opcode::LoadW | Opcode::LoadD
+//             );
+//                 if is_load && (rs1_idx == Some(rd) || rs2_idx == Some(rd)) {
+//                     // On retire les entries correspondantes
+//                     info_list.retain(|fi| {
+//                         !(fi.register == rd && fi.source == ForwardingSource::ExecuteMemory)
+//                     });
+//                     println!(
+//                         "LoadUse hazard : cannot forward from MEM for a load not yet finished"
+//                     );
+//                 }
+//             }
+//         }
+//
+//         info_list
+//     }
+//
+//     /// Effectue le forwarding des données (version simplifiée)
+//     /// Version simplifiée, on jette la liste
+//     pub fn forward(
+//         &mut self,
+//         decode_reg: &mut DecodeExecuteRegister,
+//         mem_reg: &Option<ExecuteMemoryRegister>,
+//         wb_reg: &Option<MemoryWritebackRegister>,
+//     ) {
+//         let _ = self.forward_with_info(decode_reg, mem_reg, wb_reg);
+//
+//     }
+//
+//     /// Réinitialise l'unité de forwarding
+//     pub fn reset(&mut self) {
+//         self.forwards_count = 0;
+//     }
+//
+//     /// Retourne le nombre de forwards effectués
+//     pub fn get_forwards_count(&self) -> u64 {
+//         self.forwards_count
+//     }
+// }
+//
+
+/////////////////////////////////////////////
 // src/pipeline/forward.rs
 
 use crate::bytecode::opcodes::Opcode;
@@ -178,7 +354,7 @@ impl ForwardingUnit {
     }
 }
 
-
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
 
