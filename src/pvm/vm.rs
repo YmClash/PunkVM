@@ -133,8 +133,10 @@ impl PunkVM {
     // Active le traçage
     pub fn enable_tracing(&mut self, config: TracerConfig) {
         if self.config.enable_tracing {
-            // self.tracer = Some(PipelineTracer::new(config))
-            self.tracer = Some(PipelineTracer::new(Default::default()));
+            println!("Tracing is enabled");
+            // self.tracer = Some(PipelineTracer::new(config));
+            // self.tracer = Some(PipelineTracer::new(Default::default()));
+            self.tracer = Some(PipelineTracer::new(config));
         } else {
             println!("Tracing is disabled");
         }
@@ -236,13 +238,11 @@ impl PunkVM {
             ));
         }
 
-        // Incrementer le compteur de cycles
-        // self.cycles += 1;
-
-        //mise a jour du cycle du traceur
-        // if let Some(tracer) = &mut self.tracer {
-        //     tracer.start_cycle(self.cycles)
-        // }
+        // Ici, on va commencer à tracer l'état du pipeline
+        // Mise à jour du compteur de cycles du traceur avant l'exécution
+        if let Some(tracer) = &mut self.tracer{
+            tracer.start_cycle(self.cycles);
+        }
 
         // Exécution d'un cycle pipeline
         let program_code = &self.program.as_ref().unwrap().code;
@@ -259,6 +259,8 @@ impl PunkVM {
                 VMError::execution_error(&format!("Erreur pipeline: {}", pipe_err))
             })?;
 
+
+        // Ici on va commencer à tracer l'état du pipeline
         // Tracage de l'état du pipeline
         if let Some(tracer) = &mut self.tracer {
             tracer.trace_pipeline_state(&pipeline_state, &self.registers);
@@ -271,10 +273,6 @@ impl PunkVM {
         self.cycles += 1;
         self.instructions_executed += pipeline_state.instructions_completed as u64;
 
-        // Mise à jour du compteur de cycles du traceur
-        if let Some(tracer) = &mut self.tracer {
-            tracer.start_cycle(self.cycles)
-        }
 
         // Vérifier s'il y a un halt
         if pipeline_state.halted {
