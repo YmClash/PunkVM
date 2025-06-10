@@ -241,6 +241,45 @@ impl HazardDetectionUnit {
 
     /// Détecte les hazards de contrôle (branchements)
     /// Vérifie control hazard
+
+    // fn is_control_hazard(&mut self, state: &PipelineState) -> bool {
+    //
+    //     let ex_reg = match &state.execute_memory {
+    //         Some(r) => r,
+    //         None => {
+    //             self.branch_stall_cycles = 0; // Réinitialiser le compteur
+    //             return false;
+    //         }
+    //     };
+    //
+    //     if ex_reg.instruction.opcode.is_branch() {
+    //         match ex_reg.instruction.opcode {
+    //             Opcode::Jmp | Opcode::JmpIfEqual | Opcode::JmpIfNotEqual |
+    //             Opcode::JmpIfGreater | Opcode::JmpIfLess |
+    //             Opcode::JmpIfGreaterEqual | Opcode::JmpIfLessEqual |
+    //             Opcode::JmpIfZero | Opcode::JmpIfNotZero => {
+    //                 self.branch_stall_cycles += 1; // Incrémenter le compteur de cycles de stall
+    //                 // On a un branchement en EX
+    //                 println!(
+    //                     "Control hazard : branch in execute stage (opcode: {:?})",
+    //                     ex_reg.instruction.opcode
+    //                 );
+    //                 return true; // Indiquer qu'il y a un hazard de contrôle
+    //             }
+    //             _ => {
+    //                 // Pas un branchement, pas de hazard
+    //                 self.branch_stall_cycles = 0; // Réinitialiser le compteur
+    //                 return false;
+    //             }
+    //         }
+    //     } else {
+    //         self.branch_stall_cycles = 0; // Réinitialiser le compteur
+    //         return false;
+    //     }
+    // }
+
+
+
     fn is_control_hazard(&mut self, state: &PipelineState) -> bool {
 
         let ex_reg = match &state.execute_memory {
@@ -262,7 +301,7 @@ impl HazardDetectionUnit {
                 return true;
             } else {
                 // Cette instruction de branchement a déjà été détectée
-                self.branch_stall_cycles += 1;
+                // self.branch_stall_cycles += 0;
                 println!(
                     "Control hazard : branch in execute stage (stall cycle {})",
                     self.branch_stall_cycles
