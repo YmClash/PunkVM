@@ -62,6 +62,7 @@ pub struct PipelineState {
     pub instructions_completed: usize,
     /// Indique si la branche a été traitée
     branch_processed: bool,
+
 }
 
 impl Default for PipelineState {
