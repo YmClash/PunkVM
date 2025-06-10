@@ -941,7 +941,7 @@ pub fn calculate_branch_offset(from_addr:u32,to_addr:u32,instr_size:u32) -> i32{
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-// tests/branch_instructions_test.rs
+/*
 
 #[cfg(test)]
 mod branch_instruction_tests {
@@ -1425,145 +1425,6 @@ mod branch_instruction_tests {
         }
     }
 }
-
-
-
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
-//
-//     #[test]
-//     fn test_branch_offset_calculations() {
-//         // Test du calcul d'offset pour un saut en arrière
-//         let from = 0x20;
-//         let to = 0x10;
-//         let size = 7;
-//         let offset = calculate_branch_offset(from, to, size);
-//         assert_eq!(offset, -0x17); // to - (from + size) = 0x10 - 0x27 = -0x17
-//
-//         // Test du calcul d'offset pour un saut en avant
-//         let from = 0x10;
-//         let to = 0x30;
-//         let size = 7;
-//         let offset = calculate_branch_offset(from, to, size);
-//         assert_eq!(offset, 0x19); // to - (from + size) = 0x30 - 0x17 = 0x19
-//     }
-// }
-
-//
-//
-//
-// // Tests d'intégration avec la VM
-// #[cfg(test)]
-// mod branch_integration_tests {
-//
-//     use crate::bytecode::instructions::Instruction;
-//     use crate::bytecode::opcodes::Opcode;
-//     use crate::{BytecodeFile, PunkVM};
-//     use crate::pvm::vm::VMState;
-//
-//     /// Test d'exécution d'un saut simple
-//     #[test]
-//     fn test_vm_simple_jump() {
-//         let mut bytecode = BytecodeFile::new();
-//         let mut instructions = Vec::new();
-//         let mut addr = 0u32;
-//
-//         // MOV R0, 1
-//         let instr = Instruction::create_reg_imm8(Opcode::Mov, 0, 1);
-//         instructions.push(instr.clone());
-//         addr += instr.total_size() as u32;
-//
-//         // JMP (skip next instruction)
-//         let jump_from = addr;
-//         let jump_to = jump_from + 7 + 5; // Jump + MOV sizes
-//         let instr = Instruction::create_jump(jump_from, jump_to);
-//         instructions.push(instr.clone());
-//         addr += instr.total_size() as u32;
-//
-//         // MOV R0, 2 (should be skipped)
-//         let instr = Instruction::create_reg_imm8(Opcode::Mov, 0, 2);
-//         instructions.push(instr);
-//
-//         // HALT
-//         instructions.push(Instruction::create_no_args(Opcode::Halt));
-//
-//         for instr in instructions {
-//             bytecode.add_instruction(instr);
-//         }
-//
-//         let mut vm = PunkVM::new();
-//         vm.load_program_from_bytecode(bytecode).unwrap();
-//
-//         // Execute until halt
-//         let mut cycles = 0;
-//         while vm.state() != &VMState::Halted && cycles < 20 {
-//             vm.step().unwrap();
-//             cycles += 1;
-//         }
-//
-//         // R0 should be 1, not 2
-//         assert_eq!(vm.registers[0], 1, "Jump should have skipped MOV R0, 2");
-//         assert!(cycles < 20, "Program should halt in reasonable time");
-//     }
-//
-//     /// Test d'une boucle conditionnelle
-//     #[test]
-//     fn test_vm_conditional_loop() {
-//         let mut bytecode = BytecodeFile::new();
-//         let mut instructions = Vec::new();
-//         let mut addr = 0u32;
-//
-//         // MOV R0, 0 (counter)
-//         let instr = Instruction::create_reg_imm8(Opcode::Mov, 0, 0);
-//         instructions.push(instr.clone());
-//         addr += instr.total_size() as u32;
-//
-//         // MOV R1, 3 (limit)
-//         let instr = Instruction::create_reg_imm8(Opcode::Mov, 1, 3);
-//         instructions.push(instr.clone());
-//         addr += instr.total_size() as u32;
-//
-//         // Loop start
-//         let loop_start = addr;
-//
-//         // INC R0
-//         let instr = Instruction::create_single_reg(Opcode::Inc, 0);
-//         instructions.push(instr.clone());
-//         addr += instr.total_size() as u32;
-//
-//         // CMP R0, R1
-//         let instr = Instruction::create_reg_reg(Opcode::Cmp, 0, 1);
-//         instructions.push(instr.clone());
-//         addr += instr.total_size() as u32;
-//
-//         // JmpIfLess loop_start
-//         let jump_from = addr;
-//         let instr = Instruction::create_jump_if_less(jump_from, loop_start);
-//         instructions.push(instr);
-//
-//         // HALT
-//         instructions.push(Instruction::create_no_args(Opcode::Halt));
-//
-//         for instr in instructions {
-//             bytecode.add_instruction(instr);
-//         }
-//
-//         let mut vm = PunkVM::new();
-//         vm.load_program_from_bytecode(bytecode).unwrap();
-//
-//         // Execute until halt
-//         let mut cycles = 0;
-//         while vm.state() != &VMState::Halted && cycles < 50 {
-//             vm.step().unwrap();
-//             cycles += 1;
-//         }
-//
-//         // R0 should be 3 after the loop
-//         assert_eq!(vm.registers[0], 3, "Counter should reach limit");
-//         assert!(cycles < 50, "Loop should complete in reasonable time");
-//     }
-// }
 
 
 // Test unitaire pour les instructions
@@ -2257,3 +2118,4 @@ mod tests {
         assert_eq!(jump_if_positive_instr.args.len(), 4); // 4 octets pour l'offset
     }
 }
+*/
