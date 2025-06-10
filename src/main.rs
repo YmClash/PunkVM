@@ -44,10 +44,10 @@ fn main() -> VMResult<()> {
     // Décommenter la ligne souhaitée pour tester différents programmes:
     
     // Test complet et corrigé de tous les branchements
-    // let program = comprehensive_branch_test();
+    let program = comprehensive_branch_test();
     
     // Test minimal pour le bug de branchement non pris
-    let program = test_branch_not_taken_fix();
+    // let program = test_branch_not_taken_fix();
     
     // Programme original (contient des bugs d'adressage)
     // let program = punk_program_3();
