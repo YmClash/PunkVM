@@ -44,6 +44,7 @@ pub struct Pipeline {
 /// État du pipeline à un instant donné
 #[derive(Debug, Clone)]
 pub struct PipelineState {
+
     /// Registre intermédiaire Fetch -> Decode
     pub fetch_decode: Option<FetchDecodeRegister>,
     /// Registre intermédiaire Decode -> Execute
