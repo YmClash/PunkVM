@@ -315,6 +315,7 @@ impl Pipeline {
 
         // ----- (3ᵉ étape) EXECUTE -----
         if let Some(de_reg) = &state.decode_execute {
+            let pc_of_executed_branch_instr = de_reg.pc; // Copy PC early
             // Forwarding si activé
             let mut de_reg_mut = de_reg.clone();
             if self.enable_forwarding {
@@ -393,20 +394,23 @@ impl Pipeline {
             }
 
             if !mem_reg.branch_taken && mem_reg.instruction.opcode.is_branch() {
-                // Pour un branchement non pris, s'assurer que le PC avance correctement
-                let branch_pc = mem_reg.instruction.total_size() as u32;
-                let expected_next_pc = pc + branch_pc;// Le PC de l'instruction de branchement + sa taille
-                    if let Some(ex_reg) = &state.decode_execute {
-                        ex_reg.pc + branch_pc
-                    } else {
-                        state.next_pc
-                    };
+                // This instruction (`mem_reg.instruction`) just finished the Execute stage.
+                // `de_reg` was its input in the DecodeExecuteRegister.
+                // Use the copied `pc_of_executed_branch_instr`.
+                let actual_branch_instruction_pc = pc_of_executed_branch_instr;
+                let branch_instruction_size = mem_reg.instruction.total_size() as u32;
 
-                // Ne mettre à jour que si next_pc n'a pas déjà été correctement calculé
-                if state.next_pc != expected_next_pc {
-                    state.next_pc = expected_next_pc;
+                // Calculate the correct sequential PC that should follow this non-taken branch.
+                let correct_sequential_pc_after_branch = actual_branch_instruction_pc + branch_instruction_size; // e.g., 0x5E + 8 = 0x66
+
+                // If state.next_pc (which might be a speculatively fetched PC or a mispredicted target)
+                // is not this correct sequential PC, update it. This handles flushing.
+                if state.next_pc != correct_sequential_pc_after_branch {
+                    state.next_pc = correct_sequential_pc_after_branch;
                 }
 
+                // The original log message is preserved for consistency with existing logs,
+                // but now it should print the corrected PC (e.g., 0x66).
                 println!(
                     "Branchement non pris, PC avance à 0x{:08X}",
                     state.next_pc

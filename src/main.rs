@@ -58,37 +58,60 @@ fn main() -> VMResult<()> {
     // let program = punk_program_fixed();
     //
     // let program = punk_program_3();
-    let program = test_branch_not_taken_fix();
+    // let program = test_branch_not_taken_fix();
     // let program = punk_program_4();
     // let program =  punk_program_debug();
     // let program = punk_program_5();
     // let program = punk_program_test();
 
+    // --- Running test_branch_not_taken_fix ---
+    println!("\n\n--- Running test_branch_not_taken_fix ---");
+    let program1 = test_branch_not_taken_fix();
+    println!("Chargement du programme 'test_branch_not_taken_fix'...");
+    vm.load_program_from_bytecode(program1)?;
 
+    println!("Exécution du programme 'test_branch_not_taken_fix'...");
+    let start_time1 = Instant::now();
+    let result1 = vm.run();
+    let duration1 = start_time1.elapsed();
 
-    // Charger le programme dans la VM
-    println!("Chargement du programme...");
-    vm.load_program_from_bytecode(program)?;
-
-    // Exécuter le programme et mesurer le temps
-    println!("Exécution du programme...");
-    let start_time = Instant::now();
-    let result = vm.run();
-    let duration = start_time.elapsed();
-
-    if let Err(ref e) = result {
-        println!("Erreur lors de l'exécution: {}", e);
+    if let Err(ref e) = result1 {
+        println!("Erreur lors de l'exécution de 'test_branch_not_taken_fix': {}", e);
     } else {
-        println!("Programme exécuté avec succès en {:?}", duration);
+        println!("Programme 'test_branch_not_taken_fix' exécuté avec succès en {:?}", duration1);
     }
 
-
-
-    // Afficher l'état final des registres
-    println!("\nÉtat final des registres:");
+    println!("\nÉtat final des registres après 'test_branch_not_taken_fix':");
     print_registers(&vm);
+    print_stats(&vm);
 
-    // Afficher les statistiques d'exécution
+    // --- Re-initialize VM and run punk_program_3 ---
+    println!("\n\n--- Running punk_program_3 ---");
+    // Re-initialize VM to ensure a clean state
+    println!("Réinitialisation de la VM pour punk_program_3...");
+    let mut vm = PunkVM::pvm::vm::PunkVM::with_config(config.clone()); // Re-initialize with the same config
+     println!(
+        " PunkVM réinitialisée avec {} registre succès",
+        vm.registers.len()
+    );
+
+    let program3 = punk_program_3();
+    println!("Chargement du programme 'punk_program_3'...");
+    vm.load_program_from_bytecode(program3)?;
+
+    println!("Exécution du programme 'punk_program_3'...");
+    let start_time3 = Instant::now();
+    let result3 = vm.run();
+    let duration3 = start_time3.elapsed();
+
+    if let Err(ref e) = result3 {
+        println!("Erreur lors de l'exécution de 'punk_program_3': {}", e);
+    } else {
+        println!("Programme 'punk_program_3' exécuté avec succès en {:?}", duration3);
+    }
+
+    println!("\nÉtat final des registres après 'punk_program_3':");
+    print_registers(&vm);
     print_stats(&vm);
 
 
