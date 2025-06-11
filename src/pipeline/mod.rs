@@ -243,6 +243,7 @@ impl Pipeline {
         let mut state = self.state.clone();
         state.stalled = false;
         state.instructions_completed = 0;
+        let pc_for_this_cycle = pc; // MODIFICATION 1
         let current_pc_target = self.state.next_pc;
 
         //Gestion de l'etai des branchement en cours
@@ -276,21 +277,40 @@ impl Pipeline {
             }
         }
 
+        // MODIFICATION 2: Insert stall logic
+        if state.stalled {
+            // If a stall is determined for this cycle:
+            // 1. The PC for the next fetch will retry the current PC.
+            //    (Branch resolution logic later in this cycle can still override this if a branch resolves).
+            state.next_pc = pc_for_this_cycle;
+            // 2. The IF/DE latch (output of Fetch for the next cycle) gets a bubble.
+            state.fetch_decode = None;
+            // 3. The DE/EX latch (output of Decode for the next cycle) also gets a bubble,
+            //    as Decode would not have valid input if Fetch is stalled.
+            //    (Note: This simplifies stall propagation. More complex schemes might allow Decode to process
+            //    an old instruction if only Fetch is stalled but Decode isn't directly,
+            //    but for now, this ensures bubbles flow if Fetch is blocked).
+            state.decode_execute = None;
+        }
+
         // ----- (1ᵉʳᵉ étape) FETCH -----
         // Si on n’est pas stalled, on fetch l’instruction à l’adresse `pc`.
         if !state.stalled {
             // On fetch
             let fd_reg = self.fetch.process_direct(pc, instructions)?;
-            state.fetch_decode = Some(fd_reg);
+            state.fetch_decode = Some(fd_reg.clone()); // Clone fd_reg as it's used in println later
 
-            // Mise à jour du next_pc s’il n’est pas déjà modifié par un branch
-            if !state.halted && state.next_pc == pc {
-                if let Some(fd_reg) = &state.fetch_decode {
-                    let size = fd_reg.instruction.total_size() as u32;
-                    state.next_pc = pc.wrapping_add(size);
-                    println!("[DEBUG: Fin Fetch -] PC = 0x{:08X}, next_pc = 0x{:08X}", fd_reg.pc, state.next_pc);
-                }
-
+            // MODIFICATION 3: Modify Fetch PC update
+            // If Fetch runs (not stalled), it calculates the next sequential PC.
+            // This can be overridden by branch resolution logic later in this same cycle.
+            if let Some(fetched_instruction_data) = &state.fetch_decode { // Use the just-fetched instruction
+                let instruction_size = fetched_instruction_data.instruction.total_size() as u32;
+                state.next_pc = pc_for_this_cycle.wrapping_add(instruction_size);
+                // The original println! was:
+                // println!("[DEBUG: Fin Fetch -] PC = 0x{:08X}, next_pc = 0x{:08X}", fd_reg.pc, state.next_pc);
+                // Ensure fd_reg.pc is pc_for_this_cycle if used in the println.
+                // fd_reg.pc should be pc_for_this_cycle if fetch was successful for pc_for_this_cycle
+                println!("[DEBUG: Fin Fetch -] Fetched for PC = 0x{:08X}, calculated state.next_pc after fetch = 0x{:08X}", fetched_instruction_data.pc, state.next_pc);
             }
 
 
