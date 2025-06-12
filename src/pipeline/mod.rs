@@ -243,17 +243,18 @@ impl Pipeline {
         let mut state = self.state.clone();
         state.stalled = false;
         state.instructions_completed = 0;
+        let pc_for_this_cycle = pc; // bug fix
         let current_pc_target = self.state.next_pc;
 
         //Gestion de l'etai des branchement en cours
         if state.execute_memory.is_some()
             && state
-                .execute_memory
-                .as_ref()
-                .unwrap()
-                .instruction
-                .opcode
-                .is_branch()
+            .execute_memory
+            .as_ref()
+            .unwrap()
+            .instruction
+            .opcode
+            .is_branch()
         {
             if state.stalled {
                 // Si on est stalled, on ne traite pas le branchement
@@ -276,21 +277,39 @@ impl Pipeline {
             }
         }
 
+        // Bug fix: Insert stall logic
+        if state.stalled {
+            // If a stall is determined for this cycle:
+            // 1. The PC for the next fetch will retry the current PC.
+            //    (Branch resolution logic later in this cycle can still override this if a branch resolves).
+            state.next_pc = pc_for_this_cycle;
+            // 2. The IF/DE latch (output of Fetch for the next cycle) gets a bubble.
+            state.fetch_decode = None;
+            // 3. The DE/EX latch (output of Decode for the next cycle) also gets a bubble,
+            //    as Decode would not have valid input if Fetch is stalled.
+            //    (Note: This simplifies stall propagation. More complex schemes might allow Decode to process
+            //    an old instruction if only Fetch is stalled but Decode isn't directly,
+            //    but for now, this ensures bubbles flow if Fetch is blocked).
+            state.decode_execute = None;
+        }
+
         // ----- (1ᵉʳᵉ étape) FETCH -----
         // Si on n’est pas stalled, on fetch l’instruction à l’adresse `pc`.
         if !state.stalled {
             // On fetch
             let fd_reg = self.fetch.process_direct(pc, instructions)?;
-            state.fetch_decode = Some(fd_reg);
+            state.fetch_decode = Some(fd_reg.clone()); // Clone fd_reg as it's used in println later
 
-            // Mise à jour du next_pc s’il n’est pas déjà modifié par un branch
-            if !state.halted && state.next_pc == pc {
-                if let Some(fd_reg) = &state.fetch_decode {
-                    let size = fd_reg.instruction.total_size() as u32;
-                    state.next_pc = pc.wrapping_add(size);
-                    println!("[DEBUG: Fin Fetch -] PC = 0x{:08X}, next_pc = 0x{:08X}", fd_reg.pc, state.next_pc);
-                }
-
+            // BugFixe: Modify Fetch PC update
+            // If Fetch runs (not stalled), it calculates the next sequential PC.
+            // This can be overridden by branch resolution logic later in this same cycle.
+            if let Some(fetched_instruction_data) = &state.fetch_decode { // Use the just-fetched instruction
+                let instruction_size = fetched_instruction_data.instruction.total_size() as u32;
+                state.next_pc = pc_for_this_cycle.wrapping_add(instruction_size);
+                // println!("[DEBUG: Fin Fetch -] PC = 0x{:08X}, next_pc = 0x{:08X}", fd_reg.pc, state.next_pc);
+                // Ensure fd_reg.pc is pc_for_this_cycle if used in the println.
+                // fd_reg.pc should be pc_for_this_cycle if fetch was successful for pc_for_this_cycle
+                println!("[DEBUG: Fin Fetch -] Fetched for PC = 0x{:08X}, calculated state.next_pc after fetch = 0x{:08X}", fetched_instruction_data.pc, state.next_pc);
             }
 
 
@@ -315,6 +334,7 @@ impl Pipeline {
 
         // ----- (3ᵉ étape) EXECUTE -----
         if let Some(de_reg) = &state.decode_execute {
+            let pc_of_executed_branch_instr = de_reg.pc; // Copy PC early
             // Forwarding si activé
             let mut de_reg_mut = de_reg.clone();
             if self.enable_forwarding {
@@ -355,32 +375,7 @@ impl Pipeline {
                             println!("On ne fait rien ")
                         }
                     }
-
                 }
-
-                /////////////////////////
-
-
-                //// Gestion des branchements quand la prédiction est incorrecte
-                // if !prediction_correct && !mem_reg.branch_taken && mem_reg.instruction.opcode.is_branch() {
-                //     // Branchement non pris mais prédit pris
-                //     println!("Branchement non pris mais prédit pris");
-                //     // On avance le PC
-                //     // On n'avancepas le PC ici car il est déjà avancé par l'étape Fetch
-                //
-                //
-                //     // state.next_pc = branch_pc + mem_reg.instruction.total_size() as u32;
-                //
-                //
-                //     println!(
-                //         "Branchement non pris, avancement à PC = 0x{:08X}",
-                //         state.next_pc
-                //     );
-                //
-                // }
-
-                /////////////////////////
-
 
                 // Mise à jour du prédicteur
                 let pc = branch_pc as u64;
@@ -393,48 +388,27 @@ impl Pipeline {
             }
 
             if !mem_reg.branch_taken && mem_reg.instruction.opcode.is_branch() {
-                // Pour un branchement non pris, s'assurer que le PC avance correctement
-                let branch_pc = mem_reg.instruction.total_size() as u32;
-                let expected_next_pc = pc + branch_pc;// Le PC de l'instruction de branchement + sa taille
-                    if let Some(ex_reg) = &state.decode_execute {
-                        ex_reg.pc + branch_pc
-                    } else {
-                        state.next_pc
-                    };
+                // This instruction (`mem_reg.instruction`) just finished the Execute stage.
+                // `de_reg` was its input in the DecodeExecuteRegister.
+                // Use the copied `pc_of_executed_branch_instr`.
+                let actual_branch_instruction_pc = pc_of_executed_branch_instr;
+                let branch_instruction_size = mem_reg.instruction.total_size() as u32;
 
-                // Ne mettre à jour que si next_pc n'a pas déjà été correctement calculé
-                if state.next_pc != expected_next_pc {
-                    state.next_pc = expected_next_pc;
+                // Calculate the correct sequential PC that should follow this non-taken branch.
+                let correct_sequential_pc_after_branch = actual_branch_instruction_pc + branch_instruction_size; // e.g., 0x5E + 8 = 0x66
+
+                // If state.next_pc (which might be a speculatively fetched PC or a mispredicted target)
+                // is not this correct sequential PC, update it. This handles flushing.
+                if state.next_pc != correct_sequential_pc_after_branch {
+                    state.next_pc = correct_sequential_pc_after_branch;
                 }
 
+                // The original log message is preserved for consistency with existing logs,
+                // but now it should print the corrected PC (e.g., 0x66).
                 println!(
                     "Branchement non pris, PC avance à 0x{:08X}",
                     state.next_pc
                 );
-            }
-
-
-
-            // CORRECTION IMPORTANTE:
-
-            //c'est icici  que le probleme dois etre  mais  lorsque  j'efface cette  ligne  le programme
-            // tombe dans une boucle infinie car le PC ne change pas et si je le laisse le PC change mais
-            //Erreur lors de l'exécution: ExecutionError: Erreur pipeline: Instruction non trouvée à l'adresse 0x.....
-            if !mem_reg.branch_taken && mem_reg.instruction.opcode.is_branch() {
-                if state.next_pc == pc {
-                    state.next_pc = pc + mem_reg.instruction.total_size() as u32 - mem_reg.instruction.total_size() as u32;
-                    println!(
-                        "Branchement non pris, avancement à PC = 0x{:08X}",
-                        state.next_pc
-                    );
-                    // todo!("Branchement non pris, mais pas de target définie");
-                }
-
-                // panic!("Branchement non pris,Panic ici car le !!!!BUG!!! devrai se trouver ici .la machine tombe dans boucle infinie");
-
-
-
-             println!("Branchement non pris, on rest  à PC = 0x{:08X}", state.next_pc);
             }
 
             state.execute_memory = Some(mem_reg);
@@ -445,7 +419,6 @@ impl Pipeline {
         // ----- (4ᵉ étape) MEMORY -----
         if let Some(ex_mem) = &state.execute_memory {
             let wb_reg = self.memory.process_direct(ex_mem, memory)?;
-
 
             // Si c’est un HALT => on arrête tout de suite
             if ex_mem.instruction.opcode == Opcode::Halt {
@@ -478,9 +451,6 @@ impl Pipeline {
 
         self.stats.hazards = self.hazard_detection.get_hazards_count();
         self.stats.forwards = self.forwarding.get_forwards_count();
-        // if state.stalled {
-        //     self.stats.stalls += 1;
-        // }
 
         // Mise à jour des statistiques
         self.stats.hazards = self.hazard_detection.get_hazards_count();
@@ -490,21 +460,20 @@ impl Pipeline {
         self.state = state.clone();
 
         println!("[[[DEBUG: Fin du cycle ]]] - PC = 0x{:08X}, next_pc = 0x{:08X}", pc, state.next_pc);
-
         // println!("DEBUG: Fin du cycle - PC = {}", pc);
-
         Ok(state)
     }
 
     pub fn update_branch_predictor(&mut self, pc: u64, taken: bool, prediction: BranchPredictor) {
         println!("Updating branch predictor: PC=0x{:X}, taken={}, prediction={:?}",
                  pc, taken, prediction);
-
     }
 
     /// Retourne les statistiques du pipeline
     pub fn stats(&self) -> PipelineStats {
-        self.stats
+        let mut stats = self.stats;
+        stats.branch_predictor_rate = stats.branch_prediction_rate();
+        stats
     }
 }
 

@@ -129,6 +129,16 @@ pub enum TraceEvent {
         cycle: u64,
         reason: String,
     },
+    //nouveau traceur pour la prediction de branche
+    BranchPrediction {
+        cycle: u64,
+        pc: u32,
+        predicted_target: u32,
+        actual_target: u32,
+        taken: bool,
+        accuracy: f64,
+    },
+
 }
 
 impl Display for TraceEvent {
@@ -268,6 +278,20 @@ impl Display for TraceEvent {
             }
             TraceEvent::PipelineFlush { cycle, reason } => {
                 write!(f, "[{:04}] FLUSH: {}", cycle, reason)
+            }
+            TraceEvent::BranchPrediction {
+                cycle,
+                pc,
+                predicted_target,
+                actual_target,
+                taken,
+                accuracy,
+            } => {
+                write!(
+                    f,
+                    "[{:04}] BRANCH_PREDICTION: PC=0x{:08X} PREDICTED=0x{:08X} ACTUAL=0x{:08X} TAKEN={} ACCURACY={:.2}%",
+                    cycle, pc, predicted_target, actual_target, taken, accuracy * 100.0
+                )
             }
         }
     }
@@ -426,6 +450,8 @@ impl PipelineTracer {
                     });
                 }
             }
+
+
         }
 
         if let Some(mw_reg) = &state.memory_writeback {
@@ -441,6 +467,20 @@ impl PipelineTracer {
                 }
             }
         }
+
+        // Tracer les prediction de branchement
+        // if let Some(bp_reg) = &state.branch_prediction {
+        //     self.trace(TraceEvent::BranchPrediction {
+        //         cycle: self.current_cycle,
+        //         pc: bp_reg.pc,
+        //         predicted_target: bp_reg.predicted_target,
+        //         actual_target: bp_reg.actual_target,
+        //         taken: bp_reg.taken,
+        //         accuracy: bp_reg.accuracy,
+        //     });
+        // }
+        //
+
     }
 
     // Trace une modification de registre
@@ -547,12 +587,18 @@ impl PipelineTracer {
             .iter()
             .filter(|e| matches!(e, TraceEvent::PipelineFlush { .. }))
             .count();
+        let branch_prediction_count = self
+            .trace_events
+            .iter()
+            .filter(|e| matches!(e, TraceEvent::BranchPrediction { .. }))
+            .count();
 
         summary.push_str(&format!("Cycles totaux: {}\n", total_cycles));
         summary.push_str(&format!("Nombre de hazards: {}\n", hazard_count));
         summary.push_str(&format!("Nombre de branchements: {}\n", branch_count));
         summary.push_str(&format!("Nombre de stalls: {}\n", stall_count));
         summary.push_str(&format!("Nombre de flushes: {}\n", flush_count));
+        summary.push_str(&format!("Nombre de prédictions de branche: {}\n", branch_prediction_count));
 
         // Statistiques des branchements
         if branch_count > 0 {
