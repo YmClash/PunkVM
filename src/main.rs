@@ -44,17 +44,20 @@ fn main() -> VMResult<()> {
     // Décommenter la ligne souhaitée pour tester différents programmes:
     
     // Test complet et corrigé de tous les branchements
-    let program = comprehensive_branch_test();
+
     
     // Test minimal pour le bug de branchement non pris
     // let program = test_branch_not_taken_fix();
     
     // Programme original (contient des bugs d'adressage)
-    // let program = punk_program_3();
+    let program = punk_program_3();
     
     // Autres programmes de test
     // let program = punk_program_5();
     // let program = create_reg_reg_reg_test_program();
+
+    // let program = comprehensive_branch_test();
+
 
 
 
@@ -859,26 +862,26 @@ pub fn punk_program_3() -> BytecodeFile {
     program.add_instruction(Instruction::create_jump_if_not_zero(0, 0));
     current_address = Instruction::calculate_current_address(&program.code);
 
-    // ============================================================================
-    // SECTION 12: TEST CALL/RET (Si implémenté)
-    // ============================================================================
-    println!("=== SECTION 12: TEST CALL/RET ===");
-    current_address = Instruction::calculate_current_address(&program.code);
-    let call_target = current_address + 8 + 6 ;
-    // Sauter par-dessus la fonction pour aller au call
-    program.add_instruction(Instruction::create_jump(current_address, call_target)); // Sauter la fonction
-    current_address = Instruction::calculate_current_address(&program.code);
-
-    // FONCTION: simple_function
-    // Fonction qui met 0xFF dans R5 et retourne
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0xFF)); // R5 = 255
-    program.add_instruction(Instruction::create_no_args(Opcode::Ret)); // Retour
-    current_address = Instruction::calculate_current_address(&program.code);
-
-    // Appel de la fonction (si CALL est implémenté)
-    current_address = Instruction::calculate_current_address(&program.code);
-    let function_offset = -12; // Retourner à la fonction
-    // program.add_instruction(Instruction::create_call(function_offset));
+    // // ============================================================================
+    // // SECTION 12: TEST CALL/RET (Si implémenté)
+    // // ============================================================================
+    // println!("=== SECTION 12: TEST CALL/RET ===");
+    // current_address = Instruction::calculate_current_address(&program.code);
+    // let call_target = current_address + 8 + 6 ;
+    // // Sauter par-dessus la fonction pour aller au call
+    // program.add_instruction(Instruction::create_jump(current_address, call_target)); // Sauter la fonction
+    // current_address = Instruction::calculate_current_address(&program.code);
+    //
+    // // FONCTION: simple_function
+    // // Fonction qui met 0xFF dans R5 et retourne
+    // program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0xFF)); // R5 = 255
+    // program.add_instruction(Instruction::create_no_args(Opcode::Ret)); // Retour
+    // current_address = Instruction::calculate_current_address(&program.code);
+    //
+    // // Appel de la fonction (si CALL est implémenté)
+    // current_address = Instruction::calculate_current_address(&program.code);
+    // let function_offset = -12; // Retourner à la fonction
+    // // program.add_instruction(Instruction::create_call(function_offset));
 
     // ============================================================================
     // SECTION 13: FINALISATION ET VÉRIFICATION
