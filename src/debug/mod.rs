@@ -467,6 +467,20 @@ impl PipelineTracer {
                 }
             }
         }
+
+        // Tracer les prediction de branchement
+        // if let Some(bp_reg) = &state.branch_prediction {
+        //     self.trace(TraceEvent::BranchPrediction {
+        //         cycle: self.current_cycle,
+        //         pc: bp_reg.pc,
+        //         predicted_target: bp_reg.predicted_target,
+        //         actual_target: bp_reg.actual_target,
+        //         taken: bp_reg.taken,
+        //         accuracy: bp_reg.accuracy,
+        //     });
+        // }
+        //
+
     }
 
     // Trace une modification de registre
