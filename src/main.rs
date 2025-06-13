@@ -21,6 +21,7 @@ fn main() -> VMResult<()> {
         l1_cache_size: 1024,           // 1 KB de cache L1
         store_buffer_size: 8,          // 8 entrées dans le store buffer
         stack_size: 4 * 1024,          // 4 KB de pile
+        // stack_base:0xFF000000,         // Base de la pile
         fetch_buffer_size: 8,          // 8 instructions dans le buffer de fetch
         btb_size: 16,                  // 16 entrées dans la BTB
         ras_size: 4,                   // 4 entrées dans le RAS
