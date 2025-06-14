@@ -10,6 +10,19 @@ use crate::pvm::memorys::{Memory, MemoryConfig};
 use crate::pvm::vm_errors::{VMError, VMResult};
 use crate::BytecodeFile;
 
+
+
+/// Registres Speciaux pour le processus de la pile  Stack
+// #[derive(Debug,Clone,Copy)]
+// pub enum SpecialRegister {
+//     SP = 16, // Stack Pointer
+//     Bp = 17, // Base Pointer
+//     RA = 18, // Return Address
+// }
+//
+//
+
+
 /// Configuration de la machine virtuelle
 #[derive(Debug, Clone, Copy)]
 pub struct VMConfig {
@@ -18,6 +31,7 @@ pub struct VMConfig {
     pub l1_cache_size: usize,          // Taille du cache L1
     pub store_buffer_size: usize,      // Taille du buffer de stockage
     pub stack_size: usize,             // Taille de la pile
+    pub stack_base: u32,               // Base de la pile
     pub fetch_buffer_size: usize,      // Taille du buffer de fetch
     pub btb_size: usize,               // Taille du BTB (Branch Target Buffer)
     pub ras_size: usize,               // Taaille du RAS (Return Address Stack)
@@ -34,6 +48,7 @@ impl Default for VMConfig {
             l1_cache_size: 4 * 1024, // 4KB
             store_buffer_size: 8,
             stack_size: 64 * 1024, // 64KB
+            stack_base: 0xFF000000,
             fetch_buffer_size: 16,
             btb_size: 64,
             ras_size: 8,
@@ -70,7 +85,7 @@ pub struct VMStats {
 
 /// Machine virtuelle PunkVM
 pub struct PunkVM {
-    config: VMConfig,
+    pub config: VMConfig,
     pub state: VMState,
     pipeline: Pipeline,
     alu: ALU,
@@ -129,6 +144,19 @@ impl PunkVM {
             // tracer: Option::from(PipelineTracer::new(Default::default())),
         }
     }
+
+    /// Initialise le Stack Pointer
+    // pub fn init_stack(&mut self) {
+    //     let sp_index = SpecialRegister::SP as usize;
+    //     // le Stactk  croit ver le bas  donc SP en en haut
+    //     self.registers[sp_index] = self.config.stack_base as u64 + self.config.stack_size as u64;
+    //     println!("Stack initialized: SP = 0x{:08X}",self.registers[sp_index]);
+    //
+    // }
+
+
+
+
 
     // Active le traçage
     pub fn enable_tracing(&mut self, config: TracerConfig) {
@@ -400,6 +428,11 @@ impl PunkVM {
         }
     }
 }
+
+
+
+
+
 
 #[cfg(test)]
 mod tests {
