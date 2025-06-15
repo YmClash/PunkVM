@@ -33,8 +33,10 @@ pub struct VMConfig {
     pub stack_size: usize,             // Taille de la pile
     pub stack_base: u32,               // Base de la pile
     pub fetch_buffer_size: usize,      // Taille du buffer de fetch
+
     pub btb_size: usize,               // Taille du BTB (Branch Target Buffer)
-    pub ras_size: usize,               // Taaille du RAS (Return Address Stack)
+    pub ras_size: usize,               // Taille du RAS (Return Address Stack)
+
     pub enable_forwarding: bool,       // Active ou désactive le forwarding
     pub enable_hazard_detection: bool, // Active ou désactive la détection de hazards
     pub enable_tracing: bool,          // Active ou désactive le traçage
