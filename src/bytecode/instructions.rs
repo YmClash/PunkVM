@@ -2149,4 +2149,52 @@ mod tests {
         assert_eq!(jump_if_positive_instr.opcode, Opcode::JmpIfPositive);
         assert_eq!(jump_if_positive_instr.args.len(), 4); // 4 octets pour l'offset
     }
+
+    #[test]
+    fn test_push_register(){
+        // Test de création d'instruction PUSH
+        let reg = 5;
+        let push_instr = Instruction::create_push_register(reg);
+        assert_eq!(push_instr.opcode, Opcode::Push);
+        assert_eq!(push_instr.format.arg1_type, ArgType::Register);
+        assert_eq!(push_instr.args.len(), 1); // 1 registre à pousser
+        assert_eq!(push_instr.args[0], reg);
+
+    }
+
+    #[test]
+    fn test_pop_register() {
+        // Test de création d'instruction POP
+        let reg = 5;
+        let pop_instr = Instruction::create_pop_register(reg);
+        assert_eq!(pop_instr.opcode, Opcode::Pop);
+        assert_eq!(pop_instr.format.arg1_type, ArgType::Register);
+        assert_eq!(pop_instr.args.len(), 1); // 1 registre à dépiler
+        assert_eq!(pop_instr.args[0], reg);
+    }
+
+    // Je suis pas trop sûr de la pertinence de ce test, mais je le laisse pour l'instant
+    #[test]
+    fn test_call_function() {
+        // Test de création d'instruction CALL
+        let func_addr = 0x1234;
+        let call_intr = Instruction::create_call(func_addr);
+        assert_eq!(call_intr.opcode, Opcode::Call);
+        assert_eq!(call_intr.format.arg2_type, ArgType::AbsoluteAddr);
+        assert_eq!(call_intr.args.len(), 4); // 1 adresse de fonction
+
+
+      ;
+    }
+
+    #[test]
+    fn test_return(){
+        let ret_instr = Instruction::create_return();
+        assert_eq!(ret_instr.opcode, Opcode::Ret);
+        assert_eq!(ret_instr.format.arg1_type, ArgType::None);
+        assert_eq!(ret_instr.args.len(), 0); // Pas d'arguments pour RET
+        assert_eq!(ret_instr.total_size(), 4); // Taille de l'instruction RET
+    }
+
+
 }
