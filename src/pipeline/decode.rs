@@ -4,6 +4,7 @@ use crate::bytecode::instructions::{ArgValue, Instruction};
 use crate::bytecode::opcodes::Opcode;
 use crate::pipeline::{DecodeExecuteRegister, FetchDecodeRegister};
 use crate::pvm::branch_predictor::{BranchPredictor, PredictorType};
+use crate::pipeline::ras::{RASStats, ReturnAddressStack};
 
 /// implementation de l'étage Decode du pipeline
 pub struct DecodeStage {
@@ -11,6 +12,15 @@ pub struct DecodeStage {
     // pub decode_register: Option<DecodeExecuteRegister>,
     //données de l'état interne si nécessaire
     pub branch_predictor: BranchPredictor,
+    pub ras : ReturnAddressStack,
+}
+
+
+/// Types d'opérations sur la pile
+#[derive(Debug, Clone, Copy)]
+pub enum StackOperation {
+    Push,
+    Pop,
 }
 
 impl DecodeStage {
@@ -19,6 +29,8 @@ impl DecodeStage {
     pub fn new() -> Self {
         Self {
             branch_predictor: BranchPredictor::new(PredictorType::Dynamic),
+            // ras: ReturnAddressStack::new(16), // Taille par défaut de 16 entrées
+            ras: ReturnAddressStack::new(32),
         }
     }
 
@@ -65,7 +77,7 @@ impl DecodeStage {
         println!("Valeur immédiate extraite: {:?}", immediate);
 
         // Calcul de l'adresse de branchement (si instruction de branchement)
-        let branch_addr = self.calculate_branch_address(instruction, fd_reg.pc)?;
+        let mut branch_addr = self.calculate_branch_address(instruction, fd_reg.pc)?;
         println!("Adresse de branchement calculée: {:?}", branch_addr);
 
         // si c'est une instruction de branchement, utiliser le prédicteur de branchement
@@ -76,9 +88,47 @@ impl DecodeStage {
             println!("Branch prediction at PC={:X}: {:?}", fd_reg.pc, prediction);
         }
 
+        /// Gestion Special pour Ret avec Prediction RAS
+        if instruction.opcode == Opcode::Ret{
+            if let Some(predicted_addr) = self.ras.predict() {
+                branch_addr = Some(predicted_addr);
+                print!(" RAS PREDICT: Ret branch address predicted: 0x{:08X}", predicted_addr);
+            }else {
+                print!(" RAS PREDICT: Ret branch address predicted: None (RAS is empty)");
+                branch_addr = None;
+            }
+        }
+
+
         // Calcul de l'adresse mémoire (si instruction mémoire)
         let mem_addr = self.calculate_memory_address(instruction, registers)?;
         println!("Adresse mémoire calculée: {:?}", mem_addr);
+
+
+        /// Gestion speciale pour PUSH/POP avec le Stack Pointer
+        let (stack_operation, stack_value) = match instruction.opcode {
+            Opcode::Push => {
+                // Pour PUSH, récupérer la valeur à empiler
+                let value = if let Some(reg) = rs1_index {
+                    if reg < registers.len() {
+                        Some(registers[reg])
+                    } else {
+                        immediate
+                    }
+                } else {
+                    immediate
+                };
+                (Some(StackOperation::Push), value)
+            },
+            Opcode::Pop => {
+                // Pour POP, pas de valeur spécifique
+                (Some(StackOperation::Pop), None)
+            },
+            _ => (None, None),
+        };
+
+
+
 
         Ok(DecodeExecuteRegister {
             instruction: instruction.clone(),
@@ -92,6 +142,8 @@ impl DecodeStage {
             branch_addr,
             branch_prediction: prediction,
             mem_addr,
+            stack_operation,
+            stack_value,
         })
     }
 
@@ -125,6 +177,7 @@ impl DecodeStage {
             return Ok((rs1, rs2, rd));
         }
 
+        // Si ce n'est pas une instruction à trois registres, continuer avec la logique existante
         // Si ce n'est pas une instruction à trois registres, continuer avec la logique existante
         // Extraction en fonction du type d'instruction
         match instruction.opcode {
@@ -289,19 +342,6 @@ impl DecodeStage {
         }
         Ok(None)
 
-        // On peut checker arg3_value s'il existe => ex. reg_reg_imm
-
-        // if let Ok(ArgValue::Immediate(imm)) = instruction.get_arg3_value() {
-        //     return Ok(Some(imm));
-        // }
-        // // On check arg1 + arg2
-        // if let Ok(ArgValue::Immediate(imm)) = instruction.get_arg1_value() {
-        //     return Ok(Some(imm));
-        // }
-        // if let Ok(ArgValue::Immediate(imm)) = instruction.get_arg2_value() {
-        //     return Ok(Some(imm));
-        // }
-        // Ok(None)
     }
 
 
@@ -354,6 +394,9 @@ impl DecodeStage {
                     Ok(ArgValue::RelativeAddr(offset)) => {
                         let next_pc = pc + instruction.total_size() as u32;
                         let target_addr = (next_pc as i32 + offset) as u32;
+
+                        println!("DEBUG: CALL Branch decode calc - PC=0x{:X}, size={}, next_pc=0x{:X}, offset={}, target=0x{:X}",
+                                 pc, instruction.total_size(), next_pc, offset, target_addr);
                         Ok(Some(target_addr))
                     },
                     Ok(ArgValue::AbsoluteAddr(addr)) => Ok(Some(addr as u32)),
@@ -412,9 +455,27 @@ impl DecodeStage {
         }
     }
 
+
+    /// MEt a jour le RAS lors d'un CALL
+    pub fn update_ras_for_call(&mut self,pc:u32,instruction_size:u32) {
+        let return_address = pc + instruction_size;
+        self.ras.push(return_address);
+    }
+    /// Met à jour le RAS lors d'un RET
+    pub fn update_ras_for_ret(&mut self) -> Option<u32> {
+        self.ras.pop()
+    }
+
+    /// Retourne öes Statistiques du RAS
+    pub fn ras_stats(&self) -> RASStats{
+        self.ras.stats()
+    }
+
     /// Réinitialise l'étage Decode
     pub fn reset(&mut self) {
         // Pas d'état interne à réinitialiser pour cet étage
+        // maintenant  que le stack est prise en charge par le RAS
+        self.ras.reset();
     }
 }
 
