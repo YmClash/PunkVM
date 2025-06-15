@@ -312,6 +312,9 @@ mod tests {
             branch_taken: false,
             branch_prediction_correct: Option::from(false),
 
+            stack_operation: None,
+            stack_result: None,
+            ras_prediction_correct: None,
             halted: false,
         };
 
@@ -349,6 +352,9 @@ mod tests {
             branch_taken: false,
             branch_prediction_correct: Option::from(false),
 
+            stack_operation: None,
+            stack_result: None,
+            ras_prediction_correct: None,
             halted: false,
         };
 
@@ -383,6 +389,9 @@ mod tests {
             branch_target: None,
             branch_taken: false,
             branch_prediction_correct: Option::from(false),
+            stack_operation: None,
+            stack_result: None,
+            ras_prediction_correct: None,
             halted: false,
         };
 
@@ -402,6 +411,9 @@ mod tests {
             branch_target: None,
             branch_taken: false,
             branch_prediction_correct: Option::from(false),
+            stack_operation: None,
+            stack_result: None,
+            ras_prediction_correct: None,
             halted: false,
         };
 
@@ -437,6 +449,9 @@ mod tests {
             branch_target: None,
             branch_taken: false,
             branch_prediction_correct: Option::from(false),
+            stack_operation: None,
+            stack_result: None,
+            ras_prediction_correct: None,
             halted: false,
         };
 
@@ -456,6 +471,9 @@ mod tests {
             branch_target: None,
             branch_taken: false,
             branch_prediction_correct: Option::from(false),
+            stack_operation: None,
+            stack_result: None,
+            ras_prediction_correct: None,
             halted: false,
         };
 
@@ -475,6 +493,9 @@ mod tests {
             branch_target: None,
             branch_taken: false,
             branch_prediction_correct: Option::from(false),
+            stack_operation: None,
+            stack_result: None,
+            ras_prediction_correct: None,
             halted: false,
         };
 
@@ -500,6 +521,9 @@ mod tests {
             branch_target: None,
             branch_taken: false,
             branch_prediction_correct: Option::from(false),
+            stack_operation: None,
+            stack_result: None,
+            ras_prediction_correct: None,
             halted: false,
         };
 
@@ -523,6 +547,9 @@ mod tests {
             branch_target: None,
             branch_taken: false,
             branch_prediction_correct: Option::from(false),
+            stack_operation: None,
+            stack_result: None,
+            ras_prediction_correct: None,
             halted: false,
         };
 
@@ -556,6 +583,9 @@ mod tests {
             branch_target: None,
             branch_taken: false,
             branch_prediction_correct: Option::from(false),
+            stack_operation: None,
+            stack_result: None,
+            ras_prediction_correct: None,
             halted: false,
         };
 
@@ -581,6 +611,9 @@ mod tests {
             branch_target: None,
             branch_taken: false,
             branch_prediction_correct: Option::from(false),
+            stack_operation: None,
+            stack_result: None,
+            ras_prediction_correct: None,
             halted: false,
         };
 
@@ -627,6 +660,9 @@ mod tests {
             branch_target: None,
             branch_taken: false,
             branch_prediction_correct: Option::from(false),
+            stack_operation: None,
+            stack_result: None,
+            ras_prediction_correct: None,
             halted: false,
         };
 
@@ -645,6 +681,9 @@ mod tests {
             branch_target: None,
             branch_taken: false,
             branch_prediction_correct: Option::from(false),
+            stack_operation: None,
+            stack_result: None,
+            ras_prediction_correct: None,
             halted: false,
         };
 
@@ -667,6 +706,9 @@ mod tests {
             branch_target: None,
             branch_taken: false,
             branch_prediction_correct: Option::from(false),
+            stack_operation: None,
+            stack_result: None,
+            ras_prediction_correct: None,
             halted: false,
         };
 
@@ -685,6 +727,9 @@ mod tests {
             branch_target: None,
             branch_taken: false,
             branch_prediction_correct: Option::from(false),
+            stack_operation: None,
+            stack_result: None,
+            ras_prediction_correct: None,
             halted: false,
         };
 
