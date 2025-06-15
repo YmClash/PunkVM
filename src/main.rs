@@ -21,7 +21,7 @@ fn main() -> VMResult<()> {
         l1_cache_size: 1024,           // 1 KB de cache L1
         store_buffer_size: 8,          // 8 entrées dans le store buffer
         stack_size: 4 * 1024,          // 4 KB de pile
-        // stack_base:0xFF000000,         // Base de la pile
+        stack_base:0xFF000000,         // Base de la pile
         fetch_buffer_size: 8,          // 8 instructions dans le buffer de fetch
         btb_size: 16,                  // 16 entrées dans la BTB
         ras_size: 4,                   // 4 entrées dans le RAS
@@ -41,22 +41,12 @@ fn main() -> VMResult<()> {
         vm.registers.len()
     );
 
-    // Créer le programme de test
-    // Décommenter la ligne souhaitée pour tester différents programmes:
-    
-    // Test complet et corrigé de tous les branchements
 
     
     // Test minimal pour le bug de branchement non pris
-    // let program = test_branch_not_taken_fix();
-    
-    // Programme original (contient des bugs d'adressage)
-    let program = punk_program_3();
-    
-    // Autres programmes de test
-    // let program = punk_program_5();
+    let program = test_branch_not_taken_fix();
+    // let program = punk_program_3();
     // let program = create_reg_reg_reg_test_program();
-
     // let program = comprehensive_branch_test();
 
 
@@ -863,26 +853,26 @@ pub fn punk_program_3() -> BytecodeFile {
     program.add_instruction(Instruction::create_jump_if_not_zero(0, 0));
     current_address = Instruction::calculate_current_address(&program.code);
 
-    // // ============================================================================
-    // // SECTION 12: TEST CALL/RET (Si implémenté)
-    // // ============================================================================
-    // println!("=== SECTION 12: TEST CALL/RET ===");
-    // current_address = Instruction::calculate_current_address(&program.code);
-    // let call_target = current_address + 8 + 6 ;
-    // // Sauter par-dessus la fonction pour aller au call
-    // program.add_instruction(Instruction::create_jump(current_address, call_target)); // Sauter la fonction
-    // current_address = Instruction::calculate_current_address(&program.code);
-    //
-    // // FONCTION: simple_function
-    // // Fonction qui met 0xFF dans R5 et retourne
-    // program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0xFF)); // R5 = 255
-    // program.add_instruction(Instruction::create_no_args(Opcode::Ret)); // Retour
-    // current_address = Instruction::calculate_current_address(&program.code);
-    //
-    // // Appel de la fonction (si CALL est implémenté)
-    // current_address = Instruction::calculate_current_address(&program.code);
-    // let function_offset = -12; // Retourner à la fonction
-    // // program.add_instruction(Instruction::create_call(function_offset));
+    // ============================================================================
+    // SECTION 12: TEST CALL/RET (Si implémenté)
+    // ============================================================================
+    println!("=== SECTION 12: TEST CALL/RET ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+    let call_target = current_address + 8 + 6 ;
+    // Sauter par-dessus la fonction pour aller au call
+    program.add_instruction(Instruction::create_jump(current_address, call_target)); // Sauter la fonction
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // FONCTION: simple_function
+    // Fonction qui met 0xFF dans R5 et retourne
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0xFF)); // R5 = 255
+    program.add_instruction(Instruction::create_no_args(Opcode::Ret)); // Retour
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Appel de la fonction (si CALL est implémenté)
+    current_address = Instruction::calculate_current_address(&program.code);
+    let function_offset = -12; // Retourner à la fonction
+    // program.add_instruction(Instruction::create_call(function_offset));
 
     // ============================================================================
     // SECTION 13: FINALISATION ET VÉRIFICATION
@@ -994,106 +984,6 @@ pub fn punk_program_3() -> BytecodeFile {
 
 
 
-pub fn punk_program_5() -> BytecodeFile {
-    let mut program = BytecodeFile::new();
-    program.version = BytecodeVersion::new(0, 1, 0, 0);
-    program.add_metadata("name", "PunkVM Branch Test 5");
-    program.add_metadata("description", "Comprehensive branch test with from_addr/to_addr");
-
-    // Initialiser les registres
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 10)); // R0 = 10
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 20)); // R1 = 20
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 10)); // R2 = 10
-
-    let mut current_address = Instruction::calculate_current_address(&program.code);
-
-    // 1. JMP inconditionnel (saut en avant)
-    let jmp_target_1 = current_address + 24; // Sauter par-dessus 3 instructions
-    program.add_instruction(Instruction::create_jump(current_address, jmp_target_1));
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 0xFF)); // Ne doit pas être exécuté
-    current_address = Instruction::calculate_current_address(&program.code);
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0x01)); // R4 = 1 après le saut
-    current_address = Instruction::calculate_current_address(&program.code);
-
-    // 2. JMP en arriere
-    let jmp_target_2 = 0; // Retour au début
-    program.add_instruction(Instruction::create_jump(current_address, jmp_target_2));
-    current_address = Instruction::calculate_current_address(&program.code);
-
-    // ici  il faudra tout  refaire les meme  test  qu avant mais en utilisant l'adresse du code
-    // todo!()
-
-    // 3. JmpIfEqual (ZF=1, pris)
-    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2)); // R0 == R2 (ZF=1)
-    current_address = Instruction::calculate_current_address(&program.code);
-    let jmpifequal_target_1 = current_address + 16;
-    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_1));
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0xFF)); // Ne doit pas être exécuté
-    current_address = Instruction::calculate_current_address(&program.code);
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x02)); // R5 = 2 (succès)
-    current_address = Instruction::calculate_current_address(&program.code);
-
-    // 4. JmpIfEqual (ZF=0, non pris)
-    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1)); // R0 != R1 (ZF=0)
-    current_address = Instruction::calculate_current_address(&program.code);
-    let jmpifequal_target_2 = current_address + 16;
-    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_2));
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0xFF)); // Ne doit pas être exécuté
-    current_address = Instruction::calculate_current_address(&program.code);
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x03)); // R6 = 3 (succès, doit être exécuté)
-    current_address = Instruction::calculate_current_address(&program.code);
-
-
-    // TODO: Ajouter des tests similaires pour les autres instructions de branchement
-    // (JmpIfNotEqual, JmpIfGreater, JmpIfLess, etc.)
-
-    program.add_instruction(Instruction::create_no_args(Opcode::Halt));
-
-    // Calcul de la taille totale du code
-    let total_size: u32 = program
-        .code
-        .iter()
-        .map(|instr| instr.total_size() as u32)
-        .sum();
-    program.segments = vec![SegmentMetadata::new(SegmentType::Code, 0, total_size, 0)];
-
-    // Ajout d'un segment de données vide
-    let data_size = 256;
-    let data_segment = SegmentMetadata::new(SegmentType::Data, 0, data_size, 0x1000);
-    program.segments.push(data_segment);
-    program.data = vec![0; data_size as usize];
-
-    println!("\n--- Carte des instructions du programme de test des branchements ---");
-    let mut addr = 0;
-    for (idx, instr) in program.code.iter().enumerate() {
-        let size = instr.total_size();
-        println!(
-            "Instruction {}: Adresse 0x{:04X}-0x{:04X} (taille {}): {:?}",
-            idx,
-            addr,
-            addr + size - 1,
-            size,
-            instr.opcode
-        );
-
-
-        if instr.opcode.is_branch() {
-            if let Ok(ArgValue::RelativeAddr(offset)) = instr.get_arg2_value() {
-                let target = (addr as u32 + size as u32) as i64 + offset as i64;
-                println!("      -> Branchement relatif: offset={:+}, target=0x{:04X}", offset, target);
-            }
-        }
-        addr += size;
-    }
-    println!("--- Fin de la carte des instructions ---");
-
-
-    program
-}
-
-
-
-
 pub fn create_reg_reg_reg_test_program() -> BytecodeFile {
     let mut program = BytecodeFile::new();
     // Version du programme
@@ -1172,3 +1062,199 @@ pub fn create_reg_reg_reg_test_program() -> BytecodeFile {
 
 
 }
+
+
+//
+//
+//
+// // tests/test_call_ret.rs - Programme de test pour CALL/RET
+//
+// use punk_vm::bytecode::*;
+// use punk_vm::vm::PunkVM;
+//
+// fn create_call_ret_test() -> BytecodeFile {
+//     let mut bytecode = BytecodeFile::new();
+//
+//     // Métadonnées
+//     bytecode.add_metadata("name", "Test CALL/RET PunkVM");
+//     bytecode.add_metadata("description", "Test des appels de fonction et retours");
+//
+//     // ===============================
+//     // PROGRAMME PRINCIPAL
+//     // ===============================
+//
+//     // Initialisation
+//     // MOV R0, 10    ; Paramètre pour la fonction
+//     bytecode.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 10));
+//
+//     // MOV R1, 5     ; Autre paramètre
+//     bytecode.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 5));
+//
+//     // MOV R10, 99   ; Marqueur de début
+//     bytecode.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 99));
+//
+//     // CALL function_add  ; Appeler la fonction d'addition
+//     let call_instr = create_call_instruction(0x30); // Adresse de la fonction
+//     bytecode.add_instruction(call_instr);
+//
+//     // MOV R11, R2   ; Sauvegarder le résultat
+//     bytecode.add_instruction(Instruction::create_reg_reg(Opcode::Mov, 11, 2));
+//
+//     // Test avec pile
+//     // PUSH R0       ; Empiler R0
+//     bytecode.add_instruction(create_push_register(0));
+//
+//     // PUSH 42       ; Empiler une constante
+//     bytecode.add_instruction(create_push_immediate(42));
+//
+//     // POP R12       ; Dépiler dans R12 (devrait être 42)
+//     bytecode.add_instruction(create_pop_register(12));
+//
+//     // POP R13       ; Dépiler dans R13 (devrait être 10)
+//     bytecode.add_instruction(create_pop_register(13));
+//
+//     // Appel imbriqué
+//     // CALL function_multiply
+//     let call2_instr = create_call_instruction(0x50); // Autre fonction
+//     bytecode.add_instruction(call2_instr);
+//
+//     // MOV R14, R3   ; Sauvegarder résultat multiplication
+//     bytecode.add_instruction(Instruction::create_reg_reg(Opcode::Mov, 14, 3));
+//
+//     // Fin du programme principal
+//     // MOV R15, 255  ; Marqueur de fin
+//     bytecode.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 255));
+//
+//     // HALT
+//     bytecode.add_instruction(Instruction::create_no_args(Opcode::Halt));
+//
+//     // ===============================
+//     // FONCTION D'ADDITION (0x30)
+//     // ===============================
+//
+//     // Padding pour atteindre l'adresse 0x30
+//     while bytecode.code.len() * 6 < 0x30 {
+//         bytecode.add_instruction(Instruction::create_no_args(Opcode::Nop));
+//     }
+//
+//     // function_add:
+//     bytecode.add_symbol("function_add", 0x30);
+//
+//     // ADD R2, R0, R1  ; R2 = R0 + R1
+//     bytecode.add_instruction(Instruction::create_reg_reg(Opcode::Add, 2, 0));
+//     bytecode.add_instruction(Instruction::create_reg_reg(Opcode::Add, 2, 1));
+//
+//     // MOV R4, 1     ; Marqueur de passage dans la fonction
+//     bytecode.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 1));
+//
+//     // RET           ; Retour
+//     bytecode.add_instruction(Instruction::create_no_args(Opcode::Ret));
+//
+//     // ===============================
+//     // FONCTION DE MULTIPLICATION (0x50)
+//     // ===============================
+//
+//     // Padding pour atteindre l'adresse 0x50
+//     while bytecode.code.len() * 6 < 0x50 {
+//         bytecode.add_instruction(Instruction::create_no_args(Opcode::Nop));
+//     }
+//
+//     // function_multiply:
+//     bytecode.add_symbol("function_multiply", 0x50);
+//
+//     // MUL R3, R2, R1  ; R3 = R2 * R1 (utilise le résultat de add)
+//     bytecode.add_instruction(Instruction::create_reg_reg(Opcode::Mul, 3, 2));
+//     bytecode.add_instruction(Instruction::create_reg_reg(Opcode::Mul, 3, 1));
+//
+//     // MOV R5, 2     ; Marqueur de passage dans cette fonction
+//     bytecode.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 2));
+//
+//     // RET           ; Retour
+//     bytecode.add_instruction(Instruction::create_no_args(Opcode::Ret));
+//
+//     bytecode
+// }
+//
+// /// Crée une instruction CALL
+// fn create_call_instruction(target_addr: u32) -> Instruction {
+//     // CALL avec adresse absolue
+//     Instruction::new(
+//         Opcode::Call,
+//         InstructionFormat::new(ArgType::None, ArgType::AbsoluteAddr),
+//         target_addr.to_le_bytes().to_vec()
+//     )
+// }
+//
+// /// Crée une instruction PUSH register
+// fn create_push_register(reg: u8) -> Instruction {
+//     Instruction::new(
+//         Opcode::Push,
+//         InstructionFormat::new(ArgType::Register, ArgType::None),
+//         vec![reg]
+//     )
+// }
+//
+// /// Crée une instruction PUSH immediate
+// fn create_push_immediate(value: u8) -> Instruction {
+//     Instruction::new(
+//         Opcode::Push,
+//         InstructionFormat::new(ArgType::Immediate8, ArgType::None),
+//         vec![value]
+//     )
+// }
+//
+// /// Crée une instruction POP
+// fn create_pop_register(reg: u8) -> Instruction {
+//     Instruction::new(
+//         Opcode::Pop,
+//         InstructionFormat::new(ArgType::Register, ArgType::None),
+//         vec![reg]
+//     )
+// }
+//
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
+//
+//     #[test]
+//     fn test_call_ret_execution() {
+//         // Créer le programme de test
+//         let program = create_call_ret_test();
+//
+//         // Créer la VM avec pile
+//         let mut vm = PunkVM::new();
+//         vm.init_stack(); // Initialiser la pile
+//
+//         // Charger le programme
+//         vm.load_program_from_bytecode(program).unwrap();
+//
+//         // Exécuter
+//         vm.run().unwrap();
+//
+//         // Vérifications
+//         let registers = &vm.registers;
+//
+//         // Vérifier les résultats attendus
+//         assert_eq!(registers[2], 15);  // R2 = 10 + 5 = 15 (fonction add)
+//         assert_eq!(registers[3], 75);  // R3 = 15 * 5 = 75 (fonction multiply)
+//         assert_eq!(registers[4], 1);   // Marqueur fonction add
+//         assert_eq!(registers[5], 2);   // Marqueur fonction multiply
+//         assert_eq!(registers[10], 99); // Marqueur début
+//         assert_eq!(registers[11], 15); // Résultat sauvé
+//         assert_eq!(registers[12], 42); // POP de la constante
+//         assert_eq!(registers[13], 10); // POP de R0
+//         assert_eq!(registers[14], 75); // Résultat multiplication sauvé
+//         assert_eq!(registers[15], 255);// Marqueur fin
+//
+//         println!("Test CALL/RET réussi !");
+//         println!("Registres finaux: {:?}", registers);
+//
+//         // Vérifier les statistiques de pile
+//         let sp = vm.get_sp();
+//         println!("Stack Pointer final: 0x{:08X}", sp);
+//
+//         // Vérifier les statistiques RAS
+//         let ras_stats = vm.pipeline.decode.ras_stats();
+//         println!("RAS Stats: {:?}", ras_stats);
+//     }
+// }
