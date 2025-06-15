@@ -412,7 +412,9 @@ mod forwarding_tests {
             immediate: None,
             branch_addr: None,
             branch_prediction: None,
+            stack_operation: None,
             mem_addr: None,
+            stack_value: None,
         };
 
         // Pas de mem_reg, pas de wb_reg
@@ -443,7 +445,9 @@ mod forwarding_tests {
             immediate: None,
             branch_addr: None,
             branch_prediction: None,
+            stack_operation: None,
             mem_addr: None,
+            stack_value: None,
         };
 
         // L’étage Memory écrit R1=42
@@ -456,6 +460,9 @@ mod forwarding_tests {
             branch_target: None,
             branch_taken: false,
             branch_prediction_correct: Option::from(false),
+            stack_operation: None,
+            stack_result: None,
+            ras_prediction_correct: None,
             halted: false,
         };
 
@@ -484,7 +491,9 @@ mod forwarding_tests {
             immediate: None,
             branch_addr: None,
             branch_prediction: None,
+            stack_operation: None,
             mem_addr: None,
+            stack_value: None,
         };
 
         // Memory stage : R1 = 20
@@ -497,6 +506,9 @@ mod forwarding_tests {
             branch_target: None,
             branch_taken: false,
             branch_prediction_correct: Option::from(false),
+            stack_operation: None,
+            stack_result: None,
+            ras_prediction_correct: None,
             halted: false,
         };
 
@@ -526,7 +538,9 @@ mod forwarding_tests {
             immediate: None,
             branch_addr: None,
             branch_prediction: None,
+            stack_operation: None,
             mem_addr: None,
+            stack_value: None,
         };
 
         // Writeback stage dit R1 = 42
@@ -558,7 +572,9 @@ mod forwarding_tests {
             immediate: None,
             branch_addr: None,
             branch_prediction: None,
+            stack_operation: None,
             mem_addr: None,
+            stack_value: None,
         };
 
         let mem_reg = ExecuteMemoryRegister {
@@ -570,6 +586,9 @@ mod forwarding_tests {
             branch_target: None,
             branch_taken: false,
             branch_prediction_correct: Option::from(false),
+            stack_operation: None,
+            stack_result: None,
+            ras_prediction_correct: None,
             halted: false,
         };
 
@@ -607,7 +626,9 @@ mod forwarding_tests {
             immediate: None,
             branch_addr: None,
             branch_prediction: None,
+            stack_operation: None,
             mem_addr: None,
+            stack_value: None,
         };
 
         // Execute (EX/MEM reg): LOAD R1, [addr] => écrit R1
@@ -620,6 +641,9 @@ mod forwarding_tests {
             branch_target: None,
             branch_taken: false,
             branch_prediction_correct: None, // Modifié ici
+            stack_operation: None,
+            stack_result: None,
+            ras_prediction_correct: None,
             halted: false,
         };
 
@@ -683,6 +707,9 @@ mod forwarding_tests {
             branch_target: None,
             branch_taken: false,
             branch_prediction_correct: Option::from(false),
+            stack_operation: None,
+            stack_result: None,
+            ras_prediction_correct: None,
             halted: false,
         };
 
@@ -697,7 +724,9 @@ mod forwarding_tests {
             immediate: None,
             branch_addr: None,
             branch_prediction: None,
+            stack_operation: None,
             mem_addr: None,
+            stack_value: None,
         };
 
         let info = unit.forward_with_info(&mut ex_reg, &Some(mem_reg), &None);
@@ -727,7 +756,9 @@ mod forwarding_tests {
             immediate: None,
             branch_addr: None,
             branch_prediction: None,
+            stack_operation: None,
             mem_addr: None,
+            stack_value: None,
         };
 
         // Memory => R1=42
@@ -740,6 +771,9 @@ mod forwarding_tests {
             branch_target: None,
             branch_taken: false,
             branch_prediction_correct: Option::from(false),
+            stack_operation: None,
+            stack_result: None,
+            ras_prediction_correct: None,
             halted: false,
         };
 
