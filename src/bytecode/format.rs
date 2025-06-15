@@ -237,13 +237,31 @@ impl InstructionFormat {
 
     //Format pour les instructions de type CALL
     pub fn call() -> Self {
-        Self::new(ArgType::None, ArgType::RelativeAddr, ArgType::None)
+        Self::new(ArgType::None, ArgType::AbsoluteAddr, ArgType::None)
     }
 
     //Format pour les instructions de type RET
     pub fn ret() -> Self {
         Self::no_args()
     }
+
+    //format pour les instructions de type PUSH/POP registers ou immediate
+    pub fn push_reg() -> Self {
+        Self::new(ArgType::Register, ArgType::None, ArgType::None)
+    }
+
+    pub fn push_immediate8() -> Self {
+        Self::new(ArgType::Immediate8, ArgType::None, ArgType::None)
+    }
+
+    pub fn pop_reg() -> Self {
+        Self::new(ArgType::Register, ArgType::None, ArgType::None)
+    }
+    pub fn pop_immediate8() -> Self {
+        Self::new(ArgType::Immediate8, ArgType::None, ArgType::None)
+    }
+
+
 
     pub fn reg_reg_offset() -> Self {
         Self::new(ArgType::Register, ArgType::RegisterOffset, ArgType::None)
@@ -574,6 +592,39 @@ mod tests {
         let decoded = InstructionFormat::decode(encoded).unwrap();
         assert_eq!(fmt, decoded);
     }
+
+    #[test]
+    fn test_push_reg_format() {
+        let fmt = InstructionFormat::push_reg();
+        let encoded = fmt.encode();
+        let decoded = InstructionFormat::decode(encoded).unwrap();
+        assert_eq!(fmt, decoded);
+    }
+
+    #[test]
+    fn test_push_immediate8_format() {
+        let fmt = InstructionFormat::push_immediate8();
+        let encoded = fmt.encode();
+        let decoded = InstructionFormat::decode(encoded).unwrap();
+        assert_eq!(fmt, decoded);
+    }
+
+    #[test]
+    fn test_pop_reg_format() {
+        let fmt = InstructionFormat::pop_reg();
+        let encoded = fmt.encode();
+        let decoded = InstructionFormat::decode(encoded).unwrap();
+        assert_eq!(fmt, decoded);
+    }
+    #[test]
+    fn test_pop_immediate8_format() {
+        let fmt = InstructionFormat::pop_immediate8();
+        let encoded = fmt.encode();
+        let decoded = InstructionFormat::decode(encoded).unwrap();
+        assert_eq!(fmt, decoded);
+    }
+
+    //////
 
     #[test]
     fn test_reg_reg_offset_format() {
