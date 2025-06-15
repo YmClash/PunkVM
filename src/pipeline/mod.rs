@@ -7,13 +7,16 @@ pub mod forward;
 pub mod hazard;
 pub mod memory;
 pub mod writeback;
+pub mod ras;
 
 use crate::alu::alu::ALU;
 use crate::bytecode::opcodes::Opcode;
 
 use crate::bytecode::instructions::Instruction;
+use crate::pipeline::decode::StackOperation;
 use crate::pvm::branch_predictor::{BranchPrediction, BranchPredictor};
 use crate::pvm::memorys::Memory;
+use crate::pipeline::ras::ReturnAddressStack;
 
 /// Structure représentant le pipeline à 5 étages
 pub struct Pipeline {
@@ -114,6 +117,10 @@ pub struct DecodeExecuteRegister {
     pub mem_addr: Option<u32>,
     ///Prediction de branchement (si instruction de branchement)
     pub branch_prediction: Option<BranchPrediction>,
+    //
+    pub stack_operation: Option<StackOperation>,
+
+    pub stack_value: Option<u64>,
 }
 
 /// Registre intermédiaire entre les étages Execute et Memory
@@ -136,6 +143,11 @@ pub struct ExecuteMemoryRegister {
 
     pub branch_prediction_correct: Option<bool>,
 
+    // Nouveaux champs pour la pile
+    pub stack_operation: Option<StackOperation>,
+    pub stack_result: Option<u64>,
+    pub ras_prediction_correct: Option<bool>,
+
     /// Halt
     pub halted: bool,
 }
@@ -152,7 +164,7 @@ pub struct MemoryWritebackRegister {
 }
 
 /// Statistiques du pipeline
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy)]
 pub struct PipelineStats {
     /// Nombre total de cycles
     pub cycles: u64,
@@ -174,20 +186,48 @@ pub struct PipelineStats {
     pub branch_flush: u64,
     /// Taux de prédiction de branchement (calculé lors de l'accès)
     pub branch_predictor_rate: f64,
+
+    /// Statistiques CALL/RET
+    pub total_calls: u64,
+    pub total_returns: u64,
+    pub ras_hits: u64,
+    pub ras_misses: u64,
+    pub ras_accuracy: f64,
+    pub max_call_depth: usize,
+    pub current_call_depth: usize,
 }
 
 impl PipelineStats {
-    // pub fn branch_prediction_rate(&self) -> f64 {
-    //     if self.branch_predictions == 0 {
-    //         0.0
-    //     } else {
-    //         self.branch_hits as f64 / self.branch_predictions as f64
-    //     }
-    // }
     pub fn branch_prediction_rate(&self) -> f64 {
         if self.branch_predictions > 0 {
             (self.branch_hits as f64 / self.branch_predictions as f64) * 100.0
         } else { 0.0 }
+    }
+}
+
+
+impl Default for PipelineStats{
+    fn default() -> Self {
+        Self {
+            cycles: 0,
+            instructions: 0,
+            stalls: 0,
+            hazards: 0,
+            forwards: 0,
+            branch_predictions: 0,
+            branch_hits: 0,
+            branch_misses: 0,
+            branch_flush: 0,
+            branch_predictor_rate: 0.0,
+
+            total_calls: 0,
+            total_returns: 0,
+            ras_hits: 0,
+            ras_misses: 0,
+            ras_accuracy: 0.0,
+            max_call_depth: 0,
+            current_call_depth: 0,
+        }
     }
 }
 
@@ -346,7 +386,7 @@ impl Pipeline {
 
             }
 
-            let mem_reg = self.execute.process_direct(&de_reg_mut, alu)?;
+            let mem_reg = self.execute.process_direct(&de_reg_mut, alu,)?;
 
             // Extraire les valeurs dont nous aurons besoin plus tard
             let branch_pc = de_reg.pc;
@@ -475,509 +515,540 @@ impl Pipeline {
         stats.branch_predictor_rate = stats.branch_prediction_rate();
         stats
     }
+
+    // /// Retourne les statistiques étendues du pipeline
+    // pub fn extended_stats(&self) -> ExtendedPipelineStats {
+    //     let base_stats = self.stats();
+    //     let ras_stats = self.decode.ras_stats();
+    //
+    //     ExtendedPipelineStats {
+    //         // Stats de base
+    //         cycles: base_stats.cycles,
+    //         instructions: base_stats.instructions,
+    //         stalls: base_stats.stalls,
+    //         hazards: base_stats.hazards,
+    //         forwards: base_stats.forwards,
+    //         branch_predictions: base_stats.branch_predictions,
+    //         branch_hits: base_stats.branch_hits,
+    //         branch_misses: base_stats.branch_misses,
+    //
+    //         // Stats CALL/RET
+    //         total_calls: ras_stats.pushes,
+    //         total_returns: ras_stats.pops,
+    //         ras_hits: ras_stats.hits,
+    //         ras_misses: ras_stats.misses,
+    //         ras_accuracy: ras_stats.accuracy,
+    //         max_call_depth: ras_stats.max_depth,
+    //         current_call_depth: ras_stats.current_depth,
+    //     }
+    // }
 }
 
 
 
-//
-// // Test unitaire pour les fichiers de bytecode
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
-//     use crate::bytecode::files::{BytecodeVersion, SegmentMetadata, SegmentType};
-//     use crate::bytecode::format::{ArgType, InstructionFormat};
-//     use crate::bytecode::instructions::Instruction;
-//     use crate::bytecode::opcodes::Opcode;
-//     use crate::BytecodeFile;
-//     use std::collections::HashMap;
-//     use std::io::ErrorKind;
-//     use tempfile::tempdir;
-//
-//     #[test]
-//     fn test_bytecode_version() {
-//         let version = BytecodeVersion::new(1, 2, 3, 4);
-//
-//         assert_eq!(version.major, 1);
-//         assert_eq!(version.minor, 2);
-//         assert_eq!(version.patch, 3);
-//         assert_eq!(version.build, 4);
-//
-//         // Test encode/decode
-//         let encoded = version.encode();
-//         let decoded = BytecodeVersion::decode(encoded);
-//
-//         assert_eq!(decoded.major, 1);
-//         assert_eq!(decoded.minor, 2);
-//         assert_eq!(decoded.patch, 3);
-//         assert_eq!(decoded.build, 4);
-//
-//         // Test to_string
-//         assert_eq!(version.to_string(), "1.2.3.4");
-//     }
-//
-//     #[test]
-//     fn test_segment_type() {
-//         // Test des conversions valides
-//         assert_eq!(SegmentType::from_u8(0), Some(SegmentType::Code));
-//         assert_eq!(SegmentType::from_u8(1), Some(SegmentType::Data));
-//         assert_eq!(SegmentType::from_u8(2), Some(SegmentType::ReadOnlyData));
-//         assert_eq!(SegmentType::from_u8(3), Some(SegmentType::Symbols));
-//         assert_eq!(SegmentType::from_u8(4), Some(SegmentType::Debug));
-//
-//         // Test avec valeur invalide
-//         assert_eq!(SegmentType::from_u8(5), None);
-//     }
-//
-//     #[test]
-//     fn test_segment_metadata() {
-//         let segment = SegmentMetadata::new(SegmentType::Code, 100, 200, 300);
-//
-//         assert_eq!(segment.segment_type, SegmentType::Code);
-//         assert_eq!(segment.offset, 100);
-//         assert_eq!(segment.size, 200);
-//         assert_eq!(segment.load_addr, 300);
-//
-//         // Test encode/decode
-//         let encoded = segment.encode();
-//         let decoded = SegmentMetadata::decode(&encoded).unwrap();
-//
-//         assert_eq!(decoded.segment_type, SegmentType::Code);
-//         assert_eq!(decoded.offset, 100);
-//         assert_eq!(decoded.size, 200);
-//         assert_eq!(decoded.load_addr, 300);
-//     }
-//
-//     #[test]
-//     fn test_bytecode_file_simple() {
-//         // Création d'un fichier bytecode simple
-//         let mut bytecode = BytecodeFile::new();
-//
-//         // Ajout de métadonnées
-//         bytecode.add_metadata("name", "Test");
-//         bytecode.add_metadata("author", "PunkVM");
-//
-//         // Vérification
-//         assert_eq!(bytecode.metadata.get("name"), Some(&"Test".to_string()));
-//         assert_eq!(bytecode.metadata.get("author"), Some(&"PunkVM".to_string()));
-//
-//         // Ajout d'instructions
-//         let instr1 = Instruction::create_no_args(Opcode::Nop);
-//         let instr2 = Instruction::create_reg_imm8(Opcode::Load, 0, 42);
-//
-//         bytecode.add_instruction(instr1);
-//         bytecode.add_instruction(instr2);
-//
-//         assert_eq!(bytecode.code.len(), 2);
-//         assert_eq!(bytecode.code[0].opcode, Opcode::Nop);
-//         assert_eq!(bytecode.code[1].opcode, Opcode::Load);
-//
-//         // Ajout de données
-//         let offset = bytecode.add_data(&[1, 2, 3, 4]);
-//         assert_eq!(offset, 0);
-//         assert_eq!(bytecode.data, vec![1, 2, 3, 4]);
-//
-//         // Ajout de données en lecture seule
-//         let offset = bytecode.add_readonly_data(&[5, 6, 7, 8]);
-//         assert_eq!(offset, 0);
-//         assert_eq!(bytecode.readonly_data, vec![5, 6, 7, 8]);
-//
-//         // Ajout de symboles
-//         bytecode.add_symbol("main", 0x1000);
-//         assert_eq!(bytecode.symbols.get("main"), Some(&0x1000));
-//     }
-//
-//     #[test]
-//     fn test_bytecode_file_with_arithmetic_instructions() {
-//         // Création d'un fichier bytecode avec des instructions arithmétiques
-//         let mut bytecode = BytecodeFile::new();
-//
-//         // Ajouter des instructions arithmétiques avec le nouveau format à 3 registres
-//         let instr1 = Instruction::create_reg_reg_reg(Opcode::Add, 2, 0, 1); // R2 = R0 + R1
-//         let instr2 = Instruction::create_reg_reg_reg(Opcode::Sub, 3, 0, 1); // R3 = R0 - R1
-//         let instr3 = Instruction::create_reg_reg_reg(Opcode::Mul, 4, 0, 1); // R4 = R0 * R1
-//
-//         bytecode.add_instruction(instr1);
-//         bytecode.add_instruction(instr2);
-//         bytecode.add_instruction(instr3);
-//
-//         assert_eq!(bytecode.code.len(), 3);
-//
-//         // Vérifier le premier opcode
-//         assert_eq!(bytecode.code[0].opcode, Opcode::Add);
-//
-//         // Vérifier les types d'arguments du format
-//         assert_eq!(bytecode.code[0].format.arg1_type, ArgType::Register);
-//         assert_eq!(bytecode.code[0].format.arg2_type, ArgType::Register);
-//         assert_eq!(bytecode.code[0].format.arg3_type, ArgType::Register);
-//
-//         // Vérifier les valeurs des registres
-//         assert_eq!(bytecode.code[0].args[0], 2); // Rd (destination)
-//         assert_eq!(bytecode.code[0].args[1], 0); // Rs1 (source 1)
-//         assert_eq!(bytecode.code[0].args[2], 1); // Rs2 (source 2)
-//     }
-//
-//     #[test]
-//     fn test_bytecode_file_io() {
-//         // Création d'un répertoire temporaire pour les tests
-//         let dir = tempdir().expect("Impossible de créer un répertoire temporaire");
-//         let file_path = dir.path().join("test.punk");
-//
-//         // Création d'un fichier bytecode à écrire
-//         let mut bytecode = BytecodeFile::new();
-//         bytecode.version = BytecodeVersion::new(1, 0, 0, 0);
-//         bytecode.add_metadata("name", "TestIO");
-//         bytecode.add_instruction(Instruction::create_no_args(Opcode::Halt));
-//         bytecode.add_data(&[1, 2, 3]);
-//         bytecode.add_readonly_data(&[4, 5, 6]);
-//         bytecode.add_symbol("main", 0);
-//
-//         // Écrire le fichier
-//         bytecode
-//             .write_to_file(&file_path)
-//             .expect("Impossible d'écrire le fichier bytecode");
-//
-//         // Lire le fichier
-//         let loaded = BytecodeFile::read_from_file(&file_path)
-//             .expect("Impossible de lire le fichier bytecode");
-//
-//         // Vérifier que le contenu est identique
-//         assert_eq!(loaded.version.major, 1);
-//         assert_eq!(loaded.version.minor, 0);
-//         assert_eq!(loaded.metadata.get("name"), Some(&"TestIO".to_string()));
-//         assert_eq!(loaded.code.len(), 1);
-//         assert_eq!(loaded.code[0].opcode, Opcode::Halt);
-//         assert_eq!(loaded.data, vec![1, 2, 3]);
-//         assert_eq!(loaded.readonly_data, vec![4, 5, 6]);
-//         assert_eq!(loaded.symbols.get("main"), Some(&0));
-//     }
-//
-//     #[test]
-//     fn test_bytecode_file_with_three_register_instructions_io() {
-//         // Test d'écriture et lecture d'un fichier contenant des instructions à 3 registres
-//         let dir = tempdir().expect("Impossible de créer un répertoire temporaire");
-//         let file_path = dir.path().join("test_three_reg.punk");
-//
-//         // Création du fichier bytecode
-//         let mut bytecode = BytecodeFile::new();
-//         bytecode.version = BytecodeVersion::new(1, 0, 0, 0);
-//
-//         // Ajouter une instruction ADD avec 3 registres
-//         let add_instr = Instruction::create_reg_reg_reg(Opcode::Add, 2, 0, 1); // R2 = R0 + R1
-//         bytecode.add_instruction(add_instr);
-//
-//         // Écrire le fichier
-//         bytecode
-//             .write_to_file(&file_path)
-//             .expect("Impossible d'écrire le fichier bytecode");
-//
-//         // Lire le fichier
-//         let loaded = BytecodeFile::read_from_file(&file_path)
-//             .expect("Impossible de lire le fichier bytecode");
-//
-//         // Vérifier que l'instruction est correctement chargée
-//         assert_eq!(loaded.code.len(), 1);
-//         assert_eq!(loaded.code[0].opcode, Opcode::Add);
-//
-//         // Vérifier les valeurs des registres
-//         assert_eq!(loaded.code[0].args.len(), 3);
-//         assert_eq!(loaded.code[0].args[0], 2); // Rd
-//         assert_eq!(loaded.code[0].args[1], 0); // Rs1
-//         assert_eq!(loaded.code[0].args[2], 1); // Rs2
-//     }
-//
-//     #[test]
-//     fn test_bytecode_file_extended_size_io() {
-//         // Test d'écriture et lecture d'un fichier avec une instruction de grande taille
-//         let dir = tempdir().expect("Impossible de créer un répertoire temporaire");
-//         let file_path = dir.path().join("test_extended.punk");
-//
-//         // Création du fichier bytecode
-//         let mut bytecode = BytecodeFile::new();
-//
-//         // Créer une instruction avec beaucoup de données pour forcer un size_type Extended
-//         let large_args = vec![0; 248]; // Suffisant pour dépasser la limite de 255 octets
-//         let large_instr =
-//             Instruction::new(Opcode::Add, InstructionFormat::double_reg(), large_args);
-//
-//         bytecode.add_instruction(large_instr);
-//
-//         // Écrire le fichier
-//         bytecode
-//             .write_to_file(&file_path)
-//             .expect("Impossible d'écrire le fichier bytecode");
-//
-//         // Lire le fichier
-//         let loaded = BytecodeFile::read_from_file(&file_path)
-//             .expect("Impossible de lire le fichier bytecode");
-//
-//         // Vérifier que l'instruction est correctement chargée
-//         assert_eq!(loaded.code.len(), 1);
-//         assert_eq!(loaded.code[0].opcode, Opcode::Add);
-//         assert_eq!(loaded.code[0].args.len(), 248);
-//     }
-//
-//     #[test]
-//     fn test_bytecode_file_complex_program() {
-//         // Créer un programme complet avec des instructions variées
-//         let mut bytecode = BytecodeFile::new();
-//
-//         // Ajouter des métadonnées
-//         bytecode.add_metadata("name", "Programme de test");
-//         bytecode.add_metadata("author", "PunkVM Team");
-//         bytecode.add_metadata("version", "1.0.0");
-//
-//         // Initialisation des registres
-//         bytecode.add_instruction(Instruction::create_reg_imm8(Opcode::Load, 0, 10)); // R0 = 10
-//         bytecode.add_instruction(Instruction::create_reg_imm8(Opcode::Load, 1, 5)); // R1 = 5
-//
-//         // Opérations arithmétiques
-//         bytecode.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 2, 0, 1)); // R2 = R0 + R1
-//         bytecode.add_instruction(Instruction::create_reg_reg_reg(Opcode::Sub, 3, 0, 1)); // R3 = R0 - R1
-//         bytecode.add_instruction(Instruction::create_reg_reg_reg(Opcode::Mul, 4, 0, 1)); // R4 = R0 * R1
-//         bytecode.add_instruction(Instruction::create_reg_reg_reg(Opcode::Div, 5, 0, 1)); // R5 = R0 / R1
-//
-//         // Opérations logiques
-//         bytecode.add_instruction(Instruction::create_reg_reg_reg(Opcode::And, 6, 0, 1)); // R6 = R0 & R1
-//         bytecode.add_instruction(Instruction::create_reg_reg_reg(Opcode::Or, 7, 0, 1)); // R7 = R0 | R1
-//
-//         // Fin du programme
-//         bytecode.add_instruction(Instruction::create_no_args(Opcode::Halt));
-//
-//         // Ajouter un symbole pour le début du programme
-//         bytecode.add_symbol("start", 0);
-//
-//         // Vérifier le nombre d'instructions
-//         assert_eq!(bytecode.code.len(), 9);
-//
-//         // Vérifier les métadonnées
-//         assert_eq!(bytecode.metadata.len(), 3);
-//         assert_eq!(
-//             bytecode.metadata.get("name"),
-//             Some(&"Programme de test".to_string())
-//         );
-//
-//         // Vérifier les symboles
-//         assert_eq!(bytecode.symbols.len(), 1);
-//         assert_eq!(bytecode.symbols.get("start"), Some(&0));
-//     }
-//
-//     #[test]
-//     fn test_bytecode_file_io_errors() {
-//         // Test avec un fichier inexistant
-//         let result = BytecodeFile::read_from_file("nonexistent_file.punk");
-//         assert!(result.is_err());
-//
-//         // Test avec un fichier trop petit
-//         let dir = tempdir().expect("Impossible de créer un répertoire temporaire");
-//         let invalid_file_path = dir.path().join("invalid.punk");
-//
-//         // Créer un fichier invalide avec juste quelques octets
-//         std::fs::write(&invalid_file_path, &[0, 1, 2])
-//             .expect("Impossible d'écrire le fichier de test");
-//
-//         let result = BytecodeFile::read_from_file(&invalid_file_path);
-//         assert!(result.is_err());
-//
-//         // Vérifier le type d'erreur
-//         match result {
-//             Err(e) => assert_eq!(e.kind(), ErrorKind::InvalidData),
-//             _ => panic!("Expected an error but got success"),
-//         }
-//     }
-//
-//     #[test]
-//     fn test_encode_decode_metadata() {
-//         let mut metadata = HashMap::new();
-//         metadata.insert("key1".to_string(), "value1".to_string());
-//         metadata.insert("key2".to_string(), "value2".to_string());
-//
-//         let mut bytecode = BytecodeFile::new();
-//         bytecode.metadata = metadata.clone();
-//
-//         let encoded = bytecode.encode_metadata();
-//         let decoded = BytecodeFile::decode_metadata(&encoded).expect("Failed to decode metadata");
-//
-//         assert_eq!(decoded.len(), 2);
-//         assert_eq!(decoded.get("key1"), Some(&"value1".to_string()));
-//         assert_eq!(decoded.get("key2"), Some(&"value2".to_string()));
-//     }
-//
-//     #[test]
-//     fn test_encode_decode_symbols() {
-//         let mut symbols = HashMap::new();
-//         symbols.insert("sym1".to_string(), 0x1000);
-//         symbols.insert("sym2".to_string(), 0x2000);
-//
-//         let mut bytecode = BytecodeFile::new();
-//         bytecode.symbols = symbols.clone();
-//
-//         let encoded = bytecode.encode_symbols();
-//         let decoded = BytecodeFile::decode_symbols(&encoded).expect("Failed to decode symbols");
-//
-//         assert_eq!(decoded.len(), 2);
-//         assert_eq!(decoded.get("sym1"), Some(&0x1000));
-//         assert_eq!(decoded.get("sym2"), Some(&0x2000));
-//     }
-//
-//     #[test]
-//     fn test_encode_decode_code() {
-//         // Créer un ensemble d'instructions de test
-//         let mut code = Vec::new();
-//         code.push(Instruction::create_no_args(Opcode::Nop));
-//         code.push(Instruction::create_reg_imm8(Opcode::Load, 0, 42));
-//         code.push(Instruction::create_reg_reg_reg(Opcode::Add, 2, 0, 1));
-//
-//         let mut bytecode = BytecodeFile::new();
-//         bytecode.code = code.clone();
-//
-//         let encoded = bytecode.encode_code();
-//         let decoded = BytecodeFile::decode_code(&encoded).expect("Failed to decode code");
-//
-//         assert_eq!(decoded.len(), 3);
-//         assert_eq!(decoded[0].opcode, Opcode::Nop);
-//         assert_eq!(decoded[1].opcode, Opcode::Load);
-//         assert_eq!(decoded[2].opcode, Opcode::Add);
-//
-//         // Vérifier les arguments de l'instruction Add
-//         assert_eq!(decoded[2].args.len(), 3);
-//         assert_eq!(decoded[2].args[0], 2);
-//         assert_eq!(decoded[2].args[1], 0);
-//         assert_eq!(decoded[2].args[2], 1);
-//     }
-// }
-//
-//
-// #[cfg(test)]
-// mod pipeline_mod_tests {
-//     use super::*; // Importe Pipeline et les structures du mod.rs
-//     use crate::alu::alu::ALU;
-//     use crate::bytecode::instructions::Instruction;
-//     use crate::bytecode::opcodes::Opcode;
-//     use crate::pvm::memorys::{Memory, MemoryConfig}; // Assurez-vous que les chemins sont corrects
-//     use crate::pipeline::{FetchDecodeRegister, DecodeExecuteRegister, ExecuteMemoryRegister, MemoryWritebackRegister};
-//
-//     // Helper pour créer une VM minimale pour les tests de pipeline
-//     fn setup_test_pipeline(instructions: Vec<Instruction>) -> (Pipeline, Vec<u64>, Memory, ALU) {
-//         let pipeline = Pipeline::new(4, true, true); // Buffersize 4, forwarding/hazard ON
-//         let registers = vec![0u64; 16];
-//         let memory_config = MemoryConfig { size: 1024, l1_cache_size: 64, store_buffer_size: 4 };
-//         let memory = Memory::new(memory_config);
-//         let alu = ALU::new();
-//         // Note: La mémoire n'est pas pré-chargée avec les instructions ici.
-//         // La fonction `cycle` reçoit le slice `instructions` directement.
-//         (pipeline, registers, memory, alu)
-//     }
-//
-//     #[test]
-//     fn test_pipeline_simple_add() {
-//         // Instructions: ADD R2, R0, R1; HALT
-//         let instructions = vec![
-//             Instruction::create_reg_reg_reg(Opcode::Add, 2, 0, 1), // R2 = R0 + R1
-//             Instruction::create_no_args(Opcode::Halt),
-//         ];
-//         let (mut pipeline, mut registers, mut memory, mut alu) = setup_test_pipeline(instructions.clone());
-//
-//         // Initialiser les registres
-//         registers[0] = 10;
-//         registers[1] = 5;
-//
-//         // Simuler les cycles
-//         let mut current_pc: u32 = 0;
-//         let max_cycles = 10; // Éviter boucle infinie
-//         for _ in 0..max_cycles {
-//             let result = pipeline.cycle(current_pc, &mut registers, &mut memory, &mut alu, &instructions);
-//             assert!(result.is_ok(), "Le cycle du pipeline a échoué");
-//             let state = result.unwrap();
-//             current_pc = state.next_pc; // Mettre à jour le PC pour le prochain cycle
-//             println!("Cycle: {}, PC: 0x{:X}, Halted: {}, Stalled: {}",
-//                      pipeline.stats.cycles, current_pc, state.halted, state.stalled);
-//             if state.halted {
-//                 break;
-//             }
-//         }
-//
-//         assert!(pipeline.state.halted, "Le pipeline devrait être arrêté (halted)");
-//         // ADD prend ~5 cycles pour compléter (F-D-E-M-W)
-//         assert!(pipeline.stats.cycles >= 5, "Il faut au moins 5 cycles");
-//         assert_eq!(registers[2], 15, "R2 devrait contenir 10 + 5"); // Vérifier le résultat
-//         assert_eq!(pipeline.stats.instructions, 1, "Une seule instruction (ADD) devrait être complétée");
-//     }
-//
-//     #[test]
-//     fn test_pipeline_data_hazard_raw_forwarding() {
-//         // Instructions: ADD R1, R0, R0; ADD R2, R1, R1; HALT
-//         let instructions = vec![
-//             Instruction::create_reg_reg_reg(Opcode::Add, 1, 0, 0), // R1 = R0 + R0 (R1=10)
-//             Instruction::create_reg_reg_reg(Opcode::Add, 2, 1, 1), // R2 = R1 + R1 (dépend de R1)
-//             Instruction::create_no_args(Opcode::Halt),
-//         ];
-//         let (mut pipeline, mut registers, mut memory, mut alu) = setup_test_pipeline(instructions.clone());
-//         registers[0] = 5; // R0 = 5
-//
-//         // Simuler les cycles
-//         let mut current_pc: u32 = 0;
-//         let max_cycles = 15;
-//         for _ in 0..max_cycles {
-//             let result = pipeline.cycle(current_pc, &mut registers, &mut memory, &mut alu, &instructions);
-//             assert!(result.is_ok());
-//             let state = result.unwrap();
-//             current_pc = state.next_pc;
-//             if state.halted { break; }
-//         }
-//
-//         assert!(pipeline.state.halted);
-//         assert_eq!(registers[1], 10, "R1 devrait être 5 + 5");
-//         assert_eq!(registers[2], 20, "R2 devrait être 10 + 10 (avec forwarding)");
-//         assert!(pipeline.forwarding.get_forwards_count() >= 1, "Au moins un forward aurait dû se produire pour R1");
-//         // Le nombre exact de cycles dépend si le forwarding évite complètement le stall
-//         // S'il y a un stall d'un cycle malgré le forwarding: cycles = 5 (ADD1) + 1 (stall) + 1 (ADD2 complété) = 7?
-//         // S'il n'y a pas de stall: cycles = 5 (ADD1) + 1 (ADD2 complété) = 6?
-//         println!("Stats: Cycles={}, Instructions={}, Forwards={}, Stalls={}",
-//                  pipeline.stats.cycles, pipeline.stats.instructions,
-//                  pipeline.forwarding.get_forwards_count(), pipeline.stats.stalls);
-//         assert_eq!(pipeline.stats.stalls, 0, "Aucun stall ne devrait être nécessaire avec forwarding EX->DE");
-//         assert_eq!(pipeline.stats.instructions, 2);
-//
-//     }
-//     //
-    // #[test]
-    // fn test_pipeline_load_use_hazard_stall() {
-    //     // Instructions: LOAD R1, [0]; ADD R2, R1, R0; HALT
-    //     let load_addr = 0x100; // Adresse arbitraire
-    //     let instructions = vec![
-    //         Instruction::create_reg_imm8(Opcode::Load, 1, 0), // LOAD R1, [0x100] (simplifié: addr dans immediate)
-    //         Instruction::create_reg_reg_reg(Opcode::Add, 2, 1, 0), // ADD R2, R1, R0 (utilise R1)
-    //         Instruction::create_no_args(Opcode::Halt),
-    //     ];
-    //     let (mut pipeline, mut registers, mut memory, mut alu) = setup_test_pipeline(instructions.clone());
+
+
+
+// Test unitaire pour les fichiers de bytecode
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::bytecode::files::{BytecodeVersion, SegmentMetadata, SegmentType};
+    use crate::bytecode::format::{ArgType, InstructionFormat};
+    use crate::bytecode::instructions::Instruction;
+    use crate::bytecode::opcodes::Opcode;
+    use crate::BytecodeFile;
+    use std::collections::HashMap;
+    use std::io::ErrorKind;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_bytecode_version() {
+        let version = BytecodeVersion::new(1, 2, 3, 4);
+
+        assert_eq!(version.major, 1);
+        assert_eq!(version.minor, 2);
+        assert_eq!(version.patch, 3);
+        assert_eq!(version.build, 4);
+
+        // Test encode/decode
+        let encoded = version.encode();
+        let decoded = BytecodeVersion::decode(encoded);
+
+        assert_eq!(decoded.major, 1);
+        assert_eq!(decoded.minor, 2);
+        assert_eq!(decoded.patch, 3);
+        assert_eq!(decoded.build, 4);
+
+        // Test to_string
+        assert_eq!(version.to_string(), "1.2.3.4");
+    }
+
+    #[test]
+    fn test_segment_type() {
+        // Test des conversions valides
+        assert_eq!(SegmentType::from_u8(0), Some(SegmentType::Code));
+        assert_eq!(SegmentType::from_u8(1), Some(SegmentType::Data));
+        assert_eq!(SegmentType::from_u8(2), Some(SegmentType::ReadOnlyData));
+        assert_eq!(SegmentType::from_u8(3), Some(SegmentType::Symbols));
+        assert_eq!(SegmentType::from_u8(4), Some(SegmentType::Debug));
+
+        // Test avec valeur invalide
+        assert_eq!(SegmentType::from_u8(5), None);
+    }
+
+    #[test]
+    fn test_segment_metadata() {
+        let segment = SegmentMetadata::new(SegmentType::Code, 100, 200, 300);
+
+        assert_eq!(segment.segment_type, SegmentType::Code);
+        assert_eq!(segment.offset, 100);
+        assert_eq!(segment.size, 200);
+        assert_eq!(segment.load_addr, 300);
+
+        // Test encode/decode
+        let encoded = segment.encode();
+        let decoded = SegmentMetadata::decode(&encoded).unwrap();
+
+        assert_eq!(decoded.segment_type, SegmentType::Code);
+        assert_eq!(decoded.offset, 100);
+        assert_eq!(decoded.size, 200);
+        assert_eq!(decoded.load_addr, 300);
+    }
+
+    #[test]
+    fn test_bytecode_file_simple() {
+        // Création d'un fichier bytecode simple
+        let mut bytecode = BytecodeFile::new();
+
+        // Ajout de métadonnées
+        bytecode.add_metadata("name", "Test");
+        bytecode.add_metadata("author", "PunkVM");
+
+        // Vérification
+        assert_eq!(bytecode.metadata.get("name"), Some(&"Test".to_string()));
+        assert_eq!(bytecode.metadata.get("author"), Some(&"PunkVM".to_string()));
+
+        // Ajout d'instructions
+        let instr1 = Instruction::create_no_args(Opcode::Nop);
+        let instr2 = Instruction::create_reg_imm8(Opcode::Load, 0, 42);
+
+        bytecode.add_instruction(instr1);
+        bytecode.add_instruction(instr2);
+
+        assert_eq!(bytecode.code.len(), 2);
+        assert_eq!(bytecode.code[0].opcode, Opcode::Nop);
+        assert_eq!(bytecode.code[1].opcode, Opcode::Load);
+
+        // Ajout de données
+        let offset = bytecode.add_data(&[1, 2, 3, 4]);
+        assert_eq!(offset, 0);
+        assert_eq!(bytecode.data, vec![1, 2, 3, 4]);
+
+        // Ajout de données en lecture seule
+        let offset = bytecode.add_readonly_data(&[5, 6, 7, 8]);
+        assert_eq!(offset, 0);
+        assert_eq!(bytecode.readonly_data, vec![5, 6, 7, 8]);
+
+        // Ajout de symboles
+        bytecode.add_symbol("main", 0x1000);
+        assert_eq!(bytecode.symbols.get("main"), Some(&0x1000));
+    }
+
+    #[test]
+    fn test_bytecode_file_with_arithmetic_instructions() {
+        // Création d'un fichier bytecode avec des instructions arithmétiques
+        let mut bytecode = BytecodeFile::new();
+
+        // Ajouter des instructions arithmétiques avec le nouveau format à 3 registres
+        let instr1 = Instruction::create_reg_reg_reg(Opcode::Add, 2, 0, 1); // R2 = R0 + R1
+        let instr2 = Instruction::create_reg_reg_reg(Opcode::Sub, 3, 0, 1); // R3 = R0 - R1
+        let instr3 = Instruction::create_reg_reg_reg(Opcode::Mul, 4, 0, 1); // R4 = R0 * R1
+
+        bytecode.add_instruction(instr1);
+        bytecode.add_instruction(instr2);
+        bytecode.add_instruction(instr3);
+
+        assert_eq!(bytecode.code.len(), 3);
+
+        // Vérifier le premier opcode
+        assert_eq!(bytecode.code[0].opcode, Opcode::Add);
+
+        // Vérifier les types d'arguments du format
+        assert_eq!(bytecode.code[0].format.arg1_type, ArgType::Register);
+        assert_eq!(bytecode.code[0].format.arg2_type, ArgType::Register);
+        assert_eq!(bytecode.code[0].format.arg3_type, ArgType::Register);
+
+        // Vérifier les valeurs des registres
+        assert_eq!(bytecode.code[0].args[0], 2); // Rd (destination)
+        assert_eq!(bytecode.code[0].args[1], 0); // Rs1 (source 1)
+        assert_eq!(bytecode.code[0].args[2], 1); // Rs2 (source 2)
+    }
+
+    #[test]
+    fn test_bytecode_file_io() {
+        // Création d'un répertoire temporaire pour les tests
+        let dir = tempdir().expect("Impossible de créer un répertoire temporaire");
+        let file_path = dir.path().join("test.punk");
+
+        // Création d'un fichier bytecode à écrire
+        let mut bytecode = BytecodeFile::new();
+        bytecode.version = BytecodeVersion::new(1, 0, 0, 0);
+        bytecode.add_metadata("name", "TestIO");
+        bytecode.add_instruction(Instruction::create_no_args(Opcode::Halt));
+        bytecode.add_data(&[1, 2, 3]);
+        bytecode.add_readonly_data(&[4, 5, 6]);
+        bytecode.add_symbol("main", 0);
+
+        // Écrire le fichier
+        bytecode
+            .write_to_file(&file_path)
+            .expect("Impossible d'écrire le fichier bytecode");
+
+        // Lire le fichier
+        let loaded = BytecodeFile::read_from_file(&file_path)
+            .expect("Impossible de lire le fichier bytecode");
+
+        // Vérifier que le contenu est identique
+        assert_eq!(loaded.version.major, 1);
+        assert_eq!(loaded.version.minor, 0);
+        assert_eq!(loaded.metadata.get("name"), Some(&"TestIO".to_string()));
+        assert_eq!(loaded.code.len(), 1);
+        assert_eq!(loaded.code[0].opcode, Opcode::Halt);
+        assert_eq!(loaded.data, vec![1, 2, 3]);
+        assert_eq!(loaded.readonly_data, vec![4, 5, 6]);
+        assert_eq!(loaded.symbols.get("main"), Some(&0));
+    }
+
+    #[test]
+    fn test_bytecode_file_with_three_register_instructions_io() {
+        // Test d'écriture et lecture d'un fichier contenant des instructions à 3 registres
+        let dir = tempdir().expect("Impossible de créer un répertoire temporaire");
+        let file_path = dir.path().join("test_three_reg.punk");
+
+        // Création du fichier bytecode
+        let mut bytecode = BytecodeFile::new();
+        bytecode.version = BytecodeVersion::new(1, 0, 0, 0);
+
+        // Ajouter une instruction ADD avec 3 registres
+        let add_instr = Instruction::create_reg_reg_reg(Opcode::Add, 2, 0, 1); // R2 = R0 + R1
+        bytecode.add_instruction(add_instr);
+
+        // Écrire le fichier
+        bytecode
+            .write_to_file(&file_path)
+            .expect("Impossible d'écrire le fichier bytecode");
+
+        // Lire le fichier
+        let loaded = BytecodeFile::read_from_file(&file_path)
+            .expect("Impossible de lire le fichier bytecode");
+
+        // Vérifier que l'instruction est correctement chargée
+        assert_eq!(loaded.code.len(), 1);
+        assert_eq!(loaded.code[0].opcode, Opcode::Add);
+
+        // Vérifier les valeurs des registres
+        assert_eq!(loaded.code[0].args.len(), 3);
+        assert_eq!(loaded.code[0].args[0], 2); // Rd
+        assert_eq!(loaded.code[0].args[1], 0); // Rs1
+        assert_eq!(loaded.code[0].args[2], 1); // Rs2
+    }
+
+    #[test]
+    fn test_bytecode_file_extended_size_io() {
+        // Test d'écriture et lecture d'un fichier avec une instruction de grande taille
+        let dir = tempdir().expect("Impossible de créer un répertoire temporaire");
+        let file_path = dir.path().join("test_extended.punk");
+
+        // Création du fichier bytecode
+        let mut bytecode = BytecodeFile::new();
+
+        // Créer une instruction avec beaucoup de données pour forcer un size_type Extended
+        let large_args = vec![0; 248]; // Suffisant pour dépasser la limite de 255 octets
+        let large_instr =
+            Instruction::new(Opcode::Add, InstructionFormat::double_reg(), large_args);
+
+        bytecode.add_instruction(large_instr);
+
+        // Écrire le fichier
+        bytecode
+            .write_to_file(&file_path)
+            .expect("Impossible d'écrire le fichier bytecode");
+
+        // Lire le fichier
+        let loaded = BytecodeFile::read_from_file(&file_path)
+            .expect("Impossible de lire le fichier bytecode");
+
+        // Vérifier que l'instruction est correctement chargée
+        assert_eq!(loaded.code.len(), 1);
+        assert_eq!(loaded.code[0].opcode, Opcode::Add);
+        assert_eq!(loaded.code[0].args.len(), 248);
+    }
+
+    #[test]
+    fn test_bytecode_file_complex_program() {
+        // Créer un programme complet avec des instructions variées
+        let mut bytecode = BytecodeFile::new();
+
+        // Ajouter des métadonnées
+        bytecode.add_metadata("name", "Programme de test");
+        bytecode.add_metadata("author", "PunkVM Team");
+        bytecode.add_metadata("version", "1.0.0");
+
+        // Initialisation des registres
+        bytecode.add_instruction(Instruction::create_reg_imm8(Opcode::Load, 0, 10)); // R0 = 10
+        bytecode.add_instruction(Instruction::create_reg_imm8(Opcode::Load, 1, 5)); // R1 = 5
+
+        // Opérations arithmétiques
+        bytecode.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 2, 0, 1)); // R2 = R0 + R1
+        bytecode.add_instruction(Instruction::create_reg_reg_reg(Opcode::Sub, 3, 0, 1)); // R3 = R0 - R1
+        bytecode.add_instruction(Instruction::create_reg_reg_reg(Opcode::Mul, 4, 0, 1)); // R4 = R0 * R1
+        bytecode.add_instruction(Instruction::create_reg_reg_reg(Opcode::Div, 5, 0, 1)); // R5 = R0 / R1
+
+        // Opérations logiques
+        bytecode.add_instruction(Instruction::create_reg_reg_reg(Opcode::And, 6, 0, 1)); // R6 = R0 & R1
+        bytecode.add_instruction(Instruction::create_reg_reg_reg(Opcode::Or, 7, 0, 1)); // R7 = R0 | R1
+
+        // Fin du programme
+        bytecode.add_instruction(Instruction::create_no_args(Opcode::Halt));
+
+        // Ajouter un symbole pour le début du programme
+        bytecode.add_symbol("start", 0);
+
+        // Vérifier le nombre d'instructions
+        assert_eq!(bytecode.code.len(), 9);
+
+        // Vérifier les métadonnées
+        assert_eq!(bytecode.metadata.len(), 3);
+        assert_eq!(
+            bytecode.metadata.get("name"),
+            Some(&"Programme de test".to_string())
+        );
+
+        // Vérifier les symboles
+        assert_eq!(bytecode.symbols.len(), 1);
+        assert_eq!(bytecode.symbols.get("start"), Some(&0));
+    }
+
+    #[test]
+    fn test_bytecode_file_io_errors() {
+        // Test avec un fichier inexistant
+        let result = BytecodeFile::read_from_file("nonexistent_file.punk");
+        assert!(result.is_err());
+
+        // Test avec un fichier trop petit
+        let dir = tempdir().expect("Impossible de créer un répertoire temporaire");
+        let invalid_file_path = dir.path().join("invalid.punk");
+
+        // Créer un fichier invalide avec juste quelques octets
+        std::fs::write(&invalid_file_path, &[0, 1, 2])
+            .expect("Impossible d'écrire le fichier de test");
+
+        let result = BytecodeFile::read_from_file(&invalid_file_path);
+        assert!(result.is_err());
+
+        // Vérifier le type d'erreur
+        match result {
+            Err(e) => assert_eq!(e.kind(), ErrorKind::InvalidData),
+            _ => panic!("Expected an error but got success"),
+        }
+    }
+
+    #[test]
+    fn test_encode_decode_metadata() {
+        let mut metadata = HashMap::new();
+        metadata.insert("key1".to_string(), "value1".to_string());
+        metadata.insert("key2".to_string(), "value2".to_string());
+
+        let mut bytecode = BytecodeFile::new();
+        bytecode.metadata = metadata.clone();
+
+        let encoded = bytecode.encode_metadata();
+        let decoded = BytecodeFile::decode_metadata(&encoded).expect("Failed to decode metadata");
+
+        assert_eq!(decoded.len(), 2);
+        assert_eq!(decoded.get("key1"), Some(&"value1".to_string()));
+        assert_eq!(decoded.get("key2"), Some(&"value2".to_string()));
+    }
+
+    #[test]
+    fn test_encode_decode_symbols() {
+        let mut symbols = HashMap::new();
+        symbols.insert("sym1".to_string(), 0x1000);
+        symbols.insert("sym2".to_string(), 0x2000);
+
+        let mut bytecode = BytecodeFile::new();
+        bytecode.symbols = symbols.clone();
+
+        let encoded = bytecode.encode_symbols();
+        let decoded = BytecodeFile::decode_symbols(&encoded).expect("Failed to decode symbols");
+
+        assert_eq!(decoded.len(), 2);
+        assert_eq!(decoded.get("sym1"), Some(&0x1000));
+        assert_eq!(decoded.get("sym2"), Some(&0x2000));
+    }
+
+    #[test]
+    fn test_encode_decode_code() {
+        // Créer un ensemble d'instructions de test
+        let mut code = Vec::new();
+        code.push(Instruction::create_no_args(Opcode::Nop));
+        code.push(Instruction::create_reg_imm8(Opcode::Load, 0, 42));
+        code.push(Instruction::create_reg_reg_reg(Opcode::Add, 2, 0, 1));
+
+        let mut bytecode = BytecodeFile::new();
+        bytecode.code = code.clone();
+
+        let encoded = bytecode.encode_code();
+        let decoded = BytecodeFile::decode_code(&encoded).expect("Failed to decode code");
+
+        assert_eq!(decoded.len(), 3);
+        assert_eq!(decoded[0].opcode, Opcode::Nop);
+        assert_eq!(decoded[1].opcode, Opcode::Load);
+        assert_eq!(decoded[2].opcode, Opcode::Add);
+
+        // Vérifier les arguments de l'instruction Add
+        assert_eq!(decoded[2].args.len(), 3);
+        assert_eq!(decoded[2].args[0], 2);
+        assert_eq!(decoded[2].args[1], 0);
+        assert_eq!(decoded[2].args[2], 1);
+    }
+}
+
+
+#[cfg(test)]
+mod pipeline_mod_tests {
+    use super::*; // Importe Pipeline et les structures du mod.rs
+    use crate::alu::alu::ALU;
+    use crate::bytecode::instructions::Instruction;
+    use crate::bytecode::opcodes::Opcode;
+    use crate::pvm::memorys::{Memory, MemoryConfig}; // Assurez-vous que les chemins sont corrects
+    use crate::pipeline::{FetchDecodeRegister, DecodeExecuteRegister, ExecuteMemoryRegister, MemoryWritebackRegister};
+
+    // Helper pour créer une VM minimale pour les tests de pipeline
+    fn setup_test_pipeline(instructions: Vec<Instruction>) -> (Pipeline, Vec<u64>, Memory, ALU) {
+        let pipeline = Pipeline::new(4, true, true); // Buffersize 4, forwarding/hazard ON
+        let registers = vec![0u64; 16];
+        let memory_config = MemoryConfig { size: 1024, l1_cache_size: 64, store_buffer_size: 4 };
+        let memory = Memory::new(memory_config);
+        let alu = ALU::new();
+        // Note: La mémoire n'est pas pré-chargée avec les instructions ici.
+        // La fonction `cycle` reçoit le slice `instructions` directement.
+        (pipeline, registers, memory, alu)
+    }
+
+    #[test]
+    fn test_pipeline_simple_add() {
+        // Instructions: ADD R2, R0, R1; HALT
+        let instructions = vec![
+            Instruction::create_reg_reg_reg(Opcode::Add, 2, 0, 1), // R2 = R0 + R1
+            Instruction::create_no_args(Opcode::Halt),
+        ];
+        let (mut pipeline, mut registers, mut memory, mut alu) = setup_test_pipeline(instructions.clone());
+
+        // Initialiser les registres
+        registers[0] = 10;
+        registers[1] = 5;
+
+        // Simuler les cycles
+        let mut current_pc: u32 = 0;
+        let max_cycles = 10; // Éviter boucle infinie
+        for _ in 0..max_cycles {
+            let result = pipeline.cycle(current_pc, &mut registers, &mut memory, &mut alu, &instructions);
+            assert!(result.is_ok(), "Le cycle du pipeline a échoué");
+            let state = result.unwrap();
+            current_pc = state.next_pc; // Mettre à jour le PC pour le prochain cycle
+            println!("Cycle: {}, PC: 0x{:X}, Halted: {}, Stalled: {}",
+                     pipeline.stats.cycles, current_pc, state.halted, state.stalled);
+            if state.halted {
+                break;
+            }
+        }
+
+        assert!(pipeline.state.halted, "Le pipeline devrait être arrêté (halted)");
+        // ADD prend ~5 cycles pour compléter (F-D-E-M-W)
+        assert!(pipeline.stats.cycles >= 5, "Il faut au moins 5 cycles");
+        assert_eq!(registers[2], 15, "R2 devrait contenir 10 + 5"); // Vérifier le résultat
+        assert_eq!(pipeline.stats.instructions, 1, "Une seule instruction (ADD) devrait être complétée");
+    }
+
+    #[test]
+    fn test_pipeline_data_hazard_raw_forwarding() {
+        // Instructions: ADD R1, R0, R0; ADD R2, R1, R1; HALT
+        let instructions = vec![
+            Instruction::create_reg_reg_reg(Opcode::Add, 1, 0, 0), // R1 = R0 + R0 (R1=10)
+            Instruction::create_reg_reg_reg(Opcode::Add, 2, 1, 1), // R2 = R1 + R1 (dépend de R1)
+            Instruction::create_no_args(Opcode::Halt),
+        ];
+        let (mut pipeline, mut registers, mut memory, mut alu) = setup_test_pipeline(instructions.clone());
+        registers[0] = 5; // R0 = 5
+
+        // Simuler les cycles
+        let mut current_pc: u32 = 0;
+        let max_cycles = 15;
+        for _ in 0..max_cycles {
+            let result = pipeline.cycle(current_pc, &mut registers, &mut memory, &mut alu, &instructions);
+            assert!(result.is_ok());
+            let state = result.unwrap();
+            current_pc = state.next_pc;
+            if state.halted { break; }
+        }
+
+        assert!(pipeline.state.halted);
+        assert_eq!(registers[1], 10, "R1 devrait être 5 + 5");
+        assert_eq!(registers[2], 20, "R2 devrait être 10 + 10 (avec forwarding)");
+        assert!(pipeline.forwarding.get_forwards_count() >= 1, "Au moins un forward aurait dû se produire pour R1");
+        // Le nombre exact de cycles dépend si le forwarding évite complètement le stall
+        // S'il y a un stall d'un cycle malgré le forwarding: cycles = 5 (ADD1) + 1 (stall) + 1 (ADD2 complété) = 7?
+        // S'il n'y a pas de stall: cycles = 5 (ADD1) + 1 (ADD2 complété) = 6?
+        println!("Stats: Cycles={}, Instructions={}, Forwards={}, Stalls={}",
+                 pipeline.stats.cycles, pipeline.stats.instructions,
+                 pipeline.forwarding.get_forwards_count(), pipeline.stats.stalls);
+        assert_eq!(pipeline.stats.stalls, 0, "Aucun stall ne devrait être nécessaire avec forwarding EX->DE");
+        assert_eq!(pipeline.stats.instructions, 2);
+    }
     //
-    //     // Mettre une valeur en mémoire
-    //     memory.write_qword(load_addr, 99).unwrap();
-    //     registers[0] = 1; // R0 = 1
-    //
-    //     // Simuler les cycles
-    //     let mut current_pc: u32 = 0;
-    //     let max_cycles = 15;
-    //     for i in 0..max_cycles {
-    //         println!("--- Test Cycle {} ---", i + 1);
-    //         let result = pipeline.cycle(current_pc, &mut registers, &mut memory, &mut alu, &instructions);
-    //         assert!(result.is_ok());
-    //         let state = result.unwrap();
-    //         current_pc = state.next_pc;
-    //         if state.halted { break; }
-    //     }
-    //
-    //     assert!(pipeline.state.halted);
-    //     assert_eq!(registers[1], 99, "R1 doit contenir la valeur chargée");
-    //     assert_eq!(registers[2], 100, "R2 doit être 99 + 1");
-    //     println!("Stats: Cycles={}, Instructions={}, Forwards={}, Stalls={}",
-    //              pipeline.stats.cycles, pipeline.stats.instructions,
-    //              pipeline.forwarding.get_forwards_count(), pipeline.stats.stalls);
-    //     assert!(pipeline.stats.stalls >= 1, "Au moins un stall est attendu pour Load-Use");
-    //     assert_eq!(pipeline.stats.instructions, 2);
-    //     assert!(pipeline.hazard_detection.hazards_count >= 1, "Au moins un hazard LoadUse détecté");
-    // }
-    //
+    #[test]
+    fn test_pipeline_load_use_hazard_stall() {
+        // Instructions: LOAD R1, [0]; ADD R2, R1, R0; HALT
+        let load_addr = 0x100; // Adresse arbitraire
+        let instructions = vec![
+            Instruction::create_reg_imm8(Opcode::Load, 1, 0), // LOAD R1, [0x100] (simplifié: addr dans immediate)
+            Instruction::create_reg_reg_reg(Opcode::Add, 2, 1, 0), // ADD R2, R1, R0 (utilise R1)
+            Instruction::create_no_args(Opcode::Halt),
+        ];
+        let (mut pipeline, mut registers, mut memory, mut alu) = setup_test_pipeline(instructions.clone());
+
+        // Mettre une valeur en mémoire
+        memory.write_qword(load_addr, 99).unwrap();
+        registers[0] = 1; // R0 = 1
+
+        // Simuler les cycles
+        let mut current_pc: u32 = 0;
+        let max_cycles = 15;
+        for i in 0..max_cycles {
+            println!("--- Test Cycle {} ---", i + 1);
+            let result = pipeline.cycle(current_pc, &mut registers, &mut memory, &mut alu, &instructions);
+            assert!(result.is_ok());
+            let state = result.unwrap();
+            current_pc = state.next_pc;
+            if state.halted { break; }
+        }
+
+        assert!(pipeline.state.halted);
+        assert_eq!(registers[1], 99, "R1 doit contenir la valeur chargée");
+        assert_eq!(registers[2], 100, "R2 doit être 99 + 1");
+        println!("Stats: Cycles={}, Instructions={}, Forwards={}, Stalls={}",
+                 pipeline.stats.cycles, pipeline.stats.instructions,
+                 pipeline.forwarding.get_forwards_count(), pipeline.stats.stalls);
+        assert!(pipeline.stats.stalls >= 1, "Au moins un stall est attendu pour Load-Use");
+        assert_eq!(pipeline.stats.instructions, 2);
+        assert!(pipeline.hazard_detection.hazards_count >= 1, "Au moins un hazard LoadUse détecté");
+    }
+
+
+
+
     //
     // #[test]
     // fn test_pipeline_branch_taken_correctly_predicted() {
@@ -1034,7 +1105,7 @@ impl Pipeline {
     //     // Le nombre d'instructions complétées: SUB, JIE, HALT = 3
     //     assert_eq!(pipeline.stats.instructions, 3);
     // }
-
+}
 
 
 ///////////////////////////////////////////////////////
