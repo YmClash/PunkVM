@@ -314,11 +314,12 @@ impl ExecuteStage {
                 // 1. Calculer l'adresse de retour
                 let return_address = ex_reg.pc + ex_reg.instruction.total_size() as u32;
 
-                // // 2. Empiler l'adresse de retour
-                // vm.stack_push(return_address as u64)
-                //     .map_err(|e| format!("CALL stack push failed: {}", e))?;
+                // 2. Préparer l'adresse de retour pour être empilée sur la pile
+                store_value = Some(return_address as u64);
+                stack_operation = Some(StackOperation::Push);
+                stack_result = Some(return_address as u64);
 
-                // 3. Préparer le saut
+                // 3. Préparer le saut vers la fonction appelée
                 branch_taken = true;
 
                 println!("CALL executed: return_addr=0x{:X}, target={:?}",
@@ -326,44 +327,46 @@ impl ExecuteStage {
 
             },
             Opcode::Ret => {
-                // println!("Execute RET: PC=0x{:X}", ex_reg.pc);
-                //
-                // // // 1. Dépiler l'adresse de retour
-                // // let return_address = vm.stack_pop()
-                // //     .map_err(|e| format!("RET stack pop failed: {}", e))?;
-                //
-                // // 2. Préparer le saut vers l'adresse de retour
-                // branch_taken = true;
-                // branch_target = Some(return_address as u32);
-                //
-                // println!("RET executed: return_addr=0x{:X}", return_address);
+                println!("Execute RET: PC=0x{:X}", ex_reg.pc);
+
+                // 1. Indiquer qu'on veut dépiler une valeur de la pile
+                stack_operation = Some(StackOperation::Pop);
+                
+                // 2. Préparer le saut vers l'adresse de retour
+                // L'adresse de retour sera fournie par le RAS prediction ou par la pile
+                branch_taken = true;
+                // branch_target sera défini par le RAS dans decode ou par la pile dans memory
+
+                println!("RET executed: branch_target={:?}", branch_target);
             },
 
 
             Opcode::Push => {
                 // Préparer la valeur à empiler
-                store_value = Some(rs1_value);
+                // Prioriser la valeur immédiate si présente (PUSH immédiat)
+                let value_to_push = if let Some(imm) = ex_reg.immediate {
+                    imm
+                } else {
+                    rs1_value
+                };
+                store_value = Some(value_to_push);
                 // L'adresse est calculée dans l'étage Memory
                 println!(
-                    "Execute PUSH: rs1_value={}, mem_addr={:?}",
-                    rs1_value, mem_addr
+                    "Execute PUSH: rs1_value={}, immediate={:?}, value_to_push={}, mem_addr={:?}",
+                    rs1_value, ex_reg.immediate, value_to_push, mem_addr
                 );
             },
 
             Opcode::Pop => {
-                // println!("Execute POP");
-                //
-                // // Dépiler la valeur
-                // let value = vm.stack_pop()
-                //     .map_err(|e| format!("POP failed: {}", e))?;
-                //
-                // // Le résultat sera écrit dans le registre de destination
-                // alu_result = value;
-                // stack_operation = Some(StackOperation::Pop);
-                // stack_result = Some(value);
-                //
-                // println!("POP executed: value=0x{:X}", value);
+                println!("Execute POP");
 
+                // Indiquer qu'on veut dépiler une valeur de la pile
+                stack_operation = Some(StackOperation::Pop);
+                
+                // Le résultat sera fourni par l'étage Memory après dépilage
+                // et sera écrit dans le registre de destination via alu_result
+
+                println!("POP executed: will pop value into register");
             },
 
             // Instructions spéciales
@@ -508,6 +511,13 @@ impl ExecuteStage {
         // Pas d'état interne à réinitialiser
     }
 }
+
+
+
+
+
+
+
 
 //
 //
