@@ -5,6 +5,7 @@ use std::collections::VecDeque;
 pub struct ReturnAddressStack {
     stack: VecDeque<u32>,
     max_size: usize,
+
     ///Statistique
 
     pushes : u64,
@@ -60,6 +61,19 @@ impl ReturnAddressStack {
         result
     }
 
+    /// Peek l'adresse de retour actuelle sans la retirer de la pile
+    pub fn peek(&self) -> Option<u32>{
+        self.stack.back().copied()
+    }
+
+    pub  fn clear(&mut self){
+        self.stack.clear();
+    }
+
+    pub fn is_full(&self) -> bool {
+        self.stack.len() >= self.max_size
+    }
+
     pub fn predict(&self) -> Option<u32> {
         self.stack.back().copied()
     }
@@ -81,7 +95,7 @@ impl ReturnAddressStack {
 
     pub fn accuracy(&self) -> f64 {
         let  total = self.hits + self.misses;
-        if total == 0 {
+        if total > 0 {
             (self.hits as f64 / total as f64) * 100.0
         }else {
             0.0
@@ -109,9 +123,9 @@ impl ReturnAddressStack {
         println!("Return Address Stack RESET");
     }
 
-    // pub fn is_empty(&self) -> bool {
-    //     self.stack.is_empty()
-    // }
+    pub fn is_empty(&self) -> bool {
+        self.stack.is_empty()
+    }
 
     pub fn debug_state(&self){
         println!("RAS State: depth={}/{}", self.stack.len(),self.max_size);
