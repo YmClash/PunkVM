@@ -1,64 +1,145 @@
-// //src/pvm/stacks.rs
-// use crate::pvm::vm_errors::{VMError, VMResult};
-//
+use crate::PunkVM;
+//src/pvm/stacks.rs
+use crate::pvm::vm_errors::{VMError, VMResult};
+
+
+
+
+
+/// Registres Speciaux pour le processus de la pile  Stack
+#[derive(Debug,Clone,Copy)]
+pub enum SpecialRegister {
+    SP = 16, // Stack Pointer
+    Bp = 17, // Base Pointer
+    RA = 18, // Return Address
+}
+
 // pub struct Stack{
 //     data: Vec<u64>,
 //     stack_pointer: usize,
 //     max_size: usize,
 // }
-//
-//
-// pub struct ReturnAddressStack {
-//     stack: Vec<u64>,
-//     top: usize,
-//     size: usize,
-// }
-// impl ReturnAddressStack {
-//     pub fn new(size: usize) -> Self {
-//         Self {
-//             stack: vec![0; size],
-//             top: 0,
-//             size,
-//         }
-//     }
-//
-//     pub fn push(&mut self, addr: u64) {
-//         if self.top < self.size {
-//             self.stack[self.top] = addr;
-//             self.top += 1;
-//         }
-//     }
-//
-//     pub fn pop(&mut self) -> Option<u64> {
-//         if self.top > 0 {
-//             self.top -= 1;
-//             Some(self.stack[self.top])
-//         } else {
-//             None
-//         }
-//     }
-//
-//     pub fn peek(&self) -> Option<u64> {
-//         if self.top > 0 {
-//             Some(self.stack[self.top - 1])
-//         } else {
-//             None
-//         }
-//     }
-//
-//     pub fn clear(&mut self) {
-//         self.top = 0;
-//     }
-//
-//     pub fn is_empty(&self) -> bool {
-//         self.top == 0
-//     }
-//
-//     pub fn is_full(&self) -> bool {
-//         self.top == self.size
-//     }
-// }
-//
+
+
+pub struct ReturnAddressStack {
+    stack: Vec<u64>,
+    top: usize,
+    size: usize,
+}
+impl ReturnAddressStack {
+    pub fn new(size: usize) -> Self {
+        Self {
+            stack: vec![0; size],
+            top: 0,
+            size,
+        }
+    }
+
+    pub fn push(&mut self, addr: u64) {
+        if self.top < self.size {
+            self.stack[self.top] = addr;
+            self.top += 1;
+        }
+    }
+
+    pub fn pop(&mut self) -> Option<u64> {
+        if self.top > 0 {
+            self.top -= 1;
+            Some(self.stack[self.top])
+        } else {
+            None
+        }
+    }
+
+    pub fn peek(&self) -> Option<u64> {
+        if self.top > 0 {
+            Some(self.stack[self.top - 1])
+        } else {
+            None
+        }
+    }
+
+    pub fn clear(&mut self) {
+        self.top = 0;
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.top == 0
+    }
+
+    pub fn is_full(&self) -> bool {
+        self.top == self.size
+    }
+}
+
+
+impl PunkVM {
+    pub fn init_stack(&mut self) {
+        let sp_index = SpecialRegister::SP as usize;
+        self.registers[sp_index] = self.config.stack_base as u64 + self.config.stack_size as u64;
+
+        println!("Stack initialized: SP = 0x{:08X}", self.registers[sp_index]);
+    }
+
+    /// Acces au Stack
+    pub fn get_sp(&self) -> u64 {
+        self.registers[SpecialRegister::SP as usize]
+    }
+
+    /// Modification du Stack Pointer
+    pub fn set_sp(&mut self,value:u64) {
+        self.registers[SpecialRegister::SP as usize] = value
+    }
+    /// Push une valeur sur la pile
+    pub fn push_stack(&mut self, value: u64) -> Result<(), String> {
+        {
+            let sp = self.get_sp();
+
+            // Verifier la limite de la pile
+            if sp < self.config.stack_base as u64 + 8 {
+                return Err("Stack overflow".to_string());
+            }
+
+            // Decrementer le Stack Pointer
+            let new_sp = sp - 8;
+            self.set_sp(new_sp);
+
+
+            // Ecrire la  valeur  dans la memoire
+            self.memory.write_qword(new_sp as u32, value)
+                .map_err(|e| format!("Stack push error: {}", e))?;
+
+            println!("Stack PUSH: value=0x{:016X}, SP=0x{:08X}", value, new_sp);
+            Ok(())
+        }
+    }
+
+
+    pub fn pop_stack(&mut self) -> Result<u64, String>{
+        let sp = self.get_sp();
+
+        // Verifier la limite de la pile
+        if sp >= self.config.stack_base as u64 + self.config.stack_size as u64 {
+            return Err("Stack underflow".to_string());
+        }
+
+        // lire la valeur en memoire
+        let value = self.memory.read_qword(sp as u32)
+            .map_err(|e| format!("Stack pop error: {}", e))?;
+
+        // Incrementer le Stack Pointer
+        let new_sp = sp +8;
+        self.set_sp(new_sp);
+
+        println!("Stack POP: value=0x{:016X}, SP=0x{:08X}", value, new_sp);
+        Ok(value)
+    }
+}
+
+
+
+
+
 //
 // impl Stack {
 //     /// Crée une nouvelle instance de la pile avec la taille maximale spécifiée
