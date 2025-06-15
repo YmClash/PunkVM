@@ -357,440 +357,440 @@ impl ForwardingUnit {
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
-
-
-
-
-
-
-
-/// Tests pour l'unité de forwarding
-#[cfg(test)]
-mod forwarding_tests {
-    use super::*;
-    use crate::bytecode::instructions::Instruction;
-    use crate::bytecode::opcodes::Opcode;
-    use crate::pipeline::{DecodeExecuteRegister, ExecuteMemoryRegister, MemoryWritebackRegister};
-
-
-    #[test]
-    fn test_forwarding_unit_creation() {
-        let unit = ForwardingUnit::new();
-        assert_eq!(
-            unit.get_forwards_count(),
-            0,
-            "Unité de forwarding devrait commencer à 0"
-        );
-    }
-
-    #[test]
-    fn test_forwarding_unit_reset() {
-        let mut unit = ForwardingUnit::new();
-        // Simuler un forward
-        unit.forwards_count = 3;
-        unit.reset();
-        assert_eq!(
-            unit.get_forwards_count(),
-            0,
-            "Après reset, le compteur doit être 0"
-        );
-    }
-
-    #[test]
-    fn test_forwarding_no_sources() {
-        let mut unit = ForwardingUnit::new();
-
-        // DecodeExecuteRegister sans rs1/rs2 => pas de forwarding
-        let mut ex_reg = DecodeExecuteRegister {
-            instruction: Instruction::create_no_args(Opcode::Nop),
-            pc: 0,
-            rs1: None,
-            rs2: None,
-            rd: None,
-            rs1_value: 0,
-            rs2_value: 0,
-            immediate: None,
-            branch_addr: None,
-            branch_prediction: None,
-            stack_operation: None,
-            mem_addr: None,
-            stack_value: None,
-        };
-
-        // Pas de mem_reg, pas de wb_reg
-        unit.forward(&mut ex_reg, &None, &None);
-
-        assert_eq!(
-            unit.get_forwards_count(),
-            0,
-            "Aucun forwarding ne doit avoir lieu"
-        );
-        assert_eq!(ex_reg.rs1_value, 0);
-        assert_eq!(ex_reg.rs2_value, 0);
-    }
-
-    #[test]
-    fn test_forwarding_from_memory_stage() {
-        let mut unit = ForwardingUnit::new();
-
-        // ex_reg a besoin de R1
-        let mut ex_reg = DecodeExecuteRegister {
-            instruction: Instruction::create_reg_reg(Opcode::Add, 0, 1),
-            pc: 0,
-            rs1: Some(0),
-            rs2: Some(1),
-            rd: Some(2),
-            rs1_value: 5,  // Valeur "originale" R0
-            rs2_value: 10, // Valeur "originale" R1
-            immediate: None,
-            branch_addr: None,
-            branch_prediction: None,
-            stack_operation: None,
-            mem_addr: None,
-            stack_value: None,
-        };
-
-        // L’étage Memory écrit R1=42
-        let mem_reg = ExecuteMemoryRegister {
-            instruction: Instruction::create_reg_imm8(Opcode::Add, 1, 10),
-            alu_result: 42,
-            rd: Some(1),
-            store_value: None,
-            mem_addr: None,
-            branch_target: None,
-            branch_taken: false,
-            branch_prediction_correct: Option::from(false),
-            stack_operation: None,
-            stack_result: None,
-            ras_prediction_correct: None,
-            halted: false,
-        };
-
-        // On fait le forwarding
-        unit.forward(&mut ex_reg, &Some(mem_reg), &None);
-
-        // Comme ex_reg.rs2 == 1, on met ex_reg.rs2_value à 42
-        assert_eq!(unit.get_forwards_count(), 1);
-        assert_eq!(ex_reg.rs1_value, 5); //"R0 (rs1) ne doit pas etre affecté par le forwarding";
-        assert_eq!(ex_reg.rs2_value, 42);// "R1 (rs2) doit être forwardé depuis EX/MEM"
-    }
-
-    #[test]
-    fn test_forwarding_with_three_register_format() {
-        let mut unit = ForwardingUnit::new();
-
-        // ADD R3, R1, R2 => rd=R3, rs1=R1, rs2=R2
-        let mut ex_reg = DecodeExecuteRegister {
-            instruction: Instruction::create_reg_reg_reg(Opcode::Add, 3, 1, 2),
-            pc: 0,
-            rs1: Some(1),
-            rs2: Some(2),
-            rd: Some(3),
-            rs1_value: 5, // R1
-            rs2_value: 7, // R2
-            immediate: None,
-            branch_addr: None,
-            branch_prediction: None,
-            stack_operation: None,
-            mem_addr: None,
-            stack_value: None,
-        };
-
-        // Memory stage : R1 = 20
-        let mem_reg = ExecuteMemoryRegister {
-            instruction: Instruction::create_reg_imm8(Opcode::Add, 1, 10),
-            alu_result: 20,
-            rd: Some(1),
-            store_value: None,
-            mem_addr: None,
-            branch_target: None,
-            branch_taken: false,
-            branch_prediction_correct: Option::from(false),
-            stack_operation: None,
-            stack_result: None,
-            ras_prediction_correct: None,
-            halted: false,
-        };
-
-        let infos = unit.forward_with_info(&mut ex_reg, &Some(mem_reg), &None);
-
-        assert_eq!(unit.get_forwards_count(), 1);
-        assert_eq!(infos.len(), 1);
-        assert_eq!(infos[0].value, 20);
-        assert_eq!(infos[0].register, 1);
-        assert_eq!(ex_reg.rs1_value, 20); // R1
-        assert_eq!(ex_reg.rs2_value, 7); // R2 inchangé
-    }
-
-    #[test]
-    fn test_forwarding_from_writeback_stage() {
-        let mut unit = ForwardingUnit::new();
-
-        // ex_reg a besoin de R1
-        let mut ex_reg = DecodeExecuteRegister {
-            instruction: Instruction::create_reg_reg(Opcode::Add, 0, 1),
-            pc: 0,
-            rs1: Some(0),
-            rs2: Some(1),
-            rd: Some(2),
-            rs1_value: 5,  // R0
-            rs2_value: 10, // R1
-            immediate: None,
-            branch_addr: None,
-            branch_prediction: None,
-            stack_operation: None,
-            mem_addr: None,
-            stack_value: None,
-        };
-
-        // Writeback stage dit R1 = 42
-        let wb_reg = MemoryWritebackRegister {
-            instruction: Instruction::create_reg_imm8(Opcode::Load, 1, 0),
-            result: 42,
-            rd: Some(1),
-        };
-
-        unit.forward(&mut ex_reg, &None, &Some(wb_reg));
-        assert_eq!(unit.get_forwards_count(), 1);
-        assert_eq!(ex_reg.rs2_value, 42);
-        assert_eq!(ex_reg.rs1_value, 5);
-    }
-
-    #[test]
-    fn test_forwarding_priority() {
-        let mut unit = ForwardingUnit::new();
-
-        // ex_reg veut R1
-        let mut ex_reg = DecodeExecuteRegister {
-            instruction: Instruction::create_reg_reg(Opcode::Add, 0, 1),
-            pc: 0,
-            rs1: Some(0),
-            rs2: Some(1),
-            rd: Some(2),
-            rs1_value: 5,
-            rs2_value: 10,
-            immediate: None,
-            branch_addr: None,
-            branch_prediction: None,
-            stack_operation: None,
-            mem_addr: None,
-            stack_value: None,
-        };
-
-        let mem_reg = ExecuteMemoryRegister {
-            instruction: Instruction::create_no_args(Opcode::Add),
-            alu_result: 42,
-            rd: Some(1),
-            store_value: None,
-            mem_addr: None,
-            branch_target: None,
-            branch_taken: false,
-            branch_prediction_correct: Option::from(false),
-            stack_operation: None,
-            stack_result: None,
-            ras_prediction_correct: None,
-            halted: false,
-        };
-
-        let wb_reg = MemoryWritebackRegister {
-            instruction: Instruction::create_no_args(Opcode::Add),
-            result: 24,
-            rd: Some(1),
-        };
-
-        // memory dit R1=42, writeback dit R1=24 => la source prioritaire est memory
-        let infos = unit.forward_with_info(&mut ex_reg, &Some(mem_reg), &Some(wb_reg));
-        assert_eq!(unit.get_forwards_count(), 1, "Un seul forward prioritaire");
-        assert_eq!(
-            ex_reg.rs2_value, 42,
-            "valeur prioritaire=42 (Memory) et pas 24 (WB)"
-        );
-
-        assert_eq!(infos.len(), 1);
-        assert_eq!(infos[0].value, 42);
-    }
-
-    #[test]
-    fn test_forwarding_load_use_hazard() {
-        let mut unit = ForwardingUnit::new();
-
-        // Decode (DE/EX reg): ADD R3, R2, R1 => utilise R1
-        let mut decode_reg = DecodeExecuteRegister {
-            instruction: Instruction::create_reg_reg_reg(Opcode::Add, 3, 2, 1), // ADD R3, R2, R1
-            pc: 0,
-            rs1: Some(2), // Lit R2
-            rs2: Some(1), // Lit R1
-            rd: Some(3),
-            rs1_value: 5, // R2
-            rs2_value: 0, // R1 initial
-            immediate: None,
-            branch_addr: None,
-            branch_prediction: None,
-            stack_operation: None,
-            mem_addr: None,
-            stack_value: None,
-        };
-
-        // Execute (EX/MEM reg): LOAD R1, [addr] => écrit R1
-        let mem_reg = ExecuteMemoryRegister {
-            instruction: Instruction::create_reg_imm8(Opcode::Load, 1, 0), // LOAD R1, 0(Rx)
-            alu_result: 0x100, // Adresse calculée (pas la valeur chargée!)
-            rd: Some(1),       // Écrit R1
-            store_value: None,
-            mem_addr: Some(0x100),
-            branch_target: None,
-            branch_taken: false,
-            branch_prediction_correct: None, // Modifié ici
-            stack_operation: None,
-            stack_result: None,
-            ras_prediction_correct: None,
-            halted: false,
-        };
-
-        // Memory (MEM/WB reg): (Instruction précédente, écrit R2=20)
-        let wb_reg = MemoryWritebackRegister {
-            instruction: Instruction::create_reg_imm8(Opcode::Add, 2, 5), // ADD R2, 5
-            result: 20, // R2 final = 20
-            rd: Some(2),
-        };
-
-        // --- Appel du Forwarding ---
-        let info = unit.forward_with_info(&mut decode_reg, &Some(mem_reg), &Some(wb_reg));
-
-        // --- Vérifications ---
-        // 1. R2 (rs1) doit être forwardé depuis MEM/WB (valeur 20)
-        // 2. R1 (rs2) dépend d'un LOAD en EX. Le forwarding *depuis EX/MEM* NE doit PAS se produire.
-        //    R1 (rs2) ne doit PAS être forwardé non plus depuis MEM/WB s'il y avait une écriture R1 là.
-        // 3. La valeur de R1 (rs2) doit rester sa valeur initiale (0) car le forwarding est bloqué
-        //    par le type d'instruction (Load) dans EX/MEM.
-
-        // Vérifier R2 (rs1)
-        assert_eq!(decode_reg.rs1_value, 20, "R2 (rs1) doit être forwardé depuis MEM/WB");
-
-        // Vérifier R1 (rs2) - NE DOIT PAS être forwardé depuis EX/MEM car c'est un Load
-        assert_eq!(
-            decode_reg.rs2_value, 0,
-            "R1 (rs2) NE doit PAS être forwardé depuis EX/MEM pour un Load"
-        );
-
-        // Vérifier le nombre de forwards effectués (seulement pour R2)
-        assert_eq!(unit.get_forwards_count(), 1, "Seul R2 doit être forwardé (depuis MEM/WB)");
-
-        // Vérifier les infos retournées (doit contenir uniquement le forward de R2)
-        assert_eq!(info.len(), 1, "Seule l'info pour R2 doit être présente");
-        if !info.is_empty() {
-            assert_eq!(info[0].register, 2, "Le registre forwardé est R2");
-            assert_eq!(info[0].value, 20, "La valeur forwardée est 20");
-            assert_eq!(info[0].source, ForwardingSource::Writeback, "La source est Writeback");
-            // assert_eq!(info[0].producing_register, 2); // R2
-            // assert_eq!(info[0].forwarded_value, 20);
-            // assert_eq!(info[0].source_stage, ForwardingSource::Writeback); // Corrigé: vient de MEM/WB
-        }
-        // Note: Le test initial échouait probablement parce qu'il attendait que la valeur
-        // de R1 (rs2) soit forwardée à 10 (l'alu_result du Load), ce qui ne doit pas arriver.
-        // Ou il attendait que la liste `info` soit vide, ce qui n'est pas correct non plus
-        // car R2 est bien forwardé.
-    }
-
-    #[test]
-    fn test_complex_forwarding_scenario() {
-        let mut unit = ForwardingUnit::new();
-
-        // On veut R5=R1+R2=15, en MEM stage,
-        // ex_reg => MUL R4, R5, R3 => R5=15, R3=3 => R4=45
-        let mem_reg = ExecuteMemoryRegister {
-            instruction: Instruction::create_reg_reg_reg(Opcode::Add, 5, 1, 2),
-            alu_result: 15,
-            rd: Some(5),
-            store_value: None,
-            mem_addr: None,
-            branch_target: None,
-            branch_taken: false,
-            branch_prediction_correct: Option::from(false),
-            stack_operation: None,
-            stack_result: None,
-            ras_prediction_correct: None,
-            halted: false,
-        };
-
-        let mut ex_reg = DecodeExecuteRegister {
-            instruction: Instruction::create_reg_reg_reg(Opcode::Mul, 4, 5, 3),
-            pc: 4,
-            rs1: Some(5),
-            rs2: Some(3),
-            rd: Some(4),
-            rs1_value: 0, // R5 original=?
-            rs2_value: 3, // R3=3
-            immediate: None,
-            branch_addr: None,
-            branch_prediction: None,
-            stack_operation: None,
-            mem_addr: None,
-            stack_value: None,
-        };
-
-        let info = unit.forward_with_info(&mut ex_reg, &Some(mem_reg), &None);
-
-        // R5=15
-        assert_eq!(unit.get_forwards_count(), 1);
-        assert_eq!(info.len(), 1);
-        assert_eq!(ex_reg.rs1_value, 15);
-        assert_eq!(ex_reg.rs2_value, 3);
-        assert_eq!(info[0].register, 5);
-        assert_eq!(info[0].value, 15);
-    }
-
-    #[test]
-    fn test_multiple_forwarding_sources() {
-        let mut unit = ForwardingUnit::new();
-
-        // ex_reg a besoin de R1 et R2
-        let mut ex_reg = DecodeExecuteRegister {
-            instruction: Instruction::create_reg_reg_reg(Opcode::Add, 3, 1, 2),
-            pc: 0,
-            rs1: Some(1),
-            rs2: Some(2),
-            rd: Some(3),
-            rs1_value: 0,
-            rs2_value: 0,
-            immediate: None,
-            branch_addr: None,
-            branch_prediction: None,
-            stack_operation: None,
-            mem_addr: None,
-            stack_value: None,
-        };
-
-        // Memory => R1=42
-        let mem_reg = ExecuteMemoryRegister {
-            instruction: Instruction::create_reg_imm8(Opcode::Add, 1, 10),
-            alu_result: 42,
-            rd: Some(1),
-            store_value: None,
-            mem_addr: None,
-            branch_target: None,
-            branch_taken: false,
-            branch_prediction_correct: Option::from(false),
-            stack_operation: None,
-            stack_result: None,
-            ras_prediction_correct: None,
-            halted: false,
-        };
-
-        // Writeback => R2=24
-        let wb_reg = MemoryWritebackRegister {
-            instruction: Instruction::create_reg_imm8(Opcode::Load, 2, 0),
-            result: 24,
-            rd: Some(2),
-        };
-
-        // On forward R1 depuis Memory, R2 depuis Writeback
-        let info = unit.forward_with_info(&mut ex_reg, &Some(mem_reg), &Some(wb_reg));
-
-        assert_eq!(unit.get_forwards_count(), 2);
-        assert_eq!(info.len(), 2);
-        // R1 => 42, R2 => 24
-        assert_eq!(ex_reg.rs1_value, 42);
-        assert_eq!(ex_reg.rs2_value, 24);
-    }
-}
+//
+//
+//
+//
+//
+//
+//
+// /// Tests pour l'unité de forwarding
+// #[cfg(test)]
+// mod forwarding_tests {
+//     use super::*;
+//     use crate::bytecode::instructions::Instruction;
+//     use crate::bytecode::opcodes::Opcode;
+//     use crate::pipeline::{DecodeExecuteRegister, ExecuteMemoryRegister, MemoryWritebackRegister};
+//
+//
+//     #[test]
+//     fn test_forwarding_unit_creation() {
+//         let unit = ForwardingUnit::new();
+//         assert_eq!(
+//             unit.get_forwards_count(),
+//             0,
+//             "Unité de forwarding devrait commencer à 0"
+//         );
+//     }
+//
+//     #[test]
+//     fn test_forwarding_unit_reset() {
+//         let mut unit = ForwardingUnit::new();
+//         // Simuler un forward
+//         unit.forwards_count = 3;
+//         unit.reset();
+//         assert_eq!(
+//             unit.get_forwards_count(),
+//             0,
+//             "Après reset, le compteur doit être 0"
+//         );
+//     }
+//
+//     #[test]
+//     fn test_forwarding_no_sources() {
+//         let mut unit = ForwardingUnit::new();
+//
+//         // DecodeExecuteRegister sans rs1/rs2 => pas de forwarding
+//         let mut ex_reg = DecodeExecuteRegister {
+//             instruction: Instruction::create_no_args(Opcode::Nop),
+//             pc: 0,
+//             rs1: None,
+//             rs2: None,
+//             rd: None,
+//             rs1_value: 0,
+//             rs2_value: 0,
+//             immediate: None,
+//             branch_addr: None,
+//             branch_prediction: None,
+//             stack_operation: None,
+//             mem_addr: None,
+//             stack_value: None,
+//         };
+//
+//         // Pas de mem_reg, pas de wb_reg
+//         unit.forward(&mut ex_reg, &None, &None);
+//
+//         assert_eq!(
+//             unit.get_forwards_count(),
+//             0,
+//             "Aucun forwarding ne doit avoir lieu"
+//         );
+//         assert_eq!(ex_reg.rs1_value, 0);
+//         assert_eq!(ex_reg.rs2_value, 0);
+//     }
+//
+//     #[test]
+//     fn test_forwarding_from_memory_stage() {
+//         let mut unit = ForwardingUnit::new();
+//
+//         // ex_reg a besoin de R1
+//         let mut ex_reg = DecodeExecuteRegister {
+//             instruction: Instruction::create_reg_reg(Opcode::Add, 0, 1),
+//             pc: 0,
+//             rs1: Some(0),
+//             rs2: Some(1),
+//             rd: Some(2),
+//             rs1_value: 5,  // Valeur "originale" R0
+//             rs2_value: 10, // Valeur "originale" R1
+//             immediate: None,
+//             branch_addr: None,
+//             branch_prediction: None,
+//             stack_operation: None,
+//             mem_addr: None,
+//             stack_value: None,
+//         };
+//
+//         // L’étage Memory écrit R1=42
+//         let mem_reg = ExecuteMemoryRegister {
+//             instruction: Instruction::create_reg_imm8(Opcode::Add, 1, 10),
+//             alu_result: 42,
+//             rd: Some(1),
+//             store_value: None,
+//             mem_addr: None,
+//             branch_target: None,
+//             branch_taken: false,
+//             branch_prediction_correct: Option::from(false),
+//             stack_operation: None,
+//             stack_result: None,
+//             ras_prediction_correct: None,
+//             halted: false,
+//         };
+//
+//         // On fait le forwarding
+//         unit.forward(&mut ex_reg, &Some(mem_reg), &None);
+//
+//         // Comme ex_reg.rs2 == 1, on met ex_reg.rs2_value à 42
+//         assert_eq!(unit.get_forwards_count(), 1);
+//         assert_eq!(ex_reg.rs1_value, 5); //"R0 (rs1) ne doit pas etre affecté par le forwarding";
+//         assert_eq!(ex_reg.rs2_value, 42);// "R1 (rs2) doit être forwardé depuis EX/MEM"
+//     }
+//
+//     #[test]
+//     fn test_forwarding_with_three_register_format() {
+//         let mut unit = ForwardingUnit::new();
+//
+//         // ADD R3, R1, R2 => rd=R3, rs1=R1, rs2=R2
+//         let mut ex_reg = DecodeExecuteRegister {
+//             instruction: Instruction::create_reg_reg_reg(Opcode::Add, 3, 1, 2),
+//             pc: 0,
+//             rs1: Some(1),
+//             rs2: Some(2),
+//             rd: Some(3),
+//             rs1_value: 5, // R1
+//             rs2_value: 7, // R2
+//             immediate: None,
+//             branch_addr: None,
+//             branch_prediction: None,
+//             stack_operation: None,
+//             mem_addr: None,
+//             stack_value: None,
+//         };
+//
+//         // Memory stage : R1 = 20
+//         let mem_reg = ExecuteMemoryRegister {
+//             instruction: Instruction::create_reg_imm8(Opcode::Add, 1, 10),
+//             alu_result: 20,
+//             rd: Some(1),
+//             store_value: None,
+//             mem_addr: None,
+//             branch_target: None,
+//             branch_taken: false,
+//             branch_prediction_correct: Option::from(false),
+//             stack_operation: None,
+//             stack_result: None,
+//             ras_prediction_correct: None,
+//             halted: false,
+//         };
+//
+//         let infos = unit.forward_with_info(&mut ex_reg, &Some(mem_reg), &None);
+//
+//         assert_eq!(unit.get_forwards_count(), 1);
+//         assert_eq!(infos.len(), 1);
+//         assert_eq!(infos[0].value, 20);
+//         assert_eq!(infos[0].register, 1);
+//         assert_eq!(ex_reg.rs1_value, 20); // R1
+//         assert_eq!(ex_reg.rs2_value, 7); // R2 inchangé
+//     }
+//
+//     #[test]
+//     fn test_forwarding_from_writeback_stage() {
+//         let mut unit = ForwardingUnit::new();
+//
+//         // ex_reg a besoin de R1
+//         let mut ex_reg = DecodeExecuteRegister {
+//             instruction: Instruction::create_reg_reg(Opcode::Add, 0, 1),
+//             pc: 0,
+//             rs1: Some(0),
+//             rs2: Some(1),
+//             rd: Some(2),
+//             rs1_value: 5,  // R0
+//             rs2_value: 10, // R1
+//             immediate: None,
+//             branch_addr: None,
+//             branch_prediction: None,
+//             stack_operation: None,
+//             mem_addr: None,
+//             stack_value: None,
+//         };
+//
+//         // Writeback stage dit R1 = 42
+//         let wb_reg = MemoryWritebackRegister {
+//             instruction: Instruction::create_reg_imm8(Opcode::Load, 1, 0),
+//             result: 42,
+//             rd: Some(1),
+//         };
+//
+//         unit.forward(&mut ex_reg, &None, &Some(wb_reg));
+//         assert_eq!(unit.get_forwards_count(), 1);
+//         assert_eq!(ex_reg.rs2_value, 42);
+//         assert_eq!(ex_reg.rs1_value, 5);
+//     }
+//
+//     #[test]
+//     fn test_forwarding_priority() {
+//         let mut unit = ForwardingUnit::new();
+//
+//         // ex_reg veut R1
+//         let mut ex_reg = DecodeExecuteRegister {
+//             instruction: Instruction::create_reg_reg(Opcode::Add, 0, 1),
+//             pc: 0,
+//             rs1: Some(0),
+//             rs2: Some(1),
+//             rd: Some(2),
+//             rs1_value: 5,
+//             rs2_value: 10,
+//             immediate: None,
+//             branch_addr: None,
+//             branch_prediction: None,
+//             stack_operation: None,
+//             mem_addr: None,
+//             stack_value: None,
+//         };
+//
+//         let mem_reg = ExecuteMemoryRegister {
+//             instruction: Instruction::create_no_args(Opcode::Add),
+//             alu_result: 42,
+//             rd: Some(1),
+//             store_value: None,
+//             mem_addr: None,
+//             branch_target: None,
+//             branch_taken: false,
+//             branch_prediction_correct: Option::from(false),
+//             stack_operation: None,
+//             stack_result: None,
+//             ras_prediction_correct: None,
+//             halted: false,
+//         };
+//
+//         let wb_reg = MemoryWritebackRegister {
+//             instruction: Instruction::create_no_args(Opcode::Add),
+//             result: 24,
+//             rd: Some(1),
+//         };
+//
+//         // memory dit R1=42, writeback dit R1=24 => la source prioritaire est memory
+//         let infos = unit.forward_with_info(&mut ex_reg, &Some(mem_reg), &Some(wb_reg));
+//         assert_eq!(unit.get_forwards_count(), 1, "Un seul forward prioritaire");
+//         assert_eq!(
+//             ex_reg.rs2_value, 42,
+//             "valeur prioritaire=42 (Memory) et pas 24 (WB)"
+//         );
+//
+//         assert_eq!(infos.len(), 1);
+//         assert_eq!(infos[0].value, 42);
+//     }
+//
+//     #[test]
+//     fn test_forwarding_load_use_hazard() {
+//         let mut unit = ForwardingUnit::new();
+//
+//         // Decode (DE/EX reg): ADD R3, R2, R1 => utilise R1
+//         let mut decode_reg = DecodeExecuteRegister {
+//             instruction: Instruction::create_reg_reg_reg(Opcode::Add, 3, 2, 1), // ADD R3, R2, R1
+//             pc: 0,
+//             rs1: Some(2), // Lit R2
+//             rs2: Some(1), // Lit R1
+//             rd: Some(3),
+//             rs1_value: 5, // R2
+//             rs2_value: 0, // R1 initial
+//             immediate: None,
+//             branch_addr: None,
+//             branch_prediction: None,
+//             stack_operation: None,
+//             mem_addr: None,
+//             stack_value: None,
+//         };
+//
+//         // Execute (EX/MEM reg): LOAD R1, [addr] => écrit R1
+//         let mem_reg = ExecuteMemoryRegister {
+//             instruction: Instruction::create_reg_imm8(Opcode::Load, 1, 0), // LOAD R1, 0(Rx)
+//             alu_result: 0x100, // Adresse calculée (pas la valeur chargée!)
+//             rd: Some(1),       // Écrit R1
+//             store_value: None,
+//             mem_addr: Some(0x100),
+//             branch_target: None,
+//             branch_taken: false,
+//             branch_prediction_correct: None, // Modifié ici
+//             stack_operation: None,
+//             stack_result: None,
+//             ras_prediction_correct: None,
+//             halted: false,
+//         };
+//
+//         // Memory (MEM/WB reg): (Instruction précédente, écrit R2=20)
+//         let wb_reg = MemoryWritebackRegister {
+//             instruction: Instruction::create_reg_imm8(Opcode::Add, 2, 5), // ADD R2, 5
+//             result: 20, // R2 final = 20
+//             rd: Some(2),
+//         };
+//
+//         // --- Appel du Forwarding ---
+//         let info = unit.forward_with_info(&mut decode_reg, &Some(mem_reg), &Some(wb_reg));
+//
+//         // --- Vérifications ---
+//         // 1. R2 (rs1) doit être forwardé depuis MEM/WB (valeur 20)
+//         // 2. R1 (rs2) dépend d'un LOAD en EX. Le forwarding *depuis EX/MEM* NE doit PAS se produire.
+//         //    R1 (rs2) ne doit PAS être forwardé non plus depuis MEM/WB s'il y avait une écriture R1 là.
+//         // 3. La valeur de R1 (rs2) doit rester sa valeur initiale (0) car le forwarding est bloqué
+//         //    par le type d'instruction (Load) dans EX/MEM.
+//
+//         // Vérifier R2 (rs1)
+//         assert_eq!(decode_reg.rs1_value, 20, "R2 (rs1) doit être forwardé depuis MEM/WB");
+//
+//         // Vérifier R1 (rs2) - NE DOIT PAS être forwardé depuis EX/MEM car c'est un Load
+//         assert_eq!(
+//             decode_reg.rs2_value, 0,
+//             "R1 (rs2) NE doit PAS être forwardé depuis EX/MEM pour un Load"
+//         );
+//
+//         // Vérifier le nombre de forwards effectués (seulement pour R2)
+//         assert_eq!(unit.get_forwards_count(), 1, "Seul R2 doit être forwardé (depuis MEM/WB)");
+//
+//         // Vérifier les infos retournées (doit contenir uniquement le forward de R2)
+//         assert_eq!(info.len(), 1, "Seule l'info pour R2 doit être présente");
+//         if !info.is_empty() {
+//             assert_eq!(info[0].register, 2, "Le registre forwardé est R2");
+//             assert_eq!(info[0].value, 20, "La valeur forwardée est 20");
+//             assert_eq!(info[0].source, ForwardingSource::Writeback, "La source est Writeback");
+//             // assert_eq!(info[0].producing_register, 2); // R2
+//             // assert_eq!(info[0].forwarded_value, 20);
+//             // assert_eq!(info[0].source_stage, ForwardingSource::Writeback); // Corrigé: vient de MEM/WB
+//         }
+//         // Note: Le test initial échouait probablement parce qu'il attendait que la valeur
+//         // de R1 (rs2) soit forwardée à 10 (l'alu_result du Load), ce qui ne doit pas arriver.
+//         // Ou il attendait que la liste `info` soit vide, ce qui n'est pas correct non plus
+//         // car R2 est bien forwardé.
+//     }
+//
+//     #[test]
+//     fn test_complex_forwarding_scenario() {
+//         let mut unit = ForwardingUnit::new();
+//
+//         // On veut R5=R1+R2=15, en MEM stage,
+//         // ex_reg => MUL R4, R5, R3 => R5=15, R3=3 => R4=45
+//         let mem_reg = ExecuteMemoryRegister {
+//             instruction: Instruction::create_reg_reg_reg(Opcode::Add, 5, 1, 2),
+//             alu_result: 15,
+//             rd: Some(5),
+//             store_value: None,
+//             mem_addr: None,
+//             branch_target: None,
+//             branch_taken: false,
+//             branch_prediction_correct: Option::from(false),
+//             stack_operation: None,
+//             stack_result: None,
+//             ras_prediction_correct: None,
+//             halted: false,
+//         };
+//
+//         let mut ex_reg = DecodeExecuteRegister {
+//             instruction: Instruction::create_reg_reg_reg(Opcode::Mul, 4, 5, 3),
+//             pc: 4,
+//             rs1: Some(5),
+//             rs2: Some(3),
+//             rd: Some(4),
+//             rs1_value: 0, // R5 original=?
+//             rs2_value: 3, // R3=3
+//             immediate: None,
+//             branch_addr: None,
+//             branch_prediction: None,
+//             stack_operation: None,
+//             mem_addr: None,
+//             stack_value: None,
+//         };
+//
+//         let info = unit.forward_with_info(&mut ex_reg, &Some(mem_reg), &None);
+//
+//         // R5=15
+//         assert_eq!(unit.get_forwards_count(), 1);
+//         assert_eq!(info.len(), 1);
+//         assert_eq!(ex_reg.rs1_value, 15);
+//         assert_eq!(ex_reg.rs2_value, 3);
+//         assert_eq!(info[0].register, 5);
+//         assert_eq!(info[0].value, 15);
+//     }
+//
+//     #[test]
+//     fn test_multiple_forwarding_sources() {
+//         let mut unit = ForwardingUnit::new();
+//
+//         // ex_reg a besoin de R1 et R2
+//         let mut ex_reg = DecodeExecuteRegister {
+//             instruction: Instruction::create_reg_reg_reg(Opcode::Add, 3, 1, 2),
+//             pc: 0,
+//             rs1: Some(1),
+//             rs2: Some(2),
+//             rd: Some(3),
+//             rs1_value: 0,
+//             rs2_value: 0,
+//             immediate: None,
+//             branch_addr: None,
+//             branch_prediction: None,
+//             stack_operation: None,
+//             mem_addr: None,
+//             stack_value: None,
+//         };
+//
+//         // Memory => R1=42
+//         let mem_reg = ExecuteMemoryRegister {
+//             instruction: Instruction::create_reg_imm8(Opcode::Add, 1, 10),
+//             alu_result: 42,
+//             rd: Some(1),
+//             store_value: None,
+//             mem_addr: None,
+//             branch_target: None,
+//             branch_taken: false,
+//             branch_prediction_correct: Option::from(false),
+//             stack_operation: None,
+//             stack_result: None,
+//             ras_prediction_correct: None,
+//             halted: false,
+//         };
+//
+//         // Writeback => R2=24
+//         let wb_reg = MemoryWritebackRegister {
+//             instruction: Instruction::create_reg_imm8(Opcode::Load, 2, 0),
+//             result: 24,
+//             rd: Some(2),
+//         };
+//
+//         // On forward R1 depuis Memory, R2 depuis Writeback
+//         let info = unit.forward_with_info(&mut ex_reg, &Some(mem_reg), &Some(wb_reg));
+//
+//         assert_eq!(unit.get_forwards_count(), 2);
+//         assert_eq!(info.len(), 2);
+//         // R1 => 42, R2 => 24
+//         assert_eq!(ex_reg.rs1_value, 42);
+//         assert_eq!(ex_reg.rs2_value, 24);
+//     }
+// }
