@@ -16,7 +16,7 @@ use crate::bytecode::instructions::Instruction;
 use crate::pipeline::decode::StackOperation;
 use crate::pvm::branch_predictor::{BranchPrediction, BranchPredictor};
 use crate::pvm::memorys::Memory;
-use crate::pipeline::ras::ReturnAddressStack;
+use crate::pipeline::ras::{RASStats, ReturnAddressStack};
 
 /// Structure représentant le pipeline à 5 étages
 pub struct Pipeline {
@@ -32,6 +32,8 @@ pub struct Pipeline {
     memory: memory::MemoryStage,
     /// Module de l'étage Writeback
     writeback: writeback::WritebackStage,
+    /// RAS (Return Address Stack) pour la gestion des appels et retours
+    // pub ras: ReturnAddressStack,
     /// Unité de détection de hazards
     pub hazard_detection: hazard::HazardDetectionUnit,
     /// Unité de forwarding
@@ -182,7 +184,7 @@ pub struct PipelineStats {
     pub branch_hits: u64,
     /// Nombre de prédictions incorrectes
     pub branch_misses: u64,
-    /// Nombre de brance flush
+    /// Nombre de branch flush
     pub branch_flush: u64,
     /// Taux de prédiction de branchement (calculé lors de l'accès)
     pub branch_predictor_rate: f64,
@@ -199,12 +201,17 @@ pub struct PipelineStats {
     pub current_call_depth: usize,
 }
 
+
+
+
+
 impl PipelineStats {
     pub fn branch_prediction_rate(&self) -> f64 {
         if self.branch_predictions > 0 {
             (self.branch_hits as f64 / self.branch_predictions as f64) * 100.0
         } else { 0.0 }
     }
+
 }
 
 
@@ -249,6 +256,8 @@ impl Pipeline {
             execute: execute::ExecuteStage::new(),
             memory: memory::MemoryStage::new(),
             writeback: writeback::WritebackStage::new(),
+            // ras: ReturnAddressStack::new(),
+
             hazard_detection: hazard::HazardDetectionUnit::new(),
             forwarding: forward::ForwardingUnit::new(),
             stats: PipelineStats::default(),
@@ -356,11 +365,7 @@ impl Pipeline {
                 println!("[DEBUG: Fin Fetch -] Fetched for PC = 0x{:08X}, calculated state.next_pc after fetch = 0x{:08X}", fetched_instruction_data.pc, state.next_pc);
             }
 
-
-
-
         }
-
 
         // ----- (2ᵉ étape) DECODE -----
         if !state.stalled {
@@ -517,7 +522,13 @@ impl Pipeline {
     pub fn stats(&self) -> PipelineStats {
         let mut stats = self.stats;
         stats.branch_predictor_rate = stats.branch_prediction_rate();
+        // Mise à jour des statistiques de la pile
+        // stats.update_stack_stats(self.get_ras_stats());
         stats
+    }
+
+    pub fn get_ras_stats(&self) -> RASStats {
+        self.get_ras_stats()
     }
 
 }
