@@ -42,6 +42,7 @@ impl ReturnAddressStack {
     pub fn push(&mut self, return_address: u32) {
         if self.stack.len() >= self.max_size{
             self.stack.pop_front();
+            println!("Return Address Stack FULL: Popping oldest address to make space");
         }
         self.stack.push_back(return_address);
         self.pushes += 1;
@@ -52,6 +53,7 @@ impl ReturnAddressStack {
     pub fn pop(&mut self) -> Option<u32> {
         let result = self.stack.pop_back();
         self.pops += 1;
+        println!("Return Address Stack POP: depth={}", self.stack.len());
 
         if let Some(addr) = result {
             println!("Return Address Stack POP: addr= 0x{:08X}, depth={}", addr, self.stack.len());
