@@ -10,6 +10,7 @@ use crate::pvm::memorys::{Memory, MemoryConfig};
 use crate::pvm::vm_errors::{VMError, VMResult};
 use crate::pvm::stacks::SpecialRegister;
 use crate::BytecodeFile;
+use crate::pipeline::ras::{RASStats, ReturnAddressStack};
 
 
 
@@ -74,11 +75,10 @@ pub struct VMStats {
     pub branch_flush: u64,           // Nombre de flushes de branchements
     pub branch_predictor: u64,       // Nombre de prédictions de branchements
     pub branch_prediction_rate: f64, // Taux de prédiction de branchements
-    // Stats Stack
+    
+    // Statistiques de la pile Stack
     pub stack_pushes: u64,           // Nombre de pushs dans la pile
     pub stack_pops: u64,             // Nombre de pops dans la pile
-    pub total_calls: u64,            // Nombre total d'appels de fonction
-    pub total_returns: u64,         // Nombre total de retours de fonction
     pub stack_hits: u64,             // Nombre de hits dans la pile
     pub stack_misses: u64,           // Nombre de misses dans la pile
     pub stack_accuracy: f64, // Précision de la pile
@@ -100,20 +100,9 @@ pub struct PunkVM {
     cycles: u64,                       // Nombre de cycles
     instructions_executed: u64,        // Nombre d'instructions exécutées
     pub tracer: Option<PipelineTracer>,    // Tracer pour le débogage
-}
+    // rasstats:
 
-// impl PunkVM {
-//     pub fn enable_tracing(&self, p0: TracerConfig) {
-//         if PunkVM::tracing = true {
-//             Self.enable_tracing(p0);
-//         } else {
-//             println!("Tracing is disabled");
-//         }
-//
-//
-//
-//     }
-// }
+}
 
 impl PunkVM {
     /// Crée une nouvelle instance de PunkVM avec la configuration par défaut
@@ -145,22 +134,10 @@ impl PunkVM {
             cycles: 0,
             instructions_executed: 0,
             tracer: None, // Pas de traçage par défaut
-            // tracer: Option::from(PipelineTracer::new(Default::default())),
+            // rasstats: RASStats::new(config.ras_size), // Initialiser le RAS avec la taille spécifiée
+            // rasstats: ReturnAddressStack::new(config.ras_size), // Initialiser le RAS avec la taille spécifiée
         }
     }
-
-    /// Initialise le Stack Pointer
-    // pub fn init_stack(&mut self) {
-    //     let sp_index = SpecialRegister::SP as usize;
-    //     // le Stactk  croit ver le bas  donc SP en en haut
-    //     self.registers[sp_index] = self.config.stack_base as u64 + self.config.stack_size as u64;
-    //     println!("Stack initialized: SP = 0x{:08X}",self.registers[sp_index]);
-    //
-    // }
-
-
-
-
 
     // Active le traçage
     pub fn enable_tracing(&mut self, config: TracerConfig) {
@@ -339,6 +316,9 @@ impl PunkVM {
 
     /// Retourne les statistiques d'exécution
     pub fn stats(&self) -> VMStats {
+        // let ras_stats = self.ras.get_ras_stats();
+
+
         VMStats {
             cycles: self.cycles,
             instructions_executed: self.instructions_executed,
@@ -357,27 +337,32 @@ impl PunkVM {
             branch_flush: self.pipeline.stats().branch_flush,
             branch_predictor: self.pipeline.stats().branch_predictions,
             branch_prediction_rate: self.pipeline.stats().branch_predictor_rate,
-
             // Statistiques de la pile Stack
-            stack_pushes: self.pipeline.stats().stack_pushes,
-            stack_pops: self.pipeline.stats().stack_pops,
-            total_calls: self.pipeline.stats().total_calls,
-            total_returns: self.pipeline.stats().total_returns,
-            stack_hits: self.pipeline.stats().ras_hits,
-            stack_misses: self.pipeline.stats().ras_misses,
-            // stack_accuracy:self.pipeline.stats().ras_accuracy(),
+            // stack_pushes: self.get_ras_stats().pushes,
+            // stack_pops: self.get_ras_stats().pops,
+            // stack_hits: self.get_ras_stats().hits,
+            // stack_misses: self.get_ras_stats().misses,
+            // stack_accuracy: self.get_ras_stats().accuracy,
+            // stack_current_depth: self.get_ras_stats().current_depth,
+            // stack_max_depth: self.get_ras_stats().max_depth,
+
+
+            stack_pushes: 0,
+            stack_pops: 0,
+            stack_hits: 0,
+            stack_misses: 0,
             stack_accuracy: 0.0,
-            stack_current_depth: self.pipeline.stats().max_call_depth,
-            stack_max_depth: self.pipeline.stats().max_call_depth,
-
-
-
-
-
-
-
+            stack_current_depth: 0,
+            stack_max_depth: 0,
         }
     }
+
+
+    pub fn get_ras_stats(&self) -> RASStats {
+        self.get_ras_stats()
+    }
+
+
 
     /// Retourne l'état actuel de la VM
     pub fn state(&self) -> &VMState {
