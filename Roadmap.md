@@ -50,8 +50,8 @@ Ce document présente le plan de développement détaillé pour l'implémentatio
 
 ### 2.3 Forwarding de Données (2 semaines)
 - [x] Implémenter l'unité de forwarding
-- [x] Intégrer le forwarding entre Execute et Memory
-- [x] Ajouter le forwarding entre Memory et Writeback
+- [ ] Intégrer le forwarding entre Execute et Memory
+- [ ] Ajouter le forwarding entre Memory et Writeback
 - [ ] Développer des optimisations pour réduire les stalls
 
 ### 2.4 Tests et Optimisation du Pipeline (2 semaines)
@@ -71,7 +71,7 @@ Ce document présente le plan de développement détaillé pour l'implémentatio
 ### 3.2 Store Buffer (2 semaines)
 - [x] Développer l'architecture du store buffer
 - [x] Implémenter la détection des hazards store-load
-- [x] Ajouter le forwarding depuis le store buffer
+- [ ] Ajouter le forwarding depuis le store buffer
 - [x] Intégrer avec le système de cache
 
 ### 3.3 Politiques d'Écriture (1 semaine)
@@ -107,9 +107,9 @@ Ce document présente le plan de développement détaillé pour l'implémentatio
 - [x] Créer un système hybride configurable
 
 ### 4.4 Return Address Stack (RAS) (1 semaine)
-- [ ] Développer la structure du RAS
-- [ ] Implémenter la logique de push/pop
-- [ ] Intégrer avec les instructions call/return
+- [x] Développer la structure du RAS
+- [x] Implémenter la logique de push/pop
+- [x] Intégrer avec les instructions call/return
 - [ ] Tester et optimiser la précision
 
 ## Phase 5: Optimisations de Performance (1-2 mois)
@@ -153,14 +153,14 @@ Ce document présente le plan de développement détaillé pour l'implémentatio
 - [ ] Intégrer avec le système de mémoire
 
 ### 6.3 Fonctions et Appels (2 semaines)
-- [ ] Implémenter la pile d'appels
+- [x] Implémenter la pile d'appels
 - [ ] Développer les conventions d'appel
 - [ ] Ajouter le support pour les arguments et valeurs de retour
 - [ ] Optimiser les appels de fonction
 
 ### 6.4 Tests d'Intégration (2 semaines)
-- [ ] Créer des programmes de test en PunkLang
-- [ ] Exécuter et valider le comportement
+- [x] Créer des programmes de test en PunkLang
+- [x] Exécuter et valider le comportement
 - [ ] Corriger les problèmes d'interopérabilité
 - [ ] Optimiser le pipeline de compilation à exécution
 
