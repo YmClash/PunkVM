@@ -1,5 +1,4 @@
 //src/pvm/vm.rs
-use std::io;
 use std::path::Path;
 
 use crate::alu::alu::ALU;
@@ -8,9 +7,9 @@ use crate::debug::{PipelineTracer, TracerConfig};
 use crate::pipeline::Pipeline;
 use crate::pvm::memorys::{Memory, MemoryConfig};
 use crate::pvm::vm_errors::{VMError, VMResult};
-use crate::pvm::stacks::SpecialRegister;
 use crate::BytecodeFile;
-use crate::pipeline::ras::{RASStats, ReturnAddressStack};
+use crate::pipeline::ras::RASStats;
+use crate::pvm::stacks::StackStats;
 
 
 
@@ -100,7 +99,7 @@ pub struct PunkVM {
     cycles: u64,                       // Nombre de cycles
     instructions_executed: u64,        // Nombre d'instructions exécutées
     pub tracer: Option<PipelineTracer>,    // Tracer pour le débogage
-    // rasstats:
+    pub stack_stats: StackStats,       // Statistiques de la pile
 
 }
 
@@ -134,8 +133,7 @@ impl PunkVM {
             cycles: 0,
             instructions_executed: 0,
             tracer: None, // Pas de traçage par défaut
-            // rasstats: RASStats::new(config.ras_size), // Initialiser le RAS avec la taille spécifiée
-            // rasstats: ReturnAddressStack::new(config.ras_size), // Initialiser le RAS avec la taille spécifiée
+            stack_stats: StackStats::new(), // Initialiser les statistiques de pile
         }
     }
 
@@ -307,6 +305,7 @@ impl PunkVM {
         self.pipeline.reset();
 
         self.memory.reset();
+        self.stack_stats.reset();
         
         // Initialiser automatiquement la stack
         self.init_stack();
@@ -317,7 +316,7 @@ impl PunkVM {
     /// Retourne les statistiques d'exécution
     pub fn stats(&self) -> VMStats {
         // let ras_stats = self.ras.get_ras_stats();
-
+        let (mem_pushes, mem_pops, mem_overflow, mem_underflow) = self.pipeline.get_memory_stack_stats();
 
         VMStats {
             cycles: self.cycles,
@@ -347,13 +346,13 @@ impl PunkVM {
             // stack_max_depth: self.get_ras_stats().max_depth,
 
 
-            stack_pushes: 0,
-            stack_pops: 0,
-            stack_hits: 0,
-            stack_misses: 0,
+            stack_pushes: mem_pushes,
+            stack_pops: mem_pops,
+            stack_hits: 0, // Pour l'instant, pas de notion de hits/misses pour la pile principale
+            stack_misses: mem_overflow + mem_underflow,
             stack_accuracy: 0.0,
-            stack_current_depth: 0,
-            stack_max_depth: 0,
+            stack_current_depth: self.stack_stats.current_depth,
+            stack_max_depth: self.stack_stats.max_depth,
         }
     }
 
