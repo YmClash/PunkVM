@@ -8,6 +8,12 @@ use crate::pvm::memorys::Memory;
 pub struct MemoryStage {
     //Registre de la pile
     stack_pointer: u32,
+    
+    // Compteurs pour les statistiques de pile
+    pub stack_pushes: u64,
+    pub stack_pops: u64,
+    pub stack_overflow_attempts: u64,
+    pub stack_underflow_attempts: u64,
 }
 impl MemoryStage {
     /// Crée un nouvel étage Memory
@@ -16,6 +22,12 @@ impl MemoryStage {
             // La pile commence typiquement en haut de la mémoire et croît vers le bas
             stack_pointer: 0xFFFF0000, // Exemple: pile commence à 16 MB - 64 KB
                                        // stack_pointer: 0x1000, // Seulement 4KB, devrait être valide dans tous les tests
+            
+            // Initialiser les compteurs de statistiques
+            stack_pushes: 0,
+            stack_pops: 0,
+            stack_overflow_attempts: 0,
+            stack_underflow_attempts: 0,
         }
     }
 
@@ -136,6 +148,7 @@ impl MemoryStage {
                     
                     // Vérifier stack overflow
                     if sp < 8 {
+                        self.stack_overflow_attempts += 1;
                         return Err("Stack overflow: cannot push more values".to_string());
                     }
                     
@@ -154,7 +167,10 @@ impl MemoryStage {
 
                     // Essayer d'écrire et capturer l'erreur pour un meilleur message
                     match self.store_to_memory(memory, new_sp, value, 8) {
-                        Ok(_) => {}
+                        Ok(_) => {
+                            // Incrémenter le compteur de push réussis
+                            self.stack_pushes += 1;
+                        }
                         Err(e) => return Err(format!("Push failed: {}", e)),
                     }
                 }
@@ -170,6 +186,10 @@ impl MemoryStage {
                         result = value;
                         // Incrémenter SP de 8
                         registers[16] = (sp + 8) as u64;
+                        
+                        // Incrémenter le compteur de pop réussis
+                        self.stack_pops += 1;
+                        
                         println!(
                             "Pop from address: {:#X}, result: {:#X}",
                             sp, result
@@ -179,7 +199,10 @@ impl MemoryStage {
                             mem_reg.instruction.opcode, mem_reg.mem_addr, mem_reg.store_value
                         );
                     }
-                    Err(e) => return Err(format!("Pop failed: {}", e)),
+                    Err(e) => {
+                        self.stack_underflow_attempts += 1;
+                        return Err(format!("Pop failed: {}", e));
+                    }
                 }
             }
 
@@ -262,6 +285,12 @@ impl MemoryStage {
     pub fn reset(&mut self) {
         // Réinitialiser le pointeur de pile
         self.stack_pointer = 0xFFFF0000;
+        
+        // Réinitialiser les compteurs de statistiques
+        self.stack_pushes = 0;
+        self.stack_pops = 0;
+        self.stack_overflow_attempts = 0;
+        self.stack_underflow_attempts = 0;
     }
 
     #[cfg(test)]
@@ -269,6 +298,10 @@ impl MemoryStage {
     pub fn new_for_test() -> Self {
         Self {
             stack_pointer: 0x1000,
+            stack_pushes: 0,
+            stack_pops: 0,
+            stack_overflow_attempts: 0,
+            stack_underflow_attempts: 0,
         }
     }
 }
