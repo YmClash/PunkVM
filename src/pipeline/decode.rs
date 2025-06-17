@@ -88,7 +88,7 @@ impl DecodeStage {
             println!("Branch prediction at PC={:X}: {:?}", fd_reg.pc, prediction);
         }
 
-        /// Gestion Special pour CALL et RET avec le RAS
+        // Gestion Special pour CALL et RET avec le RAS
         if instruction.opcode == Opcode::Call {
             // Pour CALL, mettre à jour le RAS avec l'adresse de retour
             let return_address = fd_reg.pc + instruction.total_size() as u32;
@@ -111,7 +111,7 @@ impl DecodeStage {
         println!("Adresse mémoire calculée: {:?}", mem_addr);
 
 
-        /// Gestion speciale pour PUSH/POP/CALL/RET avec le Stack Pointer
+        // Gestion speciale pour PUSH/POP/CALL/RET avec le Stack Pointer
         let (stack_operation, stack_value) = match instruction.opcode {
             Opcode::Push => {
                 // Pour PUSH, prioriser la valeur immédiate si présente
