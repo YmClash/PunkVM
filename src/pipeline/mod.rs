@@ -16,7 +16,7 @@ use crate::bytecode::instructions::Instruction;
 use crate::pipeline::decode::StackOperation;
 use crate::pvm::branch_predictor::{BranchPrediction, BranchPredictor};
 use crate::pvm::memorys::Memory;
-use crate::pipeline::ras::{RASStats, ReturnAddressStack};
+use crate::pipeline::ras::RASStats;
 
 /// Structure représentant le pipeline à 5 étages
 pub struct Pipeline {
@@ -529,6 +529,16 @@ impl Pipeline {
 
     pub fn get_ras_stats(&self) -> RASStats {
         self.get_ras_stats()
+    }
+    
+    /// Retourne les statistiques de pile du Memory stage
+    pub fn get_memory_stack_stats(&self) -> (u64, u64, u64, u64) {
+        (
+            self.memory.stack_pushes,
+            self.memory.stack_pops, 
+            self.memory.stack_overflow_attempts,
+            self.memory.stack_underflow_attempts
+        )
     }
 
 }
