@@ -11,7 +11,7 @@ Ce document présente le plan de développement détaillé pour l'implémentatio
 - [x] Développer des outils de base pour visualiser et déboguer le bytecode
 
 ### 1.2 Machine Virtuelle Basique (3 semaines)
-- [ ] Implémenter une boucle d'interprétation simple (sans pipeline)
+- [x] Implémenter une boucle d'interprétation simple (sans pipeline)
 - [x] Développer la banque de registres (8 registres généraux + flags)
 - [x] Créer le gestionnaire de mémoire virtuelle de base
 - [x] Implémenter les instructions arithmétiques fondamentales (add, sub, mul, div)
@@ -29,7 +29,7 @@ Ce document présente le plan de développement détaillé pour l'implémentatio
 - [x] Créer une suite de tests pour les instructions de base
 - [x] Développer des programmes de test simples
 - [x] Mesurer les performances de base et établir une référence
-- [ ] Corriger les bugs et optimiser les parties critiques
+- [x] Corriger les bugs et optimiser les parties critiques
 
 ## Phase 2: Pipeline d'Exécution (2-3 mois)
 
@@ -52,11 +52,11 @@ Ce document présente le plan de développement détaillé pour l'implémentatio
 - [x] Implémenter l'unité de forwarding
 - [x] Intégrer le forwarding entre Execute et Memory
 - [x] Ajouter le forwarding entre Memory et Writeback
-- [x] Développer des optimisations pour réduire les stalls
+- [ ] Développer des optimisations pour réduire les stalls
 
 ### 2.4 Tests et Optimisation du Pipeline (2 semaines)
 - [x] Créer une suite de tests spécifique aux hazards
-- [] Développer des benchmarks pour évaluer les performances du pipeline
+- [ ] Développer des benchmarks pour évaluer les performances du pipeline
 - [ ] Analyser et résoudre les bottlenecks
 - [x] Optimiser la synchronisation des étages
 
@@ -65,7 +65,7 @@ Ce document présente le plan de développement détaillé pour l'implémentatio
 ### 3.1 Cache L1 (2 semaines)
 - [x] Implémenter une architecture de cache à correspondance directe
 - [x] Développer la logique de hit/miss
-- [ ] Ajouter les politiques de remplacement (LRU)
+- [x] Ajouter les politiques de remplacement (LRU)
 - [x] Intégrer le cache avec l'étage Memory
 
 ### 3.2 Store Buffer (2 semaines)
@@ -75,7 +75,7 @@ Ce document présente le plan de développement détaillé pour l'implémentatio
 - [x] Intégrer avec le système de cache
 
 ### 3.3 Politiques d'Écriture (1 semaine)
-- [] Implémenter la politique write-through
+- [ ] Implémenter la politique write-through
 - [x] Développer la politique write-back
 - [ ] Ajouter le paramétrage des politiques
 - [x] Mesurer l'impact sur les performances
@@ -101,7 +101,7 @@ Ce document présente le plan de développement détaillé pour l'implémentatio
 - [ ] Intégrer avec le prédicteur de branchement
 
 ### 4.3 Prédicteur Dynamique (2 semaines)
-- [ ] Implémenter un prédicteur à 1 bit
+- [x] Implémenter un prédicteur à 1 bit
 - [x] Développer un prédicteur à 2 bits
 - [ ] Ajouter un prédicteur corrélé (local/global)
 - [x] Créer un système hybride configurable
