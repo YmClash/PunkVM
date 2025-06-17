@@ -5,6 +5,38 @@ use crate::PunkVM;
 //src/pvm/stacks.rs
 use crate::pvm::vm_errors::{VMError, VMResult};
 
+#[derive(Debug, Clone, Copy)]
+pub struct StackStats {
+    pub pushes: u64,
+    pub pops: u64,
+    pub max_depth: usize,
+    pub current_depth: usize,
+    pub overflow_attempts: u64,
+    pub underflow_attempts: u64,
+}
+
+impl StackStats {
+    pub fn new() -> Self {
+        Self {
+            pushes: 0,
+            pops: 0,
+            max_depth: 0,
+            current_depth: 0,
+            overflow_attempts: 0,
+            underflow_attempts: 0,
+        }
+    }
+    
+    pub fn reset(&mut self) {
+        self.pushes = 0;
+        self.pops = 0;
+        self.max_depth = 0;
+        self.current_depth = 0;
+        self.overflow_attempts = 0;
+        self.underflow_attempts = 0;
+    }
+}
+
 
 
 
@@ -81,6 +113,9 @@ impl PunkVM {
         let sp_index = SpecialRegister::SP as usize;
         self.registers[sp_index] = self.config.stack_base as u64 + self.config.stack_size as u64;
 
+        // Réinitialiser les statistiques de pile
+        self.stack_stats.reset();
+
         println!("Stack initialized: SP = 0x{:08X}", self.registers[sp_index]);
     }
 
@@ -100,6 +135,7 @@ impl PunkVM {
 
             // Verifier la limite de la pile
             if sp < self.config.stack_base as u64 + 8 {
+                self.stack_stats.overflow_attempts += 1;
                 return Err("Stack overflow".to_string());
             }
 
@@ -112,6 +148,13 @@ impl PunkVM {
             self.memory.write_qword(new_sp as u32, value)
                 .map_err(|e| format!("Stack push error: {}", e))?;
 
+            // Mettre à jour les statistiques
+            self.stack_stats.pushes += 1;
+            self.stack_stats.current_depth += 1;
+            if self.stack_stats.current_depth > self.stack_stats.max_depth {
+                self.stack_stats.max_depth = self.stack_stats.current_depth;
+            }
+
             println!("Stack PUSH: value=0x{:016X}, SP=0x{:08X}", value, new_sp);
             Ok(())
         }
@@ -123,6 +166,7 @@ impl PunkVM {
 
         // Verifier la limite de la pile
         if sp >= self.config.stack_base as u64 + self.config.stack_size as u64 {
+            self.stack_stats.underflow_attempts += 1;
             return Err("Stack underflow".to_string());
         }
 
@@ -134,8 +178,19 @@ impl PunkVM {
         let new_sp = sp +8;
         self.set_sp(new_sp);
 
+        // Mettre à jour les statistiques
+        self.stack_stats.pops += 1;
+        if self.stack_stats.current_depth > 0 {
+            self.stack_stats.current_depth -= 1;
+        }
+
         println!("Stack POP: value=0x{:016X}, SP=0x{:08X}", value, new_sp);
         Ok(value)
+    }
+    
+    /// Retourne les statistiques de la pile
+    pub fn get_stack_stats(&self) -> StackStats {
+        self.stack_stats
     }
 }
 
