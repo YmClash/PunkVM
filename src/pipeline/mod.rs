@@ -557,6 +557,19 @@ impl Pipeline {
             self.memory.stack_underflow_attempts
         )
     }
+    
+    /// Retourne les statistiques BTB
+    pub fn get_btb_stats(&self) -> (u64, u64, f64, u64, u64, f64) {
+        let metrics = &self.decode.branch_predictor.metrics;
+        (
+            metrics.btb_hits as u64,
+            metrics.btb_misses as u64,
+            self.decode.branch_predictor.get_btb_hit_rate(),
+            metrics.btb_correct_targets as u64,
+            metrics.btb_incorrect_targets as u64,
+            self.decode.branch_predictor.get_btb_accuracy()
+        )
+    }
 
 }
 
