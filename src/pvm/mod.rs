@@ -16,7 +16,7 @@ pub mod vm;
 pub mod vm_errors;
 // pub mod cache_configs;
 pub mod branch_predictor;
-
+pub mod branch_perceptor;
 // Re-export
 // pub use cache_stats::CacheStatistics;
 // pub use cache_configs::{CacheConfig, CacheState, WritePolicy, ReplacementPolicy};
