@@ -7,6 +7,10 @@ use crate::pipeline::PipelineState;
 pub struct HazardDetectionUnit {
     // Compteur de hazards détectés
     pub hazards_count: u64,
+    // Compteur de dépendances de données détectées (incluant celles résolues par forwarding)
+    pub data_dependencies_count: u64,
+    // Compteur de forwarding potentiels détectés
+    pub potential_forwards_count: u64,
     branch_stall_cycles: u32,
 }
 
@@ -35,24 +39,34 @@ impl HazardDetectionUnit {
     pub fn new() -> Self {
         Self {
             hazards_count: 0,
+            data_dependencies_count: 0,
+            potential_forwards_count: 0,
             branch_stall_cycles: 0,
         }
     }
 
     /// Détecte les hazards dans le pipeline et retourne le type détecté
     pub fn detect_hazards_with_type(&mut self, state: &PipelineState) -> HazardResult {
-        // 1. Data Hazards (RAW - Read After Write)
-        if self.is_data_hazard(state) {
-            println!("Data hazard detected");
+        // 1. Load-Use Hazards (cas spécial de Data Hazard qui DOIT causer un stall)
+        if self.is_load_use_hazards(state) {
+            println!("Load-Use hazard detected (true stall required)");
+            self.hazards_count += 1;
+            return HazardResult::LoadUse;
+        }
+
+        // 2. Data Hazards (RAW - Read After Write) - Ne compte que si non résolvable par forwarding
+        if self.is_data_hazard_not_forwardable(state) {
+            println!("Data hazard detected (not forwardable)");
             self.hazards_count += 1;
             return HazardResult::DataDependency;
         }
-
-        // 2. Load-Use Hazards (cas spécial de Data Hazard)
-        if self.is_load_use_hazards(state) {
-            println!("Load-Use hazard detected");
-            self.hazards_count += 1;
-            return HazardResult::LoadUse;
+        
+        // Détecter les dépendances de données qui PEUVENT être forwardées (pour les stats)
+        if self.is_data_dependency_forwardable(state) {
+            println!("Data dependency detected (can be forwarded)");
+            self.data_dependencies_count += 1;
+            self.potential_forwards_count += 1;
+            // Ne retourne PAS de hazard car le forwarding va le résoudre
         }
 
         // 3. Control Hazards
@@ -125,12 +139,10 @@ impl HazardDetectionUnit {
         h != HazardResult::None
     }
 
-    /// Détecte les hazards de données (RAW - Read After Write)
-    // Vérifie un hazard data "classique" (RAW)
-    fn is_data_hazard(&self, state: &PipelineState) -> bool {
+    /// Détecte les dépendances de données qui peuvent être résolues par forwarding
+    fn is_data_dependency_forwardable(&self, state: &PipelineState) -> bool {
         let decode_reg = match &state.decode_execute {
             Some(reg) => reg,
-
             None => return false,
         };
         let (rs1, rs2) = (decode_reg.rs1, decode_reg.rs2);
@@ -139,32 +151,45 @@ impl HazardDetectionUnit {
             return false;
         }
 
-        // Check Execute stage
+        // Check Execute stage (forwarding possible depuis EX/MEM)
         if let Some(ex_reg) = &state.execute_memory {
             if let Some(rd_ex) = ex_reg.rd {
-                // Si decode a besoin du rd_ex de execute
-                if rs1 == Some(rd_ex) || rs2 == Some(rd_ex) {
-                    println!("Data hazard (RAW) : decode needs R{}", rd_ex);
-
+                // Skip si c'est un Load (sera traité par is_load_use_hazards)
+                let is_load = matches!(
+                    ex_reg.instruction.opcode,
+                    Opcode::Load | Opcode::LoadB | Opcode::LoadW | Opcode::LoadD | Opcode::Pop
+                );
+                
+                if !is_load && (rs1 == Some(rd_ex) || rs2 == Some(rd_ex)) {
+                    println!("Data dependency (forwardable from EX): decode needs R{}", rd_ex);
                     return true;
                 }
             }
         }
 
-        // Check Memory stage
+        // Check Memory stage (forwarding possible depuis MEM/WB)
         if let Some(mem_reg) = &state.memory_writeback {
             if let Some(rd_mem) = mem_reg.rd {
                 if rs1 == Some(rd_mem) || rs2 == Some(rd_mem) {
-                    println!(
-                        "Data hazard (RAW) : decode needs R{} (written in Memory stage)",
-                        rd_mem
-                    );
-
+                    println!("Data dependency (forwardable from MEM): decode needs R{}", rd_mem);
                     return true;
                 }
             }
         }
 
+        false
+    }
+
+    /// Détecte les hazards de données qui NE peuvent PAS être résolus par forwarding
+    fn is_data_hazard_not_forwardable(&self, state: &PipelineState) -> bool {
+        // Dans notre architecture actuelle, la plupart des dépendances de données
+        // peuvent être résolues par forwarding. Les seuls cas non-forwardables sont :
+        // 1. Load-Use hazards (déjà traités séparément)
+        // 2. Dépendances avec des instructions spéciales qui ne peuvent pas être forwardées
+        // 3. Cas où le forwarding n'est pas implémenté (ex: certains cas store-load)
+        
+        // Pour l'instant, retourner false car tous les cas non-forwardables
+        // sont déjà gérés par d'autres fonctions (load-use, store-load)
         false
     }
 
@@ -355,14 +380,27 @@ impl HazardDetectionUnit {
     pub fn reset(&mut self) {
         println!("Resetting hazards count to 0.");
         self.hazards_count = 0;
+        self.data_dependencies_count = 0;
+        self.potential_forwards_count = 0;
         self.branch_stall_cycles = 0;
     }
 
     /// Retourne le nombre de hazards détectés
     pub fn get_hazards_count(&self) -> u64 {
-        // println!("Hazards count: {}", self.hazards_count);
-        println!("Total hazards detected (may include forwarded): {}", self.hazards_count);
+        println!("True hazards (causing stalls): {}", self.hazards_count);
+        println!("Data dependencies (forwardable): {}", self.data_dependencies_count);
+        println!("Potential forwards detected: {}", self.potential_forwards_count);
         self.hazards_count
+    }
+    
+    /// Retourne le nombre de dépendances de données détectées
+    pub fn get_data_dependencies_count(&self) -> u64 {
+        self.data_dependencies_count
+    }
+    
+    /// Retourne le nombre de forwarding potentiels
+    pub fn get_potential_forwards_count(&self) -> u64 {
+        self.potential_forwards_count
     }
 }
 
