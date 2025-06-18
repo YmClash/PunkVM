@@ -28,7 +28,7 @@ impl DecodeStage {
 
     pub fn new() -> Self {
         Self {
-            branch_predictor: BranchPredictor::new(PredictorType::Dynamic),
+            branch_predictor: BranchPredictor::new(PredictorType::Hybrid),
             // ras: ReturnAddressStack::new(16), // Taille par défaut de 16 entrées
             ras: ReturnAddressStack::new(32),
         }
