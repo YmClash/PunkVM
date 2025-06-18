@@ -67,8 +67,15 @@ pub struct VMStats {
     pub instructions_executed: u64,  // Nombre total d'instructions exécutées
     pub ipc: f64,                    // Instructions par cycle (IPC)
     pub stalls: u64,                 // Nombre de stalls dans le pipeline
-    pub hazards: u64,                // Nombre de hazards détectés
+    pub hazards: u64,                // Nombre de hazards détectés (vrais hazards causant des stalls)
+    pub data_dependencies: u64,      // Nombre de dépendances de données détectées
     pub forwards: u64,               // Nombre de forwards effectués
+    pub potential_forwards: u64,     // Nombre de forwards potentiels détectés
+    
+    // Statistiques Store-Load forwarding
+    pub store_load_forwards: u64,    // Nombre de Store-Load forwards effectués
+    pub store_load_attempts: u64,    // Nombre de tentatives de Store-Load forwarding
+    
     pub memory_hits: u64,            // Nombre de hits dans le cache mémoire
     pub memory_misses: u64,          // Nombre de misses dans le cache mémoire
     pub branch_flush: u64,           // Nombre de flushes de branchements
@@ -329,8 +336,15 @@ impl PunkVM {
             stalls: self.pipeline.stats().stalls,
             // hazards: self.pipeline.stats().hazards,
             hazards: self.pipeline.hazard_detection.get_hazards_count(),
+            data_dependencies: self.pipeline.hazard_detection.get_data_dependencies_count(),
             // forwards: self.pipeline.stats().forwards,
             forwards: self.pipeline.forwarding.get_forwards_count(),
+            potential_forwards: self.pipeline.hazard_detection.get_potential_forwards_count(),
+            
+            // Store-Load forwarding statistics
+            store_load_forwards: self.pipeline.stats().store_load_forwards,
+            store_load_attempts: self.pipeline.stats().store_load_attempts,
+            
             memory_hits: self.memory.stats().hits,
             memory_misses: self.memory.stats().misses,
             branch_flush: self.pipeline.stats().branch_flush,
