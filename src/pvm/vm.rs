@@ -82,6 +82,14 @@ pub struct VMStats {
     pub branch_predictor: u64,       // Nombre de prédictions de branchements
     pub branch_prediction_rate: f64, // Taux de prédiction de branchements
     
+    // Statistiques BTB (Branch Target Buffer)
+    pub btb_hits: u64,               // Nombre de hits dans le BTB
+    pub btb_misses: u64,             // Nombre de misses dans le BTB
+    pub btb_hit_rate: f64,           // Taux de hits du BTB
+    pub btb_correct_targets: u64,    // Nombre de cibles correctes prédites par le BTB
+    pub btb_incorrect_targets: u64,  // Nombre de cibles incorrectes prédites par le BTB
+    pub btb_accuracy: f64,           // Précision du BTB
+    
     // Statistiques de la pile Stack
     pub stack_pushes: u64,           // Nombre de pushs dans la pile
     pub stack_pops: u64,             // Nombre de pops dans la pile
@@ -324,6 +332,7 @@ impl PunkVM {
     pub fn stats(&self) -> VMStats {
         // let ras_stats = self.ras.get_ras_stats();
         let (mem_pushes, mem_pops, mem_overflow, mem_underflow) = self.pipeline.get_memory_stack_stats();
+        let (btb_hits, btb_misses, btb_hit_rate, btb_correct_targets, btb_incorrect_targets, btb_accuracy) = self.pipeline.get_btb_stats();
 
         VMStats {
             cycles: self.cycles,
@@ -350,6 +359,15 @@ impl PunkVM {
             branch_flush: self.pipeline.stats().branch_flush,
             branch_predictor: self.pipeline.stats().branch_predictions,
             branch_prediction_rate: self.pipeline.stats().branch_predictor_rate,
+            
+            // Statistiques BTB
+            btb_hits,
+            btb_misses,
+            btb_hit_rate,
+            btb_correct_targets,
+            btb_incorrect_targets,
+            btb_accuracy,
+            
             // Statistiques de la pile Stack
             // stack_pushes: self.get_ras_stats().pushes,
             // stack_pops: self.get_ras_stats().pops,
