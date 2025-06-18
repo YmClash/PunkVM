@@ -3,7 +3,7 @@
 use crate::bytecode::instructions::{ArgValue, Instruction};
 use crate::bytecode::opcodes::Opcode;
 use crate::pipeline::{DecodeExecuteRegister, FetchDecodeRegister};
-use crate::pvm::branch_predictor::{BranchPredictor, PredictorType};
+use crate::pvm::branch_predictor::{BranchPredictor, BranchPrediction, PredictorType};
 use crate::pipeline::ras::{RASStats, ReturnAddressStack};
 
 /// implementation de l'étage Decode du pipeline
@@ -82,10 +82,22 @@ impl DecodeStage {
 
         // si c'est une instruction de branchement, utiliser le prédicteur de branchement
         let mut prediction = None;
+        let mut btb_target = None;
         if instruction.opcode.is_branch() && branch_addr.is_some() {
-            // prédire l'adresse de branchement
+            // prédire si le branchement sera pris
             prediction = Some(self.branch_predictor.predict(fd_reg.pc as u64));
-            println!("Branch prediction at PC={:X}: {:?}", fd_reg.pc, prediction);
+            
+            // prédire la cible avec le BTB
+            btb_target = self.branch_predictor.predict_target(fd_reg.pc as u64);
+            
+            println!("Branch prediction at PC={:X}: {:?}, BTB target: {:?}", fd_reg.pc, prediction, btb_target);
+            
+            // Si le BTB prédit une cible et que le branchement est prédit comme pris,
+            // utiliser la cible du BTB
+            if let (Some(BranchPrediction::Taken), Some(target)) = (prediction, btb_target) {
+                branch_addr = Some(target);
+                println!("Using BTB predicted target: 0x{:X}", target);
+            }
         }
 
         // Gestion Special pour CALL et RET avec le RAS

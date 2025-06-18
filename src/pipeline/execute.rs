@@ -412,8 +412,20 @@ impl ExecuteStage {
         // Debug pour les instructions de branchement
         if ex_reg.instruction.opcode.is_branch() {
             if let Some(prediction) = ex_reg.branch_prediction {
-                // Cette ligne était commentée - c'est un problème majeur !
                 self.update_branch_predictor(ex_reg.pc as u64, branch_taken, prediction);
+            }
+            
+            // Mise à jour du BTB avec la cible réelle du branchement
+            if branch_taken {
+                if let Some(target) = branch_target {
+                    // Récupérer la cible prédite par le BTB depuis le decode stage
+                    let predicted_target = ex_reg.branch_addr;
+                    self.branch_predictor.update_btb(ex_reg.pc as u64, target, predicted_target);
+                    println!("Updated BTB: PC=0x{:X}, actual_target=0x{:X}, predicted_target={:?}",
+                             ex_reg.pc, target, predicted_target);
+
+
+                }
             }
 
             println!("DEBUG: Processing branch instruction: {:?}", ex_reg.instruction);
