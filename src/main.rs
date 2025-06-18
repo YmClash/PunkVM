@@ -42,11 +42,18 @@ fn main() -> VMResult<()> {
     );
 
     // Choisir le programme de test
-    // let program = punk_program_3(); // Tests de branchement
+    // let program = forwarding_stress_test(); // Tests de forwarding intensif
+    // let program = store_load_forwarding_test_8(); // Tests Store-Load forwarding  immédiat 8
+    // let program = store_load_forwarding_test_16(); // Tests Store-Load forwarding immédiat 16
+    // let program = store_load_forwarding_test_32(); // Tests Store-Load forwarding immédiat 32
+    // let program = store_load_forwarding_test_64(); // Tests Store-Load forwarding immédiat 64
+
+    // let program = forwarding_efficiency_test(); // Tests d'efficacité forwarding
+    let program = punk_program_3(); // Tests de branchement
     // let program = create_stack_test_program(); // Tests de stack machine complet avec CALL/RET
     // let program = test_basic_stack_operations(); // Test basique PUSH/POP
     // let program = test_arithmetic_with_stack(); // Test arithmétique avec pile
-    let program = test_advanced_stack_register(); // Test avancé combinaison registres/pile
+    // let program = test_advanced_stack_register(); // Test avancé combinaison registres/pile
 
     // Charger le programme dans la VM
     println!("Chargement du programme...");
@@ -157,13 +164,32 @@ fn print_stats(vm: &VM) {
     println!("Taux de stalls: {:.2}%", stall_rate);
 
     // Efficacité du forwarding
-    let total_data_dependencies = stats.forwards + stats.hazards;
-    let forwarding_efficiency = if total_data_dependencies > 0 {
-        stats.forwards as f64 / total_data_dependencies as f64 * 100.0
+    println!("\n-- Analyse du Forwarding --");
+    println!("Dépendances de données détectées: {}", stats.data_dependencies);
+    println!("Forwards potentiels identifiés: {}", stats.potential_forwards);
+    println!("Forwards effectués: {}", stats.forwards);
+    println!("Vrais hazards (causant stalls): {}", stats.hazards);
+    
+    let forwarding_efficiency = if stats.potential_forwards > 0 {
+        stats.forwards as f64 / stats.potential_forwards as f64 * 100.0
     } else {
         0.0
     };
-    println!("Efficacité du forwarding: {:.2}%", forwarding_efficiency);
+    println!("Efficacité du forwarding: {:.2}% ({}/{})", 
+            forwarding_efficiency, stats.forwards, stats.potential_forwards);
+    
+    // Store-Load forwarding
+    println!("\n-- Store-Load Forwarding --");
+    println!("Store-Load tentatives: {}", stats.store_load_attempts);
+    println!("Store-Load forwards: {}", stats.store_load_forwards);
+    
+    let store_load_efficiency = if stats.store_load_attempts > 0 {
+        stats.store_load_forwards as f64 / stats.store_load_attempts as f64 * 100.0
+    } else {
+        0.0
+    };
+    println!("Efficacité Store-Load forwarding: {:.2}% ({}/{})", 
+            store_load_efficiency, stats.store_load_forwards, stats.store_load_attempts);
 
     println!("\n===== TEST TERMINÉ =====");
     println!("=====PunkVM=By=YmC======\n");
@@ -453,23 +479,23 @@ pub fn punk_program_3() -> BytecodeFile {
     // ============================================================================
     // SECTION 12: TEST CALL/RET (Si implémenté)
     // ============================================================================
-    // println!("=== SECTION 12: TEST CALL/RET ===");
-    // current_address = Instruction::calculate_current_address(&program.code);
-    // let call_target = current_address + 8 + 6 ;
-    // // Sauter par-dessus la fonction pour aller au call
-    // program.add_instruction(Instruction::create_jump(current_address, call_target)); // Sauter la fonction
-    // current_address = Instruction::calculate_current_address(&program.code);
-    //
-    // // FONCTION: simple_function
-    // // Fonction qui met 0xFF dans R5 et retourne
-    // program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0xFF)); // R5 = 255
-    // program.add_instruction(Instruction::create_no_args(Opcode::Ret)); // Retour
-    // current_address = Instruction::calculate_current_address(&program.code);
-    //
-    // // Appel de la fonction (si CALL est implémenté)
-    // current_address = Instruction::calculate_current_address(&program.code);
-    // let function_offset = -12; // Retourner à la fonction
-    // // program.add_instruction(Instruction::create_call(function_offset));
+    println!("=== SECTION 12: TEST CALL/RET ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+    let call_target = current_address + 8 + 6 ;
+    // Sauter par-dessus la fonction pour aller au call
+    program.add_instruction(Instruction::create_jump(current_address, call_target)); // Sauter la fonction
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // FONCTION: simple_function
+    // Fonction qui met 0xFF dans R5 et retourne
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0xFF)); // R5 = 255
+    program.add_instruction(Instruction::create_no_args(Opcode::Ret)); // Retour
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Appel de la fonction (si CALL est implémenté)
+    current_address = Instruction::calculate_current_address(&program.code);
+    let function_offset = -12i32;// Retourner à la fonction
+    program.add_instruction(Instruction::create_call(function_offset as u32));
 
     // ============================================================================
     // SECTION 13: FINALISATION ET VÉRIFICATION
@@ -964,6 +990,435 @@ fn test_advanced_stack_register() -> BytecodeFile {
     println!("R13 = 3   - Valeur dépilée");
     println!("R14 = 2   - Valeur dépilée");
     println!("R15 = 1   - Valeur dépilée");
+    
+    program
+}
+
+/// Test de stress pour le forwarding avec chaînes de dépendances RAW
+fn forwarding_stress_test() -> BytecodeFile {
+    let mut program = BytecodeFile::new();
+    program.version = BytecodeVersion::new(0, 1, 0, 0);
+    program.add_metadata("name", "PunkVM Forwarding Stress Test");
+    program.add_metadata("description", "Test intensif de toutes les formes de forwarding");
+    program.add_metadata("author", "PunkVM Team");
+    
+    println!("=== CRÉATION DU TEST DE STRESS FORWARDING ===");
+    
+    // === Test 1: Chaîne simple de dépendances RAW (Execute→Execute) ===
+    println!("Test 1: Chaîne Execute→Execute forwarding");
+    // Instruction 1: MOV R0, 100
+    program.add_instruction(Instruction::create_reg_imm16(Opcode::Mov, 0, 100));
+    
+    // Instruction 2: ADD R0, R0, R0 (dépendance sur R0 depuis instr 1) 
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 0, 0, 0));
+    
+    // Instruction 3: MUL R0, R0, R0 (dépendance sur R0 depuis instr 2)
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Mul, 0, 0, 0));
+    
+    // Instruction 4: SUB R0, R0, #1 (dépendance sur R0 depuis instr 3)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Sub, 0, 1));
+    
+    // === Test 2: Dépendances multiples (Memory→Execute) ===
+    println!("Test 2: Memory→Execute forwarding");
+    // Instruction 5: MOV R1, 50
+    program.add_instruction(Instruction::create_reg_imm16(Opcode::Mov, 1, 50));
+    
+    // Instruction 6: MOV R2, 25
+    program.add_instruction(Instruction::create_reg_imm16(Opcode::Mov, 2, 25));
+    
+    // Instruction 7: ADD R3, R1, R2 (dépendance sur R1 et R2)
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 3, 1, 2));
+    
+    // === Test 3: Store-Load pattern pour tester le forwarding mémoire ===
+    println!("Test 3: Store-Load forwarding");
+    // Instruction 8: MOV R4, 0x1000 (adresse de base)
+    program.add_instruction(Instruction::create_reg_imm16(Opcode::Mov, 4, 0x1000));
+    
+    // Instruction 9: STORE [R4], R3 (stocker le résultat)
+    program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 3, 4, 0));
+    
+    // Instruction 10: LOAD R5, [R4] (charger depuis la même adresse)
+    program.add_instruction(Instruction::create_load_reg_offset(5, 4, 0));
+    
+    // Instruction 11: ADD R6, R5, R0 (utiliser la valeur chargée)
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 6, 5, 0));
+    
+    // === Test 4: Chaîne longue de dépendances ===
+    println!("Test 4: Chaîne longue de dépendances");
+    // Série d'instructions qui créent une chaîne de 8 dépendances
+    // D'abord, mettre 1 dans un registre temporaire
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 1));  // R6 = 1
+    for i in 7..15 {
+        // ADD Ri, Ri-1, R6 (chaque registre dépend du précédent)
+        program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, i, i-1, 6));
+    }
+    
+    // === Test 5: Dépendances croisées ===
+    println!("Test 5: Dépendances croisées");
+    // MOV R15, 42
+    program.add_instruction(Instruction::create_reg_imm16(Opcode::Mov, 15, 42));
+    
+    // ADD R16, R15, R14 (dépendance sur R15 immédiate et R14 à distance)
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 16, 15, 14));
+    
+    // SUB R17, R16, R15 (dépendances multiples récentes)
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Sub, 17, 16, 15));
+    
+    // === Fin du test ===
+    program.add_instruction(Instruction::create_no_args(Opcode::Halt));
+    
+    // Configuration des segments
+    let total_code_size: u32 = program.code.iter()
+        .map(|instr| instr.total_size() as u32)
+        .sum();
+    program.segments = vec![SegmentMetadata::new(SegmentType::Code, 0, total_code_size, 0)];
+    
+    println!("=== RÉSULTATS ATTENDUS FORWARDING STRESS ===");
+    println!("R0  = 39999 (100 + 100 = 200, 200 * 200 = 40000, 40000 - 1 = 39999)");
+    println!("R1  = 50");
+    println!("R2  = 25");
+    println!("R3  = 75 (50 + 25)");
+    println!("R4  = 0x1000");
+    println!("R5  = 75 (valeur chargée depuis [R4])");
+    println!("R6  = 40074 (75 + 39999)");
+    println!("R7  = 76 (75 + 1)");
+    println!("R8  = 77 (76 + 1)");
+    println!("R9  = 78 (77 + 1)");
+    println!("...etc");
+    println!("R15 = 42");
+    println!("R16 = 124 (42 + 82)");
+    println!("R17 = 82 (124 - 42)");
+    
+    program
+}/// Test spécifique pour le Store-Load forwarding avec imm8
+fn store_load_forwarding_test_8() -> BytecodeFile {
+    let mut program = BytecodeFile::new();
+    program.version = BytecodeVersion::new(0, 1, 0, 0);
+    program.add_metadata("name", "Store-Load Forwarding Test");
+    program.add_metadata("description", "Test spécifique pour le forwarding Store-Load");
+    program.add_metadata("author", "PunkVM Team");
+
+    println!("=== CRÉATION DU TEST STORE-LOAD FORWARDING ===");
+
+    // Initialisation
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 0x20)); // Adresse de base
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 123));    // Valeur à stocker
+
+    // Test 1: Store immédiatement suivi d'un Load à la même adresse
+    println!("Test 1: Store→Load immédiat");
+    program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 1, 0, 0));         // STORE [R0], R1
+    program.add_instruction(Instruction::create_load_reg_offset(2, 0, 0));          // LOAD R2, [R0]
+
+    // Test 2: Store avec offset, puis Load avec même offset
+    println!("Test 2: Store→Load avec offset");
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 255));    // Nouvelle valeur
+    program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 3, 0, 4));         // STORE [R0+4], R3
+    program.add_instruction(Instruction::create_load_reg_offset(4, 0, 4));          // LOAD R4, [R0+4]
+
+    // Test 3: Store puis utilisation immédiate de la valeur chargée
+    println!("Test 3: Store→Load→Use");
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 215));    // Nouvelle valeur
+    program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 5, 0, 8));         // STORE [R0+8], R5
+    program.add_instruction(Instruction::create_load_reg_offset(6, 0, 8));          // LOAD R6, [R0+8]
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 7, 6, 1)); // ADD R7, R6, R1
+    // program.add_instruction(PunkVM::bytecode::instructions::Instruction(Opcode::Add, 7, 6, 1)); // ADD R7, R6, R1
+
+    // Test 4: Stores multiples à des adresses différentes
+    println!("Test 4: Stores multiples");
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 100));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 200));
+    program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 8, 0, 12));        // STORE [R0+12], R8
+    program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 9, 0, 16));        // STORE [R0+16], R9
+    program.add_instruction(Instruction::create_load_reg_offset(10, 0, 12));        // LOAD R10, [R0+12]
+    program.add_instruction(Instruction::create_load_reg_offset(11, 0, 16));        // LOAD R11, [R0+16]
+
+    program.add_instruction(Instruction::create_no_args(Opcode::Halt));
+
+    // Configuration des segments
+    let total_code_size: u32 = program.code.iter()
+        .map(|instr| instr.total_size() as u32)
+        .sum();
+    program.segments = vec![SegmentMetadata::new(SegmentType::Code, 0, total_code_size, 0)];
+
+    println!("=== RÉSULTATS ATTENDUS STORE-LOAD ===");
+    println!("R0  = 0x2000 (adresse de base)");
+    println!("R1  = 123");
+    println!("R2  = 123 (forwardé depuis store)");
+    println!("R3  = 456");
+    println!("R4  = 456 (forwardé depuis store)");
+    println!("R5  = 789");
+    println!("R6  = 789 (forwardé depuis store)");
+    println!("R7  = 912 (789 + 123)");
+    println!("R8  = 100");
+    println!("R9  = 200");
+    println!("R10 = 100 (forwardé depuis store)");
+    println!("R11 = 200 (forwardé depuis store)");
+
+    program
+}
+
+/// Test spécifique pour le Store-Load forwarding avec immediate 16bit
+fn store_load_forwarding_test_16() -> BytecodeFile {
+    let mut program = BytecodeFile::new();
+    program.version = BytecodeVersion::new(0, 1, 0, 0);
+    program.add_metadata("name", "Store-Load Forwarding Test");
+    program.add_metadata("description", "Test spécifique pour le forwarding Store-Load");
+    program.add_metadata("author", "PunkVM Team");
+    
+    println!("=== CRÉATION DU TEST STORE-LOAD FORWARDING ===");
+    
+    // Initialisation
+    program.add_instruction(Instruction::create_reg_imm16(Opcode::Mov, 0, 0x2000)); // Adresse de base
+    program.add_instruction(Instruction::create_reg_imm16(Opcode::Mov, 1, 18599));    // Valeur à stocker
+    
+    // Test 1: Store immédiatement suivi d'un Load à la même adresse
+    println!("Test 1: Store→Load immédiat");
+    program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 1, 0, 0));         // STORE [R0], R1
+    program.add_instruction(Instruction::create_load_reg_offset(2, 0, 0));          // LOAD R2, [R0]
+    
+    // Test 2: Store avec offset, puis Load avec même offset
+    println!("Test 2: Store→Load avec offset");
+    program.add_instruction(Instruction::create_reg_imm16(Opcode::Mov, 3, 45645));    // Nouvelle valeur
+    program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 3, 0, 4));         // STORE [R0+4], R3
+    program.add_instruction(Instruction::create_load_reg_offset(4, 0, 4));          // LOAD R4, [R0+4]
+    
+    // Test 3: Store puis utilisation immédiate de la valeur chargée
+    println!("Test 3: Store→Load→Use");
+    program.add_instruction(Instruction::create_reg_imm16(Opcode::Mov, 5, 7809));    // Nouvelle valeur
+    program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 5, 0, 8));         // STORE [R0+8], R5
+    program.add_instruction(Instruction::create_load_reg_offset(6, 0, 8));          // LOAD R6, [R0+8]
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 7, 6, 1)); // ADD R7, R6, R1
+    
+    // Test 4: Stores multiples à des adresses différentes
+    println!("Test 4: Stores multiples");
+    program.add_instruction(Instruction::create_reg_imm16(Opcode::Mov, 8, 10140));
+    program.add_instruction(Instruction::create_reg_imm16(Opcode::Mov, 9, 29800));
+    program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 8, 0, 12));        // STORE [R0+12], R8
+    program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 9, 0, 16));        // STORE [R0+16], R9
+    program.add_instruction(Instruction::create_load_reg_offset(10, 0, 12));        // LOAD R10, [R0+12]
+    program.add_instruction(Instruction::create_load_reg_offset(11, 0, 16));        // LOAD R11, [R0+16]
+    
+    program.add_instruction(Instruction::create_no_args(Opcode::Halt));
+    
+    // Configuration des segments
+    let total_code_size: u32 = program.code.iter()
+        .map(|instr| instr.total_size() as u32)
+        .sum();
+    program.segments = vec![SegmentMetadata::new(SegmentType::Code, 0, total_code_size, 0)];
+    
+    println!("=== RÉSULTATS ATTENDUS STORE-LOAD ===");
+    println!("R0  = 0x2000 (adresse de base)");
+    println!("R1  = 18599");
+    println!("R2  = 18599 (forwardé depuis store)");
+    println!("R3  = 45645");
+    println!("R4  = 45645 (forwardé depuis store)");
+    println!("R5  = 7809");
+    println!("R6  = 7809 (forwardé depuis store)");
+    println!("R7  = 7998 (7809 + 18599)");
+    println!("R8  = 10140");
+    println!("R9  = 29800");
+    println!("R10 = 10140 (forwardé depuis store)");
+    println!("R11 = 29800 (forwardé depuis store)");
+
+    program
+}
+
+
+/// Test spécifique pour le Store-Load forwarding avec immediate 32bit
+fn store_load_forwarding_test_32() -> BytecodeFile {
+    let mut program = BytecodeFile::new();
+    program.version = BytecodeVersion::new(0, 1, 0, 0);
+    program.add_metadata("name", "Store-Load Forwarding Test");
+    program.add_metadata("description", "Test spécifique pour le forwarding Store-Load");
+    program.add_metadata("author", "PunkVM Team");
+
+    println!("=== CRÉATION DU TEST STORE-LOAD FORWARDING ===");
+
+    // Initialisation
+    program.add_instruction(Instruction::create_reg_imm32(Opcode::Mov, 0, 0x2000)); // Adresse de base
+    program.add_instruction(Instruction::create_reg_imm32(Opcode::Mov, 1, 1245453));    // Valeur à stocker
+
+    // Test 1: Store immédiatement suivi d'un Load à la même adresse
+    println!("Test 1: Store→Load immédiat");
+    program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 1, 0, 0));         // STORE [R0], R1
+    program.add_instruction(Instruction::create_load_reg_offset(2, 0, 0));          // LOAD R2, [R0]
+
+    // Test 2: Store avec offset, puis Load avec même offset
+    println!("Test 2: Store→Load avec offset");
+    program.add_instruction(Instruction::create_reg_imm32(Opcode::Mov, 3, 4542756));    // Nouvelle valeur
+    program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 3, 0, 4));         // STORE [R0+4], R3
+    program.add_instruction(Instruction::create_load_reg_offset(4, 0, 4));          // LOAD R4, [R0+4]
+
+    // Test 3: Store puis utilisation immédiate de la valeur chargée
+    println!("Test 3: Store→Load→Use");
+    program.add_instruction(Instruction::create_reg_imm32(Opcode::Mov, 5, 65214789));    // Nouvelle valeur
+    program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 5, 0, 8));         // STORE [R0+8], R5
+    program.add_instruction(Instruction::create_load_reg_offset(6, 0, 8));          // LOAD R6, [R0+8]
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 7, 6, 1)); // ADD R7, R6, R1
+    // Test 4: Stores multiples à des adresses différentes
+    println!("Test 4: Stores multiples");
+    program.add_instruction(Instruction::create_reg_imm32(Opcode::Mov, 8, 100000560));
+    program.add_instruction(Instruction::create_reg_imm32(Opcode::Mov, 9, 20004500));
+    program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 8, 0, 12));        // STORE [R0+12], R8
+    program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 9, 0, 16));        // STORE [R0+16], R9
+    program.add_instruction(Instruction::create_load_reg_offset(10, 0, 12));        // LOAD R10, [R0+12]
+    program.add_instruction(Instruction::create_load_reg_offset(11, 0, 16));        // LOAD R11, [R0+16]
+
+    program.add_instruction(Instruction::create_no_args(Opcode::Halt));
+
+    // Configuration des segments
+    let total_code_size: u32 = program.code.iter()
+        .map(|instr| instr.total_size() as u32)
+        .sum();
+    program.segments = vec![SegmentMetadata::new(SegmentType::Code, 0, total_code_size, 0)];
+
+    println!("=== RÉSULTATS ATTENDUS STORE-LOAD ===");
+    println!("R0  = 0x2000 (adresse de base)");
+    println!("R1  = 1245453");
+    println!("R2  = 1245453 (forwardé depuis store)");
+    println!("R3  = 4542756");
+    println!("R4  = 4542756 (forwardé depuis store)");
+    println!("R5  = 65214789");
+    println!("R6  = 65214789 (forwardé depuis store)");
+    println!("R7  = 65214789 + 1245453 (forwardé depuis store)"); // ADD R7, R6, R1
+    println!("R8  = 100000560");
+    println!("R9  = 20004500");
+    println!("R10 = 100000560 (forwardé depuis store)");
+    println!("R11 = 20004500 (forwardé depuis store)");
+
+    program
+}
+
+
+/// Test spécifique pour le Store-Load forwarding avec immediate 15bit
+fn store_load_forwarding_test_64() -> BytecodeFile {
+    let mut program = BytecodeFile::new();
+    program.version = BytecodeVersion::new(0, 1, 0, 0);
+    program.add_metadata("name", "Store-Load Forwarding Test");
+    program.add_metadata("description", "Test spécifique pour le forwarding Store-Load");
+    program.add_metadata("author", "PunkVM Team");
+
+    println!("=== CRÉATION DU TEST STORE-LOAD FORWARDING ===");
+
+    // Initialisation
+    program.add_instruction(Instruction::create_reg_imm64(Opcode::Mov, 0, 0x2000)); // Adresse de base
+    program.add_instruction(Instruction::create_reg_imm64(Opcode::Mov, 1, 123));    // Valeur à stocker
+
+    // Test 1: Store immédiatement suivi d'un Load à la même adresse
+    println!("Test 1: Store→Load immédiat");
+    program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 1, 0, 0));         // STORE [R0], R1
+    program.add_instruction(Instruction::create_load_reg_offset(2, 0, 0));          // LOAD R2, [R0]
+
+    // Test 2: Store avec offset, puis Load avec même offset
+    println!("Test 2: Store→Load avec offset");
+    program.add_instruction(Instruction::create_reg_imm64(Opcode::Mov, 3, 4561454541));    // Nouvelle valeur
+    program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 3, 0, 4));         // STORE [R0+4], R3
+    program.add_instruction(Instruction::create_load_reg_offset(4, 0, 4));          // LOAD R4, [R0+4]
+
+    // Test 3: Store puis utilisation immédiate de la valeur chargée
+    println!("Test 3: Store→Load→Use");
+    program.add_instruction(Instruction::create_reg_imm64(Opcode::Mov, 5, 7894547412));    // Nouvelle valeur
+    program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 5, 0, 8));         // STORE [R0+8], R5
+    program.add_instruction(Instruction::create_load_reg_offset(6, 0, 8));          // LOAD R6, [R0+8]
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 7, 6, 1)); // ADD R7, R6, R1
+
+    // Test 4: Stores multiples à des adresses différentes
+    println!("Test 4: Stores multiples");
+    program.add_instruction(Instruction::create_reg_imm64(Opcode::Mov, 8, 100000000000));
+    program.add_instruction(Instruction::create_reg_imm64(Opcode::Mov, 9, 200000000000));
+    program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 8, 0, 12));        // STORE [R0+12], R8
+    program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 9, 0, 16));        // STORE [R0+16], R9
+    program.add_instruction(Instruction::create_load_reg_offset(10, 0, 12));        // LOAD R10, [R0+12]
+    program.add_instruction(Instruction::create_load_reg_offset(11, 0, 16));        // LOAD R11, [R0+16]
+
+    program.add_instruction(Instruction::create_no_args(Opcode::Halt));
+
+    // Configuration des segments
+    let total_code_size: u32 = program.code.iter()
+        .map(|instr| instr.total_size() as u32)
+        .sum();
+    program.segments = vec![SegmentMetadata::new(SegmentType::Code, 0, total_code_size, 0)];
+
+    println!("=== RÉSULTATS ATTENDUS STORE-LOAD ===");
+    println!("R0  = 0x2000 (adresse de base)");
+    println!("R1  = 123");
+    println!("R2  = 123 (forwardé depuis store)");
+    println!("R3  = 4561454541");
+    println!("R4  = 4561454541 (forwardé depuis store)");
+    println!("R5  = 7894547412");
+    println!("R6  = 7894547412 (forwardé depuis store)");
+    println!("R7  = 7894547412 + 123 (forwardé depuis store)"); // ADD R7, R6, R1
+    println!("R8  = 100000000000");
+    println!("R9  = 200000000000");
+    println!("R10 = 100000000000 (forwardé depuis store)");
+    println!("R11 = 200000000000 (forwardé depuis store)");
+
+
+
+
+
+    program
+}
+
+/// Test pour mesurer l'efficacité du forwarding avec différents patterns
+fn forwarding_efficiency_test() -> BytecodeFile {
+    let mut program = BytecodeFile::new();
+    program.version = BytecodeVersion::new(0, 1, 0, 0);
+    program.add_metadata("name", "Forwarding Efficiency Test");
+    program.add_metadata("description", "Mesure de l'efficacité du forwarding avec patterns variés");
+    program.add_metadata("author", "PunkVM Team");
+    
+    println!("=== CRÉATION DU TEST D'EFFICACITÉ FORWARDING ===");
+    
+    // Pattern 1: Execute→Execute forwarding (le plus fréquent)
+    println!("Pattern 1: Execute→Execute");
+    program.add_instruction(Instruction::create_reg_imm16(Opcode::Mov, 0, 10));
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 1, 0, 0));   // R1 = R0 + R0
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Mul, 2, 1, 1));   // R2 = R1 * R1
+    
+    // Pattern 2: Memory→Execute forwarding
+    println!("Pattern 2: Memory→Execute");
+    program.add_instruction(Instruction::create_reg_imm16(Opcode::Mov, 3, 20));
+    program.add_instruction(Instruction::create_reg_imm16(Opcode::Mov, 4, 30));
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 5, 3, 4));   // Bubble
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Sub, 6, 5, 2));   // R6 = R5 - R2
+    
+    // Pattern 3: Mélange de forwarding et d'instructions indépendantes
+    println!("Pattern 3: Mélange");
+    program.add_instruction(Instruction::create_reg_imm16(Opcode::Mov, 7, 40));       // Indépendant
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 8, 6, 7));   // R8 = R6 + R7
+    program.add_instruction(Instruction::create_reg_imm16(Opcode::Mov, 9, 50));       // Indépendant
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Mul, 10, 8, 9));  // R10 = R8 * R9
+    
+    // Pattern 4: Load-Use qui DEVRAIT causer un stall
+    println!("Pattern 4: Load-Use (stall requis)");
+    program.add_instruction(Instruction::create_reg_imm16(Opcode::Mov, 11, 0x3000)); // Adresse
+    program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 10, 11, 0));         // STORE [R11], R10
+    program.add_instruction(Instruction::create_load_reg_offset(12, 11, 0));          // LOAD R12, [R11]
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 13, 12, 1)); // ADD R13, R12, R1 (Load-Use)
+    
+    program.add_instruction(Instruction::create_no_args(Opcode::Halt));
+
+    let total_code_size: u32 = program.code.iter()
+        .map(|instr| instr.total_size() as u32)
+        .sum();
+    program.segments = vec![SegmentMetadata::new(SegmentType::Code, 0, total_code_size, 0)];
+    
+    println!("=== RÉSULTATS ATTENDUS EFFICACITÉ ===");
+    println!("R0  = 10");
+    println!("R1  = 20 (10 + 10)");
+    println!("R2  = 400 (20 * 20)");
+    println!("R3  = 20");
+    println!("R4  = 30");
+    println!("R5  = 50 (20 + 30)");
+    println!("R6  = -350 (50 - 400)");
+    println!("R7  = 40");
+    println!("R8  = -310 (-350 + 40)");
+    println!("R9  = 50");
+    println!("R10 = -15500 (-310 * 50)");
+    println!("R11 = 0x3000");
+    println!("R12 = -15500 (chargé depuis mémoire)");
+    println!("R13 = -15480 (-15500 + 20)");
     
     program
 }
