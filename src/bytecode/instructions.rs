@@ -360,10 +360,41 @@ impl Instruction {
 
     /// Cree une instruction avec un registre et une valeur immédiate 16 bits
     pub fn create_reg_imm16(opcode: Opcode, reg: u8, imm: u16) -> Self {
-        let fmt = InstructionFormat::reg_reg_imm16(); // ou un format custom => (Register, None, Immediate16)?
-        let mut args = vec![reg & 0x0F];
-        args.push((imm & 0x00FF) as u8);
-        args.push(((imm >> 8) & 0xFF) as u8);
+        let fmt = InstructionFormat::reg_imm16(); // (Register, Immediate16, None)?
+        // let mut args = vec![reg & 0x0FF];
+        let args = vec![reg & 0x0FF,imm as u8, (imm >> 8) as u8];
+        // args.push((imm & 0x00FF) as u8);
+        // args.push(((imm >> 8  ) & 0xFF) as u8);
+        Self::new(opcode, fmt, args)
+    }
+
+    /// Crée une instruction avec un registre et une valeur immédiate 32 bits
+    pub fn create_reg_imm32(opcode: Opcode, reg: u8, imm: u32) -> Self {
+        let fmt = InstructionFormat::reg_imm32(); // (Register, Immediate32, None)?
+        let args = vec![
+            reg & 0x0FF,
+            (imm & 0x00FF) as u8,
+            ((imm >> 8) & 0xFF) as u8,
+            ((imm >> 16) & 0xFF) as u8,
+            ((imm >> 24) & 0xFF) as u8,
+        ];
+        Self::new(opcode, fmt, args)
+    }
+
+    /// Crée une instruction avec un registre et une valeur immédiate 64 bits
+    pub fn create_reg_imm64(opcode: Opcode, reg: u8, imm: u64) -> Self {
+        let fmt = InstructionFormat::reg_imm64(); // (Register, Immediate64, None)?
+        let args = vec![
+            reg & 0x0FF,
+            (imm & 0x00FF) as u8,
+            ((imm >> 8) & 0xFF) as u8,
+            ((imm >> 16) & 0xFF) as u8,
+            ((imm >> 24) & 0xFF) as u8,
+            ((imm >> 32) & 0xFF) as u8,
+            ((imm >> 40) & 0xFF) as u8,
+            ((imm >> 48) & 0xFF) as u8,
+            ((imm >> 56) & 0xFF) as u8,
+        ];
         Self::new(opcode, fmt, args)
     }
 
@@ -375,8 +406,10 @@ impl Instruction {
     }
 
     /// Crée une instruction de stockage mémoire avec registre + offset
-    pub fn create_reg_reg_offset(opcode: Opcode, reg_src: u8, reg_base: u8, offset: i8) -> Self {
-        let fmt = InstructionFormat::reg_reg_imm8(); // (Register, RegisterOffset, None)?
+    pub fn create_store_reg_offset(opcode: Opcode, reg_src: u8, reg_base: u8, offset: i8) -> Self {
+        // let fmt = InstructionFormat::reg_reg_imm8(); // (Register, RegisterOffset, None)?
+        let fmt = InstructionFormat::reg_regoff(); // (Register, RegisterOffset, None)?
+
         let  args = vec![reg_src & 0x0F, reg_base & 0x0F, offset as u8];
 
         Self::new(opcode, fmt, args)
