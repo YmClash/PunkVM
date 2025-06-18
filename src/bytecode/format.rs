@@ -16,6 +16,14 @@ pub enum ArgType {
     RegisterOffset = 0x9, // Registre + offset (pour accès mémoire indexé)
                         // Flag = 0xA, // 4 bits pour les flags (ex: ZF, SF, OF, CF)
                         // 0xA-0xF réservés pour extensions futures
+    // Flag = 0xA, // 4 bits pour les flags (ex: ZF, SF, OF, CF)
+    // ImmediateF8 = 0xA, // Valeur immédiate flottante 8 bits
+    // ImmediateF16 = 0xB, // Valeur immédiate flottante 16 bits
+    // ImmediateF32 = 0xC, // Valeur immédiate flottante 32 bits
+    // ImmediateF64 = 0xD, // Valeur immédiate flottante 64 bits
+    // ImmediateString = 0xE, // Valeur immédiate chaîne de caractères
+    // ImmediateBool = 0xF, // Valeur immédiate booléenne (true/false)
+    // // Note: Les valeurs 0xA à 0xF sont réservées pour des extensions futures
 }
 impl ArgType {
     /// Convertit un u8 en ArgType 4 bits
@@ -154,6 +162,12 @@ impl InstructionFormat {
     }
     pub fn reg_imm16() -> Self {
         Self::new(ArgType::Register, ArgType::Immediate16, ArgType::None)
+    }
+    pub fn reg_imm32() -> Self {
+        Self::new(ArgType::Register, ArgType::Immediate32, ArgType::None)
+    }
+    pub fn reg_imm64() -> Self {
+        Self::new(ArgType::Register, ArgType::Immediate64, ArgType::None)
     }
     pub fn reg_regoff() -> Self {
         Self::new(ArgType::Register, ArgType::RegisterOffset, ArgType::None)
