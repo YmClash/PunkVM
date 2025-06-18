@@ -22,10 +22,55 @@ pub struct PredictorConfig {
     pub ras_size: usize,
 }
 
+#[derive(Debug)]
 struct GSharePredictor {
     global_history: u16,
     pattern_table: Vec<u8>,
     history_length: usize,
+}
+
+impl GSharePredictor {
+    pub fn new() -> Self {
+        let history_length = 12; // 12 bits d'historique global
+        let table_size = 1 << history_length; // 4096 entrées
+        Self {
+            global_history: 0,
+            pattern_table: vec![1; table_size], // Initialiser avec WeaklyNotTaken (1)
+            history_length,
+        }
+    }
+    
+    pub fn predict_branch(&self, branch_pc: u64) -> bool {
+        let index = self.compute_index(branch_pc);
+        let counter = self.pattern_table[index];
+        // Si le compteur est >= 2 (WeaklyTaken ou StronglyTaken), prédire pris
+        counter >= 2
+    }
+    
+    pub fn update_predictor(&mut self, branch_pc: u64, actual_outcome: bool) {
+        let index = self.compute_index(branch_pc);
+        let counter = self.pattern_table[index];
+        
+        // Mise à jour du compteur à 2 bits
+        self.pattern_table[index] = if actual_outcome {
+            // Branch taken: increment counter (max 3)
+            counter.saturating_add(1).min(3)
+        } else {
+            // Branch not taken: decrement counter (min 0)
+            counter.saturating_sub(1)
+        };
+        
+        // Mise à jour de l'historique global
+        self.global_history = (self.global_history << 1) | (actual_outcome as u16);
+        self.global_history &= (1 << self.history_length) - 1; // Garder seulement les bits nécessaires
+    }
+    
+    fn compute_index(&self, branch_pc: u64) -> usize {
+        // XOR entre les bits du PC et l'historique global
+        let pc_bits = (branch_pc as usize) & ((1 << self.history_length) - 1);
+        let history_bits = self.global_history as usize;
+        (pc_bits ^ history_bits) & ((1 << self.history_length) - 1)
+    }
 }
 
 
@@ -72,6 +117,7 @@ pub struct BranchPredictor {
     pub two_bit_states: HashMap<u64, TwoBitState>,
     pub metrics: BranchMetrics,
     pub hybrid_predictor: Option<HybridPredictor>,
+    pub overriding_predictor: Option<OverridingPredictor>,
     pub btb: Option<BranchTargetBuffer>,
 }
 #[derive(Debug, Default, Clone)]
@@ -87,6 +133,11 @@ pub struct BranchMetrics {
     pub btb_misses: usize,
     pub btb_correct_targets: usize,
     pub btb_incorrect_targets: usize,
+    // Métriques spécifiques au Perceptron
+    pub perceptron_accuracy: f64,
+    pub override_count: usize,
+    pub override_benefit: usize,
+    pub agreement_rate: f64,
 }
 
 #[derive(Debug, Clone, )]
@@ -116,6 +167,7 @@ pub struct HybridPredictor {
 }
 
 
+#[derive(Debug)]
 pub struct PerceptronPredictor {
     pub perceptrons: Vec<Perceptron>,
     pub global_history: Vec<isize>, // Global Branch History Register (GHR)
@@ -127,12 +179,32 @@ pub struct TwoBitCounter {
     state: TwoBitState,
 }
 
+#[derive(Debug, Clone)]
+pub struct OverridingPredictorStats {
+    pub gshare_accuracy: f64,
+    pub perceptron_accuracy: f64,
+    pub override_rate: f64,
+    pub agreement_rate: f64,
+    pub misprediction_penalty_full: u64,
+    pub misprediction_penalty_override: u64,
+}
+
+#[derive(Debug)]
 pub struct OverridingPredictor {
     gshare_predictor: GSharePredictor,
     perceptron_predictor: PerceptronPredictor,
+    // Cache des prédictions perceptron en cours de calcul (simule le délai)
+    perceptron_predictions_cache: HashMap<u64, bool>,
     // Statistiques de performance
     pub misprediction_penalty_full: u64,
     pub misprediction_penalty_override: u64,
+    pub perceptron_correct: u64,
+    pub perceptron_incorrect: u64,
+    pub gshare_correct: u64,
+    pub gshare_incorrect: u64,
+    pub override_count: u64,
+    pub agreement_correct: u64,
+    pub agreement_incorrect: u64,
 }
 
 impl TwoBitCounter {
@@ -307,7 +379,13 @@ impl BranchPredictor {
             None
         };
         
-        let btb = if predictor_type == PredictorType::Hybrid || predictor_type == PredictorType::Dynamic {
+        let overriding_predictor = if predictor_type == PredictorType::Perceptron {
+            Some(OverridingPredictor::new())
+        } else {
+            None
+        };
+        
+        let btb = if matches!(predictor_type, PredictorType::Hybrid | PredictorType::Dynamic | PredictorType::Perceptron) {
             Some(BranchTargetBuffer::new(512)) // 512 entries BTB
         } else {
             None
@@ -319,6 +397,7 @@ impl BranchPredictor {
             two_bit_states: HashMap::new(),
             metrics: BranchMetrics::default(),
             hybrid_predictor,
+            overriding_predictor,
             btb,
         }
     }
@@ -334,7 +413,13 @@ impl BranchPredictor {
             None
         };
         
-        let btb = if predictor_type == PredictorType::Hybrid || predictor_type == PredictorType::Dynamic {
+        let overriding_predictor = if predictor_type == PredictorType::Perceptron {
+            Some(OverridingPredictor::new())
+        } else {
+            None
+        };
+        
+        let btb = if matches!(predictor_type, PredictorType::Hybrid | PredictorType::Dynamic | PredictorType::Perceptron) {
             Some(BranchTargetBuffer::new(config.btb_size))
         } else {
             None
@@ -346,6 +431,7 @@ impl BranchPredictor {
             two_bit_states: HashMap::new(),
             metrics: BranchMetrics::default(),
             hybrid_predictor,
+            overriding_predictor,
             btb,
         }
     }
@@ -409,8 +495,16 @@ impl BranchPredictor {
                 BranchPrediction::NotTaken
             }
             PredictorType::Perceptron => {
-                // PerceptronPredictor
-                BranchPrediction::NotTaken
+                if let Some(ref mut overriding) = self.overriding_predictor {
+                    let prediction = overriding.get_initial_prediction(pc);
+                    if prediction {
+                        BranchPrediction::Taken
+                    } else {
+                        BranchPrediction::NotTaken
+                    }
+                } else {
+                    BranchPrediction::NotTaken
+                }
             }
         }
     }
@@ -470,6 +564,31 @@ impl BranchPredictor {
         if self.prediction_type == PredictorType::Hybrid {
             if let Some(ref mut hybrid) = self.hybrid_predictor {
                 hybrid.update(pc, taken);
+            }
+        }
+        
+        // Mise à jour du prédicteur Perceptron (OverridingPredictor)
+        if self.prediction_type == PredictorType::Perceptron {
+            if let Some(ref mut overriding) = self.overriding_predictor {
+                let needs_flush = overriding.update_and_get_flush_status(pc, taken);
+                
+                // Mettre à jour les métriques avec les statistiques du perceptron
+                let stats = overriding.get_statistics();
+                self.metrics.perceptron_accuracy = stats.perceptron_accuracy;
+                self.metrics.gshare_accuracy = stats.gshare_accuracy;
+                self.metrics.override_count = overriding.override_count as usize;
+                self.metrics.agreement_rate = stats.agreement_rate;
+                
+                // Compter les overrides bénéfiques (cas 2: GShare faux, Perceptron correct)
+                if stats.perceptron_accuracy > stats.gshare_accuracy {
+                    self.metrics.override_benefit = ((stats.perceptron_accuracy - stats.gshare_accuracy) * 
+                                                     self.metrics.total_branches as f64) as usize;
+                }
+                
+                println!(
+                    "Perceptron predictor: PC={:X}, taken={}, GShare acc={:.2}%, Perceptron acc={:.2}%, Override rate={:.2}%",
+                    pc, taken, stats.gshare_accuracy * 100.0, stats.perceptron_accuracy * 100.0, stats.override_rate * 100.0
+                );
             }
         }
     }
@@ -640,159 +759,219 @@ impl BranchTargetBuffer {
 }
 
 
-//
-//
-// impl PerceptronPredictor {
-//     pub fn new() -> Self {
-//         let mut perceptrons = Vec::with_capacity(crate::pvm::branch_perceptor::NUM_PERCEPTRONS);
-//         for _ in 0..crate::pvm::branch_perceptor::NUM_PERCEPTRONS {
-//             perceptrons.push(Perceptron::new(crate::pvm::branch_perceptor::TOTAL_HISTORY_LENGTH));
-//         }
-//         Self {
-//             perceptrons,
-//             // Initialisation de l'historique global (e.g., tous pris)
-//             global_history: vec![1; crate::pvm::branch_perceptor::GLOBAL_HISTORY_LENGTH],
-//             local_histories: HashMap::new(),
-//         }
-//     }
-//
-//     // Sélectionne l'indice du perceptron basé sur le PC de branche
-//     // Une fonction de hachage plus sophistiquée peut être utilisée ici (PC XOR GHR, etc.)
-//     fn get_perceptron_index(&self, branch_pc: u64) -> usize {
-//         (branch_pc as usize) % crate::pvm::branch_perceptor::NUM_PERCEPTRONS
-//     }
-//
-//     // Génère l'historique combiné (global + local) pour les entrées du perceptron
-//     fn get_combined_history(&mut self, branch_pc: u64) -> Vec<isize> {
-//         let mut combined = Vec::with_capacity(crate::pvm::branch_perceptor::TOTAL_HISTORY_LENGTH);
-//
-//         // Historique global
-//         combined.extend_from_slice(&self.global_history);
-//
-//         // Historique local (créer si n'existe pas)
-//         let local_hist = self.local_histories
-//             .entry(branch_pc)
-//             .or_insert_with(|| vec![1; crate::pvm::branch_perceptor::LOCAL_HISTORY_LENGTH]); // Initialiser avec des 1 par défaut
-//
-//         combined.extend_from_slice(local_hist);
-//         combined
-//     }
-//
-//     // Prédiction
-//     pub fn predict_branch(&mut self, branch_pc: u64) -> bool {
-//         let perceptron_idx = self.get_perceptron_index(branch_pc);
-//         let perceptron = &self.perceptrons[perceptron_idx];
-//
-//         let combined_history = self.get_combined_history(branch_pc); // Obtenir l'historique combiné
-//         let sum = perceptron.predict_sum(&combined_history);
-//
-//         sum > 0 // Prédire 'pris' si la somme est positive
-//     }
-//
-//     // Mise à jour (entraînement)
-//     pub fn update_predictor(&mut self, branch_pc: u64, actual_outcome: bool) {
-//         let perceptron_idx = self.get_perceptron_index(branch_pc);
-//         let perceptron = &mut self.perceptrons[perceptron_idx];
-//
-//         let actual_val = if actual_outcome { 1 } else { -1 };
-//         let combined_history = self.get_combined_history(branch_pc);
-//         let predicted_sum = perceptron.predict_sum(&combined_history); // Recalculer la somme pour l'entraînement
-//
-//         perceptron.train(&combined_history, actual_val, predicted_sum);
-//
-//         // Mettre à jour l'historique global
-//         self.global_history.rotate_left(1);
-//         self.global_history[crate::pvm::branch_perceptor::GLOBAL_HISTORY_LENGTH - 1] = actual_val;
-//
-//         // Mettre à jour l'historique local du branchement
-//         if let Some(local_hist) = self.local_histories.get_mut(&branch_pc) {
-//             local_hist.rotate_left(1);
-//             local_hist[crate::pvm::branch_perceptor::LOCAL_HISTORY_LENGTH - 1] = actual_val;
-//         } else {
-//             // Cela ne devrait pas arriver si get_combined_history est toujours appelé avant
-//             // mais par sécurité si cette fonction est appelée directement sans prédiction préalable.
-//             let mut new_local_hist = vec![1; crate::pvm::branch_perceptor::LOCAL_HISTORY_LENGTH];
-//             new_local_hist.rotate_left(1);
-//             new_local_hist[crate::pvm::branch_perceptor::LOCAL_HISTORY_LENGTH - 1] = actual_val;
-//             self.local_histories.insert(branch_pc, new_local_hist);
-//         }
-//     }
-//
-//     // Réinitialisation de l'état du prédicteur
-//     pub fn reset(&mut self) {
-//         for perceptron in &mut self.perceptrons {
-//             perceptron.weight.fill(0); // Réinitialiser les poids à 0
-//         }
-//         self.global_history.fill(1); // Réinitialiser l'historique global à 1
-//         self.local_histories.clear(); // Effacer l'historique local
-//     }
-//
-// }
-//
-// impl OverridingPredictor {
-//     pub fn new() -> Self {
-//         Self {
-//             gshare_predictor: GSharePredictor::new(), // Initialiser prédicteur Gshare
-//             perceptron_predictor: PerceptronPredictor::new(), // Initialiser prédicteur Perceptron
-//             misprediction_penalty_full: 0,
-//             misprediction_penalty_override: 0,
-//         }
-//     }
-//
-//     /// Fonction de prédiction à appeler au moment du Fetch/Decode
-//     /// Retourne la prédiction initiale (rapide)
-//     pub fn get_initial_prediction(&mut self, branch_pc: u64) -> bool {
-//         self.gshare_predictor.predict_branch(branch_pc)
-//     }
-//
-//     /// Fonction de mise à jour appelée quand le résultat réel est connu
-//     /// `branch_pc`: Adresse du branchement
-//     /// `actual_outcome`: true si pris, false si non pris
-//     /// `gshare_predicted`: La prédiction que le gshare avait faite initialement
-//     /// `perceptron_predicted`: La prédiction que le perceptron a faite (peut être calculée juste avant ou passée depuis l'étape précédente)
-//     ///
-//     /// Retourne `true` si un flush complet est nécessaire, `false` sinon.
-//     pub fn update_and_get_flush_status(
-//         &mut self,
-//         branch_pc: u64,
-//         actual_outcome: bool,
-//         gshare_predicted: bool,
-//         perceptron_predicted: bool,
-//     ) -> bool {
-//         // Mettre à jour les deux prédicteurs
-//         self.gshare_predictor.update_predictor(branch_pc, actual_outcome);
-//         self.perceptron_predictor.update_predictor(branch_pc, actual_outcome);
-//
-//         // Analyser les quatre cas pour les pénalités et les flushes
-//         let mut needs_full_flush = false;
-//
-//         if gshare_predicted == actual_outcome && perceptron_predicted == actual_outcome {
-//             // Cas 1: Les deux sont corrects et d'accord. Pas de pénalité.
-//         } else if gshare_predicted != actual_outcome && perceptron_predicted == actual_outcome {
-//             // Cas 2: Gshare faux, Perceptron correct. Pénalité de substitution.
-//             self.misprediction_penalty_override += 1;
-//             needs_full_flush = true; // Un flush est nécessaire pour corriger la prédiction du gshare
-//         } else if gshare_predicted != actual_outcome && perceptron_predicted != actual_outcome {
-//             // Cas 3 & 4: Les deux sont faux.
-//             if gshare_predicted != perceptron_predicted {
-//                 // Cas 3: Désaccord et les deux sont faux. Pénalité de substitution + full misprediction.
-//                 self.misprediction_penalty_override += 1; // Pénalité pour l'override (le perceptron a changé l'avis du gshare)
-//             }
-//             // Cas 4: Accord et les deux sont faux. Pas d'override, mais full misprediction.
-//             self.misprediction_penalty_full += 1; // Pénalité pour la misprediction complète
-//             needs_full_flush = true; // Un flush est toujours nécessaire quand le résultat final est faux
-//         } else { // gshare_predicted == actual_outcome && perceptron_predicted != actual_outcome
-//             // Ce cas est également une erreur si gshare est juste mais perceptron est faux.
-//             // On peut le traiter comme un cas 3 ou 4 en fonction de la politique.
-//             // Le deuxième prédicteur est plus précis que le premier ; il est donc peu probable que ce cas se produise."
-//             // Il faut donc le traiter comme une misprediction complète.
-//             self.misprediction_penalty_full += 1;
-//             needs_full_flush = true;
-//         }
-//
-//         needs_full_flush
-//     }
-// }
+
+
+impl PerceptronPredictor {
+    pub fn new() -> Self {
+        let mut perceptrons = Vec::with_capacity(crate::pvm::branch_perceptor::NUM_PERCEPTRONS);
+        for _ in 0..crate::pvm::branch_perceptor::NUM_PERCEPTRONS {
+            perceptrons.push(Perceptron::new(crate::pvm::branch_perceptor::TOTAL_HISTORY_LENGTH));
+        }
+        Self {
+            perceptrons,
+            // Initialisation de l'historique global (e.g., tous pris)
+            global_history: vec![1; crate::pvm::branch_perceptor::GLOBAL_HISTORY_LENGTH],
+            local_histories: HashMap::new(),
+        }
+    }
+
+    // Sélectionne l'indice du perceptron basé sur le PC de branche
+    // Une fonction de hachage plus sophistiquée peut être utilisée ici (PC XOR GHR, etc.)
+    fn get_perceptron_index(&self, branch_pc: u64) -> usize {
+        (branch_pc as usize) % crate::pvm::branch_perceptor::NUM_PERCEPTRONS
+    }
+
+    // Génère l'historique combiné (global + local) pour les entrées du perceptron
+    fn get_combined_history(&mut self, branch_pc: u64) -> Vec<isize> {
+        let mut combined = Vec::with_capacity(crate::pvm::branch_perceptor::TOTAL_HISTORY_LENGTH);
+
+        // Historique global
+        combined.extend_from_slice(&self.global_history);
+
+        // Historique local (créer si n'existe pas)
+        let local_hist = self.local_histories
+            .entry(branch_pc)
+            .or_insert_with(|| vec![1; crate::pvm::branch_perceptor::LOCAL_HISTORY_LENGTH]); // Initialiser avec des 1 par défaut
+
+        combined.extend_from_slice(local_hist);
+        combined
+    }
+
+    // Prédiction
+    pub fn predict_branch(&mut self, branch_pc: u64) -> bool {
+        let perceptron_idx = self.get_perceptron_index(branch_pc);
+        let combined_history = self.get_combined_history(branch_pc); // Obtenir l'historique combiné
+        let sum = self.perceptrons[perceptron_idx].predict_sum(&combined_history);
+
+        sum > 0 // Prédire 'pris' si la somme est positive
+    }
+
+    // Mise à jour (entraînement)
+    pub fn update_predictor(&mut self, branch_pc: u64, actual_outcome: bool) {
+        let perceptron_idx = self.get_perceptron_index(branch_pc);
+        let actual_val = if actual_outcome { 1 } else { -1 };
+        
+        // D'abord, calculer l'historique combiné avant d'emprunter le perceptron
+        let combined_history = self.get_combined_history(branch_pc);
+        
+        // Maintenant, emprunter le perceptron pour l'entraînement
+        let predicted_sum = self.perceptrons[perceptron_idx].predict_sum(&combined_history);
+        self.perceptrons[perceptron_idx].train(&combined_history, actual_val, predicted_sum);
+
+        // Mettre à jour l'historique global
+        self.global_history.rotate_left(1);
+        self.global_history[crate::pvm::branch_perceptor::GLOBAL_HISTORY_LENGTH - 1] = actual_val;
+
+        // Mettre à jour l'historique local du branchement
+        if let Some(local_hist) = self.local_histories.get_mut(&branch_pc) {
+            local_hist.rotate_left(1);
+            local_hist[crate::pvm::branch_perceptor::LOCAL_HISTORY_LENGTH - 1] = actual_val;
+        } else {
+            // Cela ne devrait pas arriver si get_combined_history est toujours appelé avant
+            // mais par sécurité si cette fonction est appelée directement sans prédiction préalable.
+            let mut new_local_hist = vec![1; crate::pvm::branch_perceptor::LOCAL_HISTORY_LENGTH];
+            new_local_hist.rotate_left(1);
+            new_local_hist[crate::pvm::branch_perceptor::LOCAL_HISTORY_LENGTH - 1] = actual_val;
+            self.local_histories.insert(branch_pc, new_local_hist);
+        }
+    }
+
+    // Réinitialisation de l'état du prédicteur
+    pub fn reset(&mut self) {
+        for perceptron in &mut self.perceptrons {
+            perceptron.weight.fill(0); // Réinitialiser les poids à 0
+        }
+        self.global_history.fill(1); // Réinitialiser l'historique global à 1
+        self.local_histories.clear(); // Effacer l'historique local
+    }
+
+}
+
+impl OverridingPredictor {
+    pub fn new() -> Self {
+        Self {
+            gshare_predictor: GSharePredictor::new(),
+            perceptron_predictor: PerceptronPredictor::new(),
+            perceptron_predictions_cache: HashMap::new(),
+            misprediction_penalty_full: 0,
+            misprediction_penalty_override: 0,
+            perceptron_correct: 0,
+            perceptron_incorrect: 0,
+            gshare_correct: 0,
+            gshare_incorrect: 0,
+            override_count: 0,
+            agreement_correct: 0,
+            agreement_incorrect: 0,
+        }
+    }
+
+    /// Fonction de prédiction à appeler au moment du Fetch/Decode
+    /// Retourne la prédiction initiale (rapide)
+    pub fn get_initial_prediction(&mut self, branch_pc: u64) -> bool {
+        // Prédiction rapide du GShare
+        let gshare_pred = self.gshare_predictor.predict_branch(branch_pc);
+        
+        // Lancer le calcul du perceptron en arrière-plan (simulé par le cache)
+        let perceptron_pred = self.perceptron_predictor.predict_branch(branch_pc);
+        self.perceptron_predictions_cache.insert(branch_pc, perceptron_pred);
+        
+        gshare_pred
+    }
+    
+    /// Récupère la prédiction du perceptron (simule le délai de calcul)
+    pub fn get_perceptron_prediction(&mut self, branch_pc: u64) -> Option<bool> {
+        // Dans une vraie implémentation, ceci serait disponible après quelques cycles
+        self.perceptron_predictions_cache.get(&branch_pc).copied()
+    }
+
+    /// Fonction de mise à jour appelée quand le résultat réel est connu
+    /// Retourne `true` si un flush complet est nécessaire, `false` sinon.
+    pub fn update_and_get_flush_status(
+        &mut self,
+        branch_pc: u64,
+        actual_outcome: bool,
+    ) -> bool {
+        // Récupérer la prédiction initiale du GShare
+        let gshare_predicted = self.gshare_predictor.predict_branch(branch_pc);
+        
+        // Récupérer la prédiction du perceptron depuis le cache
+        let perceptron_predicted = self.perceptron_predictions_cache
+            .remove(&branch_pc)
+            .unwrap_or_else(|| {
+                // Si pas en cache, calculer maintenant (ne devrait pas arriver normalement)
+                self.perceptron_predictor.predict_branch(branch_pc)
+            });
+        
+        // Mettre à jour les statistiques individuelles
+        if gshare_predicted == actual_outcome {
+            self.gshare_correct += 1;
+        } else {
+            self.gshare_incorrect += 1;
+        }
+        
+        if perceptron_predicted == actual_outcome {
+            self.perceptron_correct += 1;
+        } else {
+            self.perceptron_incorrect += 1;
+        }
+        
+        // Mettre à jour les deux prédicteurs
+        self.gshare_predictor.update_predictor(branch_pc, actual_outcome);
+        self.perceptron_predictor.update_predictor(branch_pc, actual_outcome);
+
+        // Analyser les quatre cas pour les pénalités et les flushes
+        let mut needs_full_flush = false;
+
+        if gshare_predicted == actual_outcome && perceptron_predicted == actual_outcome {
+            // Cas 1: Les deux sont corrects et d'accord
+            self.agreement_correct += 1;
+        } else if gshare_predicted != actual_outcome && perceptron_predicted == actual_outcome {
+            // Cas 2: Gshare faux, Perceptron correct - Override bénéfique
+            self.misprediction_penalty_override += 1;
+            self.override_count += 1;
+            needs_full_flush = true;
+        } else if gshare_predicted != actual_outcome && perceptron_predicted != actual_outcome {
+            // Cas 3 & 4: Les deux sont faux
+            if gshare_predicted != perceptron_predicted {
+                // Cas 3: Désaccord et les deux sont faux
+                self.misprediction_penalty_override += 1;
+                self.override_count += 1;
+            } else {
+                // Cas 4: Accord et les deux sont faux
+                self.agreement_incorrect += 1;
+            }
+            self.misprediction_penalty_full += 1;
+            needs_full_flush = true;
+        } else {
+            // gshare correct, perceptron incorrect (rare)
+            self.misprediction_penalty_full += 1;
+            needs_full_flush = true;
+        }
+
+        needs_full_flush
+    }
+    
+    /// Obtenir les statistiques de performance
+    pub fn get_statistics(&self) -> OverridingPredictorStats {
+        OverridingPredictorStats {
+            gshare_accuracy: if self.gshare_correct + self.gshare_incorrect > 0 {
+                self.gshare_correct as f64 / (self.gshare_correct + self.gshare_incorrect) as f64
+            } else { 0.0 },
+            perceptron_accuracy: if self.perceptron_correct + self.perceptron_incorrect > 0 {
+                self.perceptron_correct as f64 / (self.perceptron_correct + self.perceptron_incorrect) as f64
+            } else { 0.0 },
+            override_rate: if self.gshare_correct + self.gshare_incorrect > 0 {
+                self.override_count as f64 / (self.gshare_correct + self.gshare_incorrect) as f64
+            } else { 0.0 },
+            agreement_rate: if self.agreement_correct + self.agreement_incorrect + self.override_count > 0 {
+                (self.agreement_correct + self.agreement_incorrect) as f64 / 
+                (self.agreement_correct + self.agreement_incorrect + self.override_count) as f64
+            } else { 0.0 },
+            misprediction_penalty_full: self.misprediction_penalty_full,
+            misprediction_penalty_override: self.misprediction_penalty_override,
+        }
+    }
+}
 
 
 
