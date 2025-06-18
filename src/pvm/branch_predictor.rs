@@ -9,6 +9,17 @@ pub enum PredictorType {
     Dynamic,
     GShare,
     Gskew,
+    Hybrid,
+    Tournament,
+    Perceptron,
+}
+
+#[derive(Debug, Clone,Copy)]
+pub struct PredictorConfig {
+    pub local_history_bits: usize,
+    pub global_history_bits: usize,
+    pub btb_size: usize,
+    pub ras_size: usize,
 }
 
 struct GSharePredictor {
@@ -21,12 +32,18 @@ struct GSharePredictor {
 pub struct BranchTargetBuffer {
     pub entries: Vec<BTBEntry>,
     pub size: usize,
+    pub current_cycle: u64, // Pour la gestion du LRU
+
 }
+
+/// B
 #[derive(Debug, Clone)]
 pub struct BTBEntry {
-    pub tag: u64,
-    pub target: u64,
+    pub tag: u32,
+    pub target: u32,
     pub valid: bool,
+    pub confidence: u8, // 2 bits pour la confiance
+    pub last_used: u64, // LRU
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -49,6 +66,7 @@ pub struct BranchPredictor {
     pub predictions: HashMap<u64, BranchPrediction>,
     pub two_bit_states: HashMap<u64, TwoBitState>,
     pub metrics: BranchMetrics,
+    pub hybrid_predictor: Option<HybridPredictor>,
 }
 #[derive(Debug, Default, Clone)]
 pub struct BranchMetrics {
@@ -61,13 +79,235 @@ pub struct BranchMetrics {
     pub store_load_forwarding: usize,
 }
 
+#[derive(Debug, Clone, )]
+struct LocalHistoryEntry {
+    history:u16 , // Historique local (16 bits)
+    pattern_table: Vec<TwoBitCounter>, // Table de prédiction locale
+    last_used: u64, // Timestamp pour LRU
+}
+
+
+#[derive(Debug, Clone) ]
+pub struct HybridPredictor {
+    // Prédicteur local (pattern par PC)
+    local_history: HashMap<u64, LocalHistoryEntry>,
+
+    // Prédicteur global (GShare)
+    global_history: u16,  // 16 bits d'historique global
+    gshare_table: Vec<TwoBitCounter>,
+
+    // Sélecteur de prédicteur (meta-predictor)
+    selector: Vec<TwoBitCounter>,
+
+    // Configuration
+    local_history_bits: usize,
+    global_history_bits: usize,
+    gshare_table_size: usize,
+}
+
+#[derive(Debug, Clone,Copy)]
+pub struct TwoBitCounter {
+    state: TwoBitState,
+}
+
+impl TwoBitCounter {
+    pub fn new() -> Self {
+        Self {
+            state: TwoBitState::WeaklyNotTaken,
+        }
+    }
+    
+    pub fn new_biased(bias: TwoBitState) -> Self {
+        Self {
+            state: bias,
+        }
+    }
+    
+    pub fn predict(&self) -> BranchPrediction {
+        match self.state {
+            TwoBitState::StronglyNotTaken | TwoBitState::WeaklyNotTaken => BranchPrediction::NotTaken,
+            TwoBitState::WeaklyTaken | TwoBitState::StronglyTaken => BranchPrediction::Taken,
+        }
+    }
+    
+    pub fn update(&mut self, taken: bool) {
+        self.state = match (self.state, taken) {
+            (TwoBitState::StronglyNotTaken, true) => TwoBitState::WeaklyNotTaken,
+            (TwoBitState::WeaklyNotTaken, true) => TwoBitState::WeaklyTaken,
+            (TwoBitState::WeaklyTaken, true) => TwoBitState::StronglyTaken,
+            (TwoBitState::StronglyTaken, true) => TwoBitState::StronglyTaken,
+            
+            (TwoBitState::StronglyTaken, false) => TwoBitState::WeaklyTaken,
+            (TwoBitState::WeaklyTaken, false) => TwoBitState::WeaklyNotTaken,
+            (TwoBitState::WeaklyNotTaken, false) => TwoBitState::StronglyNotTaken,
+            (TwoBitState::StronglyNotTaken, false) => TwoBitState::StronglyNotTaken,
+        };
+    }
+}
+
+
+
+
+
+impl HybridPredictor {
+    pub fn new(local_history_bits: usize, global_history_bits: usize, gshare_table_size: usize) -> Self {
+        let selector_size = 1 << 10; // 1K entries for selector
+        
+        // Initialize GShare table with slight taken bias (research shows conditional branches are taken ~60% of time)
+        let mut gshare_table = Vec::with_capacity(gshare_table_size);
+        for _ in 0..gshare_table_size {
+            gshare_table.push(TwoBitCounter::new_biased(TwoBitState::WeaklyTaken));
+        }
+        
+        // Initialize selector to slightly favor global predictor
+        let mut selector = Vec::with_capacity(selector_size);
+        for _ in 0..selector_size {
+            selector.push(TwoBitCounter::new_biased(TwoBitState::WeaklyTaken));
+        }
+        
+        Self {
+            local_history: HashMap::new(),
+            global_history: 0,
+            gshare_table,
+            selector,
+            local_history_bits,
+            global_history_bits,
+            gshare_table_size,
+        }
+    }
+    
+    pub fn predict(&self, pc: u64) -> BranchPrediction {
+        let local_prediction = self.predict_local(pc);
+        let gshare_prediction = self.predict_gshare(pc);
+        
+        // Use selector to choose between local and global
+        let selector_index = (pc & 0x3FF) as usize; // 10 bits
+        let selector_prediction = self.selector[selector_index].predict();
+        
+        match selector_prediction {
+            BranchPrediction::NotTaken => local_prediction,  // Use local predictor
+            BranchPrediction::Taken => gshare_prediction,    // Use global predictor
+        }
+    }
+    
+    fn predict_local(&self, pc: u64) -> BranchPrediction {
+        if let Some(entry) = self.local_history.get(&pc) {
+            let pattern_index = entry.history as usize & ((1 << self.local_history_bits) - 1);
+            if pattern_index < entry.pattern_table.len() {
+                entry.pattern_table[pattern_index].predict()
+            } else {
+                BranchPrediction::Taken // Default to taken for new patterns
+            }
+        } else {
+            BranchPrediction::Taken // Default to taken for unseen branches
+        }
+    }
+    
+    fn predict_gshare(&self, pc: u64) -> BranchPrediction {
+        let index = self.compute_gshare_index(pc);
+        self.gshare_table[index].predict()
+    }
+    
+    fn compute_gshare_index(&self, pc: u64) -> usize {
+        let pc_bits = pc as usize & ((1 << self.global_history_bits) - 1);
+        let history_bits = self.global_history as usize;
+        (pc_bits ^ history_bits) & (self.gshare_table_size - 1)
+    }
+    
+    pub fn update(&mut self, pc: u64, taken: bool) {
+        let local_prediction = self.predict_local(pc);
+        let gshare_prediction = self.predict_gshare(pc);
+        
+        // Update local predictor
+        self.update_local(pc, taken);
+        
+        // Update global predictor
+        self.update_gshare(pc, taken);
+        
+        // Update selector based on which predictor was more accurate
+        let selector_index = (pc & 0x3FF) as usize;
+        let local_correct = (local_prediction == BranchPrediction::Taken) == taken;
+        let gshare_correct = (gshare_prediction == BranchPrediction::Taken) == taken;
+        
+        if local_correct && !gshare_correct {
+            self.selector[selector_index].update(false); // Favor local
+        } else if !local_correct && gshare_correct {
+            self.selector[selector_index].update(true);  // Favor global
+        }
+        // If both correct or both wrong, don't update selector
+        
+        // Update global history
+        self.global_history = (self.global_history << 1) | (taken as u16);
+        self.global_history &= (1 << self.global_history_bits) - 1;
+    }
+    
+    fn update_local(&mut self, pc: u64, taken: bool) {
+        let entry = self.local_history.entry(pc).or_insert_with(|| {
+            let mut pattern_table = Vec::with_capacity(1 << self.local_history_bits);
+            for _ in 0..(1 << self.local_history_bits) {
+                pattern_table.push(TwoBitCounter::new_biased(TwoBitState::WeaklyTaken));
+            }
+            LocalHistoryEntry {
+                history: 0,
+                pattern_table,
+                last_used: 0,
+            }
+        });
+        
+        let pattern_index = entry.history as usize & ((1 << self.local_history_bits) - 1);
+        if pattern_index < entry.pattern_table.len() {
+            entry.pattern_table[pattern_index].update(taken);
+        }
+        
+        // Update local history
+        entry.history = (entry.history << 1) | (taken as u16);
+        entry.history &= (1 << self.local_history_bits) - 1;
+    }
+    
+    fn update_gshare(&mut self, pc: u64, taken: bool) {
+        let index = self.compute_gshare_index(pc);
+        self.gshare_table[index].update(taken);
+    }
+}
+
 impl BranchPredictor {
     pub fn new(predictor_type: PredictorType) -> Self {
+        let hybrid_predictor = if predictor_type == PredictorType::Hybrid {
+            Some(HybridPredictor::new(
+                10, // local history bits
+                12, // global history bits
+                4096, // gshare table size (4K entries)
+            ))
+        } else {
+            None
+        };
+        
         Self {
             prediction_type: predictor_type,
             predictions: HashMap::new(),
             two_bit_states: HashMap::new(),
             metrics: BranchMetrics::default(),
+            hybrid_predictor,
+        }
+    }
+    
+    pub fn new_with_config(predictor_type: PredictorType, config: PredictorConfig) -> Self {
+        let hybrid_predictor = if predictor_type == PredictorType::Hybrid {
+            Some(HybridPredictor::new(
+                config.local_history_bits,
+                config.global_history_bits,
+                1 << config.global_history_bits, // gshare table size
+            ))
+        } else {
+            None
+        };
+        
+        Self {
+            prediction_type: predictor_type,
+            predictions: HashMap::new(),
+            two_bit_states: HashMap::new(),
+            metrics: BranchMetrics::default(),
+            hybrid_predictor,
         }
     }
 
@@ -98,9 +338,25 @@ impl BranchPredictor {
             PredictorType::GShare => {
                 // GSharePredictor
                 BranchPrediction::NotTaken
+
             }
             PredictorType::Gskew => {
                 // GSkewPredictor
+                BranchPrediction::NotTaken
+            }
+            PredictorType::Hybrid => {
+                if let Some(ref hybrid) = self.hybrid_predictor {
+                    hybrid.predict(pc)
+                } else {
+                    BranchPrediction::NotTaken
+                }
+            }
+            PredictorType::Tournament => {
+                // TournamentPredictor
+                BranchPrediction::NotTaken
+            }
+            PredictorType::Perceptron => {
+                // PerceptronPredictor
                 BranchPrediction::NotTaken
             }
         }
@@ -142,6 +398,13 @@ impl BranchPredictor {
                 "Branch state update: PC={:X}, {:?} -> {:?}",
                 pc, old_state, new_state
             );
+        }
+        
+        // Mise à jour du prédicteur hybride
+        if self.prediction_type == PredictorType::Hybrid {
+            if let Some(ref mut hybrid) = self.hybrid_predictor {
+                hybrid.update(pc, taken);
+            }
         }
     }
 
@@ -187,6 +450,76 @@ impl BranchPredictor {
     }
 
 }
+
+
+
+impl BranchTargetBuffer {
+    // pub fn predict_with_confidence(&mut self, pc: u64) -> Option<(u32, u8)> {
+    //     let index = self.get_index(pc);
+    //     let tag = self.get_tag(pc);
+    //
+    //     if let Some(entry) = &self.entries[index] {
+    //         if entry.valid && entry.tag == tag {
+    //             return Some((entry.target, entry.confidence));
+    //         }
+    //     }
+    //     None
+    // }
+    //
+    // fn get_index(&self, pc: u64) -> usize {
+    //     (pc as usize) % self.size
+    // }
+    //
+    // pub fn update_with_confidence(&mut self, pc: u64, target: u32, correct: bool) {
+    //     let index = self.get_index(pc);
+    //     let tag = self.get_tag(pc);
+    //
+    //     match &mut self.entries[index] {
+    //         Some(entry) if entry.tag == tag => {
+    //             entry.target = target;
+    //             if correct {
+    //                 entry.confidence = (entry.confidence + 1).min(255);
+    //             } else {
+    //                 entry.confidence = entry.confidence.saturating_sub(10);
+    //             }
+    //             entry.last_used = self.current_cycle;
+    //         },
+    //         _ => {
+    //             // Nouvelle entrée
+    //             self.entries[index] = Some(BTBEntry {
+    //                 tag,
+    //                 target,
+    //                 valid: true,
+    //                 confidence: if correct { 128 } else { 64 },
+    //                 last_used: self.current_cycle,
+    //             });
+    //         }
+    //     }
+    // }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 #[cfg(test)]
 mod tests {
