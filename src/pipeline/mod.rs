@@ -174,10 +174,19 @@ pub struct PipelineStats {
     pub instructions: u64,
     /// Nombre de stalls (cycles où le pipeline est bloqué)
     pub stalls: u64,
-    /// Nombre de hazards détectés
+    /// Nombre de hazards détectés (vrais hazards causant des stalls)
     pub hazards: u64,
+    /// Nombre de dépendances de données détectées (incluant celles résolues par forwarding)
+    pub data_dependencies: u64,
     /// Nombre de forwards effectués
     pub forwards: u64,
+    /// Nombre de forwarding potentiels détectés
+    pub potential_forwards: u64,
+    
+    /// Statistiques Store-Load forwarding
+    pub store_load_forwards: u64,
+    pub store_load_attempts: u64,
+    
     /// Nombre de prédictions de branchement
     pub branch_predictions: u64,
     /// Nombre de prédictions correctes
@@ -222,7 +231,11 @@ impl Default for PipelineStats{
             instructions: 0,
             stalls: 0,
             hazards: 0,
+            data_dependencies: 0,
             forwards: 0,
+            potential_forwards: 0,
+            store_load_forwards: 0,
+            store_load_attempts: 0,
             branch_predictions: 0,
             branch_hits: 0,
             branch_misses: 0,
@@ -498,12 +511,16 @@ impl Pipeline {
         }
         state.memory_writeback = None;
 
-        self.stats.hazards = self.hazard_detection.get_hazards_count();
-        self.stats.forwards = self.forwarding.get_forwards_count();
-
         // Mise à jour des statistiques
         self.stats.hazards = self.hazard_detection.get_hazards_count();
+        self.stats.data_dependencies = self.hazard_detection.get_data_dependencies_count();
+        self.stats.potential_forwards = self.hazard_detection.get_potential_forwards_count();
         self.stats.forwards = self.forwarding.get_forwards_count();
+        
+        // Mise à jour des statistiques Store-Load forwarding
+        let (store_load_forwards, store_load_attempts) = self.memory.get_store_load_stats();
+        self.stats.store_load_forwards = store_load_forwards;
+        self.stats.store_load_attempts = store_load_attempts;
 
         // 9) Mise à jour de self.state
         self.state = state.clone();
