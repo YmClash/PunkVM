@@ -118,6 +118,15 @@ fn print_stats(vm: &VM) {
         "  Branch prediction rate : {:.2}%",
         stats.branch_prediction_rate
     );
+    
+    // Statistiques BTB
+    println!("\n-- Branch Target Buffer (BTB) --");
+    println!("  BTB Hits: {}", stats.btb_hits);
+    println!("  BTB Misses: {}", stats.btb_misses);
+    println!("  BTB Hit Rate: {:.2}%", stats.btb_hit_rate * 100.0);
+    println!("  BTB Correct Targets: {}", stats.btb_correct_targets);
+    println!("  BTB Incorrect Targets: {}", stats.btb_incorrect_targets);
+    println!("  BTB Accuracy: {:.2}%", stats.btb_accuracy * 100.0);
 
     // Calcul de quelques métriques supplémentaires
     if stats.cycles > 0 {
