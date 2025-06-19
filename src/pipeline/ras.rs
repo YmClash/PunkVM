@@ -2,6 +2,7 @@
 
 use std::collections::VecDeque;
 
+#[derive(Clone, Debug)]
 pub struct ReturnAddressStack {
     stack: VecDeque<u32>,
     max_size: usize,
