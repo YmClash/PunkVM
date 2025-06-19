@@ -27,7 +27,7 @@ impl DecodeStage {
     /// Crée un nouvel étage Decode
     pub fn new() -> Self {
         Self {
-            branch_predictor: BranchPredictor::new(PredictorType::Perceptron), // Changé de Hybrid à Perceptron pour tester
+            branch_predictor: BranchPredictor::new(PredictorType::Hybrid), // Changé de Hybrid à Perceptron pour tester
             // ras: ReturnAddressStack::new(16), // Taille par défaut de 16 entrées
             ras: ReturnAddressStack::new(32),
         }
