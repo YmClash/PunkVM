@@ -51,6 +51,7 @@ fn main() -> VMResult<()> {
     // let program = forwarding_efficiency_test(); // Tests d'efficacité forwarding
     // let program = punk_program_3(); // Tests de branchement
     // let program= punk_program_5(); // Tests multiples branchements conditionnels et inconditionnels
+
     let program = create_stack_test_program(); // Tests de stack machine complet avec CALL/RET
     // let program = test_basic_stack_operations(); // Test basique PUSH/POP
     // let program = test_arithmetic_with_stack(); // Test arithmétique avec pile
