@@ -12,6 +12,7 @@ pub enum VMError {
     ExecutionError(String),
     ALUError(String),
     DecodeError(String),
+    // StackError(String),
 }
 
 // Ajouter type d'erreur pour les opérations arithmétiques
@@ -47,6 +48,8 @@ impl VMError {
     pub fn decode_error(msg: &str) -> Self {
         VMError::DecodeError(msg.to_string())
     }
+
+
 }
 
 impl fmt::Display for VMError {

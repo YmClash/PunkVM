@@ -67,8 +67,9 @@ pub enum Opcode {
     StoreW = 0x65, //store word (16 bits)
     LoadD = 0x66,  //load double word (32 bits)
     StoreD = 0x67, //store double word (32 bits)
-    Push = 0x68,
-    Pop = 0x69,
+    Push = 0x68,    // Push pour empiler une valeur sur la pile
+    Pop = 0x69,   // Pop pour depiler une valeur de la pile
+
     //0x6A - 0x7F : Réservé pour les futures instructions d'accès mémoire
 
     // Instructions speciales (0x80 - 0x9F)
@@ -144,11 +145,6 @@ impl Opcode {
             0x55 => Some(Self::Cmp),
             0x56 => Some(Self::Test),
 
-            //
-            // 0x52 => Some(Self::Call),
-            // 0x53 => Some(Self::Ret),
-            // 0x54 => Some(Self::Cmp),
-            // 0x55 => Some(Self::Test),
             0x60 => Some(Self::Load),
             0x61 => Some(Self::Store),
             0x62 => Some(Self::LoadB),
@@ -168,6 +164,7 @@ impl Opcode {
             // 0xFF => Some(Self::Invalid),
             _ => None,
         }
+
     }
 
     /// Indique si l'opcode est valide
@@ -208,6 +205,16 @@ impl Opcode {
         )
     }
 
+    /// Indique si l'opcode est une instruction call pour RAS
+    pub fn is_call(&self) -> bool{
+        matches!(self , Self::Call)
+    }
+
+    /// Indique si l'opcode est une instruction de retour pour RAS
+    pub fn is_return(&self) -> bool {
+        matches!(self, Self::Ret)
+    }
+
     /// Retourne la categorie de l'opcode
     pub fn category(&self) -> OpcodeCategory {
         match *self as u8 {
@@ -219,6 +226,69 @@ impl Opcode {
             0xF0..=0xFF => OpcodeCategory::Extended,
 
             _ => OpcodeCategory::Unknown,
+        }
+    }
+    pub fn name(&self) -> &'static str{
+        match self {
+            Self::Nop => "Nop",
+            Self::Add => "Add",
+            Self::Sub => "Sub",
+            Self::Mul => "Mul",
+            Self::Div => "Div",
+            Self::Mod => "Mod",
+            Self::Inc => "Inc",
+            Self::Dec => "Dec",
+            Self::Neg => "Neg",
+            Self::Mov => "Mov",
+            Self::And => "And",
+            Self::Or => "Or",
+            Self::Xor => "Xor",
+            Self::Not => "Not",
+            Self::Shl => "Shl",
+            Self::Shr => "Shr",
+            Self::Sar => "Sar",
+            Self::Rol => "Rol",
+            Self::Ror => "Ror",
+            Self::Jmp => "Jmp",
+            Self::JmpIf => "JmpIf",
+            Self::JmpIfNot => "JmpIfNot",
+            Self::JmpIfEqual => "JmpIfEqual",
+            Self::JmpIfNotEqual => "JmpIfNotEqual",
+            Self::JmpIfGreater => "JmpIfGreater",
+            Self::JmpIfGreaterEqual => "JmpIfGreaterEqual",
+            Self::JmpIfLess => "JmpIfLess",
+            Self::JmpIfLessEqual => "JmpIfLessEqual",
+            Self::JmpIfAbove => "JmpIfAbove",
+            Self::JmpIfAboveEqual => "JmpIfAboveEqual",
+            Self::JmpIfBelow => "JmpIfBelow",
+            Self::JmpIfBelowEqual => "JmpIfBelowEqual",
+            Self::JmpIfNotZero => "JmpIfNotZero",
+            Self::JmpIfZero => "JmpIfZero",
+            Self::JmpIfOverflow => "JmpIfOverflow",
+            Self::JmpIfNotOverflow => "JmpIfNotOverflow",
+            Self::JmpIfPositive => "JmpIfPositive",
+            Self::JmpIfNegative => "JmpIfNegative",
+            Self::Call => "Call",
+            Self::Ret => "Ret",
+            Self::Cmp => "Cmp",
+            Self::Test => "Test",
+            Self::Load => "Load",
+            Self::Store => "Store",
+            Self::LoadB => "LoadB",
+            Self::StoreB => "StoreB",
+            Self::LoadW => "LoadW",
+            Self::StoreW => "StoreW",
+            Self::LoadD => "LoadD",
+            Self::StoreD => "StoreD",
+            Self::Push => "Push",
+            Self::Pop => "Pop",
+            Self::Syscall => "Syscall",
+            Self::Break => "Break",
+            Self::Halt => "Halt",
+            Self::Extended => "Extended",
+            _ => "Unknown",
+
+
         }
     }
 }
@@ -284,6 +354,19 @@ mod tests {
         assert!(!Opcode::Add.is_branch());
         assert!(!Opcode::Load.is_branch());
         assert!(!Opcode::Halt.is_branch());
+    }
+
+    #[test]
+    fn test_opcode_is_call() {
+        // Test des instructions de type call
+        assert!(Opcode::Call.is_call());
+
+    }
+
+    #[test]
+    fn test_opcode_is_return() {
+        // Test des instructions de type return
+        assert!(Opcode::Ret.is_return());
     }
 
     #[test]

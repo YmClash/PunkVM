@@ -17,10 +17,11 @@ fn main() -> VMResult<()> {
     // Configuration de la VM
     let config = VMConfig {
         memory_size: 64 * 1024,        // 64 KB de mémoire
-        num_registers: 16,             // 16 registres généraux
+        num_registers: 19,             // 16 registres généraux + 3 spéciaux (SP, BP, RA)
         l1_cache_size: 1024,           // 1 KB de cache L1
         store_buffer_size: 8,          // 8 entrées dans le store buffer
         stack_size: 4 * 1024,          // 4 KB de pile
+        stack_base: 0xC000,            // Base de la pile (48KB) dans la mémoire 64KB
         fetch_buffer_size: 8,          // 8 instructions dans le buffer de fetch
         btb_size: 16,                  // 16 entrées dans la BTB
         ras_size: 4,                   // 4 entrées dans le RAS
@@ -40,27 +41,21 @@ fn main() -> VMResult<()> {
         vm.registers.len()
     );
 
-    // Créer le programme de test
-    // Décommenter la ligne souhaitée pour tester différents programmes:
-    
-    // Test complet et corrigé de tous les branchements
+    // Choisir le programme de test
+    // let program = forwarding_stress_test(); // Tests de forwarding intensif
+    // let program = store_load_forwarding_test_8(); // Tests Store-Load forwarding  immédiat 8
+    // let program = store_load_forwarding_test_16(); // Tests Store-Load forwarding immédiat 16
+    // let program = store_load_forwarding_test_32(); // Tests Store-Load forwarding immédiat 32
+    // let program = store_load_forwarding_test_64(); // Tests Store-Load forwarding immédiat 64
 
-    
-    // Test minimal pour le bug de branchement non pris
-    // let program = test_branch_not_taken_fix();
-    
-    // Programme original (contient des bugs d'adressage)
-    let program = punk_program_3();
-    
-    // Autres programmes de test
-    // let program = punk_program_5();
-    // let program = create_reg_reg_reg_test_program();
+    // let program = forwarding_efficiency_test(); // Tests d'efficacité forwarding
+    // let program = punk_program_3(); // Tests de branchement
+    // let program= punk_program_5(); // Tests multiples branchements conditionnels et inconditionnels
 
-    // let program = comprehensive_branch_test();
-
-
-
-
+    let program = create_stack_test_program(); // Tests de stack machine complet avec CALL/RET
+    // let program = test_basic_stack_operations(); // Test basique PUSH/POP
+    // let program = test_arithmetic_with_stack(); // Test arithmétique avec pile
+    // let program = test_advanced_stack_register(); // Test avancé combinaison registres/pile
 
     // Charger le programme dans la VM
     println!("Chargement du programme...");
@@ -125,6 +120,15 @@ fn print_stats(vm: &VM) {
         "  Branch prediction rate : {:.2}%",
         stats.branch_prediction_rate
     );
+    
+    // Statistiques BTB
+    println!("\n-- Branch Target Buffer (BTB) --");
+    println!("  BTB Hits: {}", stats.btb_hits);
+    println!("  BTB Misses: {}", stats.btb_misses);
+    println!("  BTB Hit Rate: {:.2}%", stats.btb_hit_rate * 100.0);
+    println!("  BTB Correct Targets: {}", stats.btb_correct_targets);
+    println!("  BTB Incorrect Targets: {}", stats.btb_incorrect_targets);
+    println!("  BTB Accuracy: {:.2}%", stats.btb_accuracy * 100.0);
 
     // Calcul de quelques métriques supplémentaires
     if stats.cycles > 0 {
@@ -138,10 +142,18 @@ fn print_stats(vm: &VM) {
         println!("  Taux de hits cache: {:.2}%", hit_rate);
     }
 
-    // if stats.hazards > 0 && stats.forwards > 0 {
-    //     let forwarding_efficiency = (stats.forwards as f64  / stats.hazards as f64) * 100.0;
-    //     println!("  Efficacité du forwarding: {:.2}%", forwarding_efficiency);
-    // }
+
+    // Statistique du Stack
+    println!("\n===== STATISTIQUES DU STACK =====\n");
+    // println!("  Taille de la pile: {} octets", stats.);
+    println!(" Total de Stack Push: {}", stats.stack_pushes);
+    println!(" Total de Stack Pop: {}", stats.stack_pops);
+    println!(" Total Hits de Stack: {}", stats.stack_hits);
+    println!(" Total Miss de Stack: {}", stats.stack_misses);
+    println!(" Profondeur maximale de la pile: {}", stats.stack_max_depth);
+    println!(" Profondeur actuelle de la pile: {}", stats.stack_current_depth);
+
+
 
     // Évaluation des performances
     println!("\n===== ÉVALUATION DES PERFORMANCES =====\n");
@@ -163,422 +175,35 @@ fn print_stats(vm: &VM) {
     println!("Taux de stalls: {:.2}%", stall_rate);
 
     // Efficacité du forwarding
-    let total_data_dependencies = stats.forwards + stats.hazards;
-    let forwarding_efficiency = if total_data_dependencies > 0 {
-        stats.forwards as f64 / total_data_dependencies as f64 * 100.0
+    println!("\n-- Analyse du Forwarding --");
+    println!("Dépendances de données détectées: {}", stats.data_dependencies);
+    println!("Forwards potentiels identifiés: {}", stats.potential_forwards);
+    println!("Forwards effectués: {}", stats.forwards);
+    println!("Vrais hazards (causant stalls): {}", stats.hazards);
+    
+    let forwarding_efficiency = if stats.potential_forwards > 0 {
+        stats.forwards as f64 / stats.potential_forwards as f64 * 100.0
     } else {
         0.0
     };
-    println!("Efficacité du forwarding: {:.2}%", forwarding_efficiency);
+    println!("Efficacité du forwarding: {:.2}% ({}/{})", 
+            forwarding_efficiency, stats.forwards, stats.potential_forwards);
+    
+    // Store-Load forwarding
+    println!("\n-- Store-Load Forwarding --");
+    println!("Store-Load tentatives: {}", stats.store_load_attempts);
+    println!("Store-Load forwards: {}", stats.store_load_forwards);
+    
+    let store_load_efficiency = if stats.store_load_attempts > 0 {
+        stats.store_load_forwards as f64 / stats.store_load_attempts as f64 * 100.0
+    } else {
+        0.0
+    };
+    println!("Efficacité Store-Load forwarding: {:.2}% ({}/{})", 
+            store_load_efficiency, stats.store_load_forwards, stats.store_load_attempts);
 
     println!("\n===== TEST TERMINÉ =====");
     println!("=====PunkVM=By=YmC======\n");
-}
-
-/// Test minimal pour valider la correction du bug de branchement non pris
-/// Ce test reproduit exactement le bug décrit : PC=0x5E, JmpIfEqual non pris devrait aller à 0x66 mais allait à 0x6E
-pub fn test_branch_not_taken_fix() -> BytecodeFile {
-    let mut program = BytecodeFile::new();
-    program.version = BytecodeVersion::new(0, 1, 0, 0);
-    program.add_metadata("name", "Test Bug Fix Branch Non Pris");
-    program.add_metadata("description", "Test minimal pour vérifier que le PC est correctement calculé pour les branchements non pris");
-    program.add_metadata("author", "PunkVM Team");
-
-    // Instructions minimales pour reproduire le bug:
-    // MOV R0, 10
-    // MOV R1, 20  
-    // CMP R0, R1     // 10 != 20, ZF=false
-    // JmpIfEqual +6  // NON PRIS - devrait continuer à l'instruction suivante
-    // MOV R2, 42     // DOIT être exécuté (marqueur de succès)
-    // HALT
-    
-    println!("=== CRÉATION DU TEST MINIMAL BRANCH NOT TAKEN ===");
-    
-    // 1. MOV R0, 10
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 10));
-    
-    // 2. MOV R1, 20
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 20));
-    
-    // 3. CMP R0, R1 (compare 10 et 20, met ZF=0 car ils ne sont pas égaux)
-    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
-    
-    // 4. JmpIfEqual (saut conditionnel - ne sera PAS pris car ZF=0)
-    let current_address = Instruction::calculate_current_address(&program.code);
-    let jmp_instruction_size = 8; // Taille de l'instruction JmpIfEqual
-    let jmpifequal_target = current_address + jmp_instruction_size + 6; // Target après MOV R2, 42
-    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target));
-    
-    // 5. MOV R2, 42 - Cette instruction DOIT être exécutée (marqueur de succès)
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 42));
-    
-    // 6. HALT
-    program.add_instruction(Instruction::create_no_args(Opcode::Halt));
-    
-    // Configuration des segments
-    let total_size: u32 = program
-        .code
-        .iter()
-        .map(|instr| instr.total_size() as u32)
-        .sum();
-    program.segments = vec![SegmentMetadata::new(SegmentType::Code, 0, total_size, 0)];
-    
-    // Segment de données vide
-    let data_size = 256;
-    let data_segment = SegmentMetadata::new(SegmentType::Data, 0, data_size, 0x1000);
-    program.segments.push(data_segment);
-    program.data = vec![0; data_size as usize];
-    
-    // Affichage de la carte des instructions
-    println!("\n--- Carte des instructions du test minimal ---");
-    let mut addr = 0;
-    for (idx, instr) in program.code.iter().enumerate() {
-        let size = instr.total_size();
-        println!(
-            "Instruction {}: Adresse 0x{:04X}-0x{:04X} (taille {}): {:?}",
-            idx,
-            addr,
-            addr + size - 1,
-            size,
-            instr.opcode
-        );
-        
-        if instr.opcode.is_branch() {
-            if let Ok(ArgValue::RelativeAddr(offset)) = instr.get_arg2_value() {
-                let target = (addr as u32 + size as u32) as i64 + offset as i64;
-                println!("      -> Branchement relatif: offset={:+}, target=0x{:04X}", offset, target);
-            }
-        }
-        addr += size;
-    }
-    println!("--- Fin de la carte ---\n");
-    
-    println!("=== RÉSULTAT ATTENDU ===");
-    println!("Si le bug est corrigé:");
-    println!("- Le programme doit s'exécuter complètement jusqu'à HALT");
-    println!("- R2 doit contenir 42 (prouvant que l'instruction après JmpIfEqual a été exécutée)");
-    println!("- Pas d'erreur 'Instruction non trouvée'");
-    println!();
-    
-    program
-}
-
-/// Programme de test complet et corrigé pour tous les types de branchements
-/// Version améliorée de punk_program_3() avec corrections des bugs d'adressage
-pub fn comprehensive_branch_test() -> BytecodeFile {
-    let mut program = BytecodeFile::new();
-    program.version = BytecodeVersion::new(0, 1, 0, 0);
-    program.add_metadata("name", "PunkVM Complete Branch Validation Test");
-    program.add_metadata("description", "Test complet et corrigé de tous les types de branchements avec adressage précis");
-    program.add_metadata("author", "PunkVM Team - Bug Fix Version");
-    program.add_metadata("test_categories", "JMP, JmpIfEqual, JmpIfNotEqual, JmpIfGreater, JmpIfLess, JmpIfGreaterEqual, JmpIfLessEqual, JmpIfZero, JmpIfNotZero");
-
-    println!("=== CRÉATION DU TEST COMPLET DES BRANCHEMENTS ===");
-
-    // ============================================================================
-    // SECTION 1: INITIALISATION DES REGISTRES
-    // ============================================================================
-    println!("Section 1: Initialisation des registres");
-    
-    // Registres pour les comparaisons
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 10)); // R0 = 10
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 20)); // R1 = 20  
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 10)); // R2 = 10 (égal à R0)
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 5));  // R3 = 5 (plus petit que R0)
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0));  // R4 = 0 (pour tests de zéro)
-    
-    // Registres pour stocker les résultats des tests (marqueurs de succès)
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0)); // R10 = compteur de succès
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0)); // R15 = marqueur d'échec
-
-    // ============================================================================
-    // SECTION 2: TEST JMP (SAUT INCONDITIONNEL)
-    // ============================================================================
-    println!("Section 2: Test JMP inconditionnel");
-    
-    let current_addr = Instruction::calculate_current_address(&program.code);
-    let skip_instruction_size = 6; // Taille de l'instruction MOV à ignorer
-    let jmp_target = current_addr + 8 + skip_instruction_size; // 8 = taille JMP, +6 = taille MOV à sauter
-    program.add_instruction(Instruction::create_jump(current_addr, jmp_target));
-    
-    // Cette instruction ne doit PAS être exécutée
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0xFF)); // ÉCHEC si exécuté
-    
-    // Cette instruction doit être exécutée (marqueur de succès JMP)
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 1)); // R10 = 1 (succès JMP)
-
-    // ============================================================================
-    // SECTION 3: TEST JmpIfEqual (ZF = 1)
-    // ============================================================================
-    println!("Section 3: Test JmpIfEqual");
-    
-    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
-    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2)); // Compare R0 et R2
-    let current_addr = Instruction::calculate_current_address(&program.code);
-    let jmpifequal_target_1 = current_addr + 8 + 6; // Sauter par-dessus l'instruction d'échec
-    program.add_instruction(Instruction::create_jump_if_equal(current_addr, jmpifequal_target_1));
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0xFF)); // ÉCHEC si exécuté
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 2)); // R10 = 2 (succès JmpIfEqual pris)
-    
-    // Test 2: R0 == R1 (10 == 20) → ZF = 0 → branchement NON PRIS
-    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1)); // Compare R0 et R1
-    let current_addr = Instruction::calculate_current_address(&program.code);
-    let jmpifequal_target_2 = current_addr + 8 + 6; // Target après l'instruction suivante
-    program.add_instruction(Instruction::create_jump_if_equal(current_addr, jmpifequal_target_2));
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 3)); // R10 = 3 (succès JmpIfEqual non pris)
-
-    // ============================================================================
-    // SECTION 4: TEST JmpIfNotEqual (ZF = 0)
-    // ============================================================================
-    println!("Section 4: Test JmpIfNotEqual");
-    
-    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
-    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
-    let current_addr = Instruction::calculate_current_address(&program.code);
-    let jmpifnotequal_target_1 = current_addr + 8 + 6;
-    program.add_instruction(Instruction::create_jump_if_not_equal(current_addr, jmpifnotequal_target_1));
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0xFF)); // ÉCHEC si exécuté
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 4)); // R10 = 4 (succès JmpIfNotEqual pris)
-    
-    // Test 2: R0 != R2 (10 != 10) → ZF = 1 → branchement NON PRIS
-    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
-    let current_addr = Instruction::calculate_current_address(&program.code);
-    let jmpifnotequal_target_2 = current_addr + 8 + 6;
-    program.add_instruction(Instruction::create_jump_if_not_equal(current_addr, jmpifnotequal_target_2));
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 5)); // R10 = 5 (succès JmpIfNotEqual non pris)
-
-    // ============================================================================
-    // SECTION 5: TEST JmpIfGreater (ZF = 0 ET SF = 0)
-    // ============================================================================
-    println!("Section 5: Test JmpIfGreater");
-    
-    // Test 1: R1 > R0 (20 > 10) → branchement PRIS
-    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
-    let current_addr = Instruction::calculate_current_address(&program.code);
-    let jmpifgreater_target_1 = current_addr + 8 + 6;
-    program.add_instruction(Instruction::create_jump_if_greater(current_addr, jmpifgreater_target_1));
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0xFF)); // ÉCHEC si exécuté
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 6)); // R10 = 6 (succès JmpIfGreater pris)
-    
-    // Test 2: R3 > R0 (5 > 10) → branchement NON PRIS
-    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
-    let current_addr = Instruction::calculate_current_address(&program.code);
-    let jmpifgreater_target_2 = current_addr + 8 + 6;
-    program.add_instruction(Instruction::create_jump_if_greater(current_addr, jmpifgreater_target_2));
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 7)); // R10 = 7 (succès JmpIfGreater non pris)
-
-    // ============================================================================
-    // SECTION 6: TEST JmpIfLess (SF = 1)
-    // ============================================================================
-    println!("Section 6: Test JmpIfLess");
-    
-    // Test 1: R3 < R0 (5 < 10) → branchement PRIS
-    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
-    let current_addr = Instruction::calculate_current_address(&program.code);
-    let jmpifless_target_1 = current_addr + 8 + 6;
-    program.add_instruction(Instruction::create_jump_if_less(current_addr, jmpifless_target_1));
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0xFF)); // ÉCHEC si exécuté
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 8)); // R10 = 8 (succès JmpIfLess pris)
-    
-    // Test 2: R1 < R0 (20 < 10) → branchement NON PRIS
-    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
-    let current_addr = Instruction::calculate_current_address(&program.code);
-    let jmpifless_target_2 = current_addr + 8 + 6;
-    program.add_instruction(Instruction::create_jump_if_less(current_addr, jmpifless_target_2));
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 9)); // R10 = 9 (succès JmpIfLess non pris)
-
-    // ============================================================================
-    // SECTION 7: TEST JmpIfGreaterEqual (SF = 0 OU ZF = 1)
-    // ============================================================================
-    println!("Section 7: Test JmpIfGreaterEqual");
-    
-    // Test 1: R1 >= R0 (20 >= 10) → branchement PRIS
-    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
-    let current_addr = Instruction::calculate_current_address(&program.code);
-    let jmpifgreaterequal_target_1 = current_addr + 8 + 6;
-    program.add_instruction(Instruction::create_jump_if_greater_equal(current_addr, jmpifgreaterequal_target_1));
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0xFF)); // ÉCHEC si exécuté
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 10)); // R10 = 10 (succès)
-    
-    // Test 2: R0 >= R2 (10 >= 10) → ZF = 1 → branchement PRIS
-    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
-    let current_addr = Instruction::calculate_current_address(&program.code);
-    let jmpifgreaterequal_target_2 = current_addr + 8 + 6;
-    program.add_instruction(Instruction::create_jump_if_greater_equal(current_addr, jmpifgreaterequal_target_2));
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0xFF)); // ÉCHEC si exécuté
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 11)); // R10 = 11 (succès)
-    
-    // Test 3: R3 >= R0 (5 >= 10) → branchement NON PRIS
-    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
-    let current_addr = Instruction::calculate_current_address(&program.code);
-    let jmpifgreaterequal_target_3 = current_addr + 8 + 6;
-    program.add_instruction(Instruction::create_jump_if_greater_equal(current_addr, jmpifgreaterequal_target_3));
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 12)); // R10 = 12 (succès non pris)
-
-    // ============================================================================
-    // SECTION 8: TEST JmpIfLessEqual (SF = 1 OU ZF = 1)
-    // ============================================================================
-    println!("Section 8: Test JmpIfLessEqual");
-    
-    // Test 1: R3 <= R0 (5 <= 10) → branchement PRIS
-    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
-    let current_addr = Instruction::calculate_current_address(&program.code);
-    let jmpiflessequal_target_1 = current_addr + 8 + 6;
-    program.add_instruction(Instruction::create_jump_if_less_equal(current_addr, jmpiflessequal_target_1));
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0xFF)); // ÉCHEC si exécuté
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 13)); // R10 = 13 (succès)
-    
-    // Test 2: R0 <= R2 (10 <= 10) → ZF = 1 → branchement PRIS
-    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
-    let current_addr = Instruction::calculate_current_address(&program.code);
-    let jmpiflessequal_target_2 = current_addr + 8 + 6;
-    program.add_instruction(Instruction::create_jump_if_less_equal(current_addr, jmpiflessequal_target_2));
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0xFF)); // ÉCHEC si exécuté
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 14)); // R10 = 14 (succès)
-    
-    // Test 3: R1 <= R0 (20 <= 10) → branchement NON PRIS
-    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
-    let current_addr = Instruction::calculate_current_address(&program.code);
-    let jmpiflessequal_target_3 = current_addr + 8 + 6;
-    program.add_instruction(Instruction::create_jump_if_less_equal(current_addr, jmpiflessequal_target_3));
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 15)); // R10 = 15 (succès non pris)
-
-    // ============================================================================
-    // SECTION 9: TEST JmpIfZero (ZF = 1)
-    // ============================================================================
-    println!("Section 9: Test JmpIfZero");
-    
-    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
-    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
-    let current_addr = Instruction::calculate_current_address(&program.code);
-    let jmpifzero_target_1 = current_addr + 8 + 6;
-    program.add_instruction(Instruction::create_jump_if_zero(current_addr, jmpifzero_target_1));
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0xFF)); // ÉCHEC si exécuté
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 16)); // R10 = 16 (succès)
-    
-    // Test 2: R0 != R1 (10 != 20) → ZF = 0 → branchement NON PRIS
-    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
-    let current_addr = Instruction::calculate_current_address(&program.code);
-    let jmpifzero_target_2 = current_addr + 8 + 6;
-    program.add_instruction(Instruction::create_jump_if_zero(current_addr, jmpifzero_target_2));
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 17)); // R10 = 17 (succès non pris)
-
-    // ============================================================================
-    // SECTION 10: TEST JmpIfNotZero (ZF = 0)
-    // ============================================================================
-    println!("Section 10: Test JmpIfNotZero");
-    
-    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
-    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
-    let current_addr = Instruction::calculate_current_address(&program.code);
-    let jmpifnotzero_target_1 = current_addr + 8 + 6;
-    program.add_instruction(Instruction::create_jump_if_not_zero(current_addr, jmpifnotzero_target_1));
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0xFF)); // ÉCHEC si exécuté
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 18)); // R10 = 18 (succès)
-    
-    // Test 2: R0 == R2 (10 == 10) → ZF = 1 → branchement NON PRIS
-    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
-    let current_addr = Instruction::calculate_current_address(&program.code);
-    let jmpifnotzero_target_2 = current_addr + 8 + 6;
-    program.add_instruction(Instruction::create_jump_if_not_zero(current_addr, jmpifnotzero_target_2));
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 19)); // R10 = 19 (succès non pris)
-
-    // ============================================================================
-    // SECTION 11: FINALISATION ET VALIDATION
-    // ============================================================================
-    println!("Section 11: Finalisation");
-    
-    // Marquer la fin des tests avec un identificateur unique
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 0xFE)); // R0 = 254 (marqueur de fin)
-    
-    // Fin du programme
-    program.add_instruction(Instruction::create_no_args(Opcode::Halt));
-
-    // ============================================================================
-    // CONFIGURATION DES SEGMENTS
-    // ============================================================================
-    let total_code_size: u32 = program
-        .code
-        .iter()
-        .map(|instr| instr.total_size() as u32)
-        .sum();
-    program.segments = vec![SegmentMetadata::new(SegmentType::Code, 0, total_code_size, 0)];
-
-    let data_size = 512;
-    let data_segment = SegmentMetadata::new(SegmentType::Data, 0, data_size, 0x1000);
-    program.segments.push(data_segment);
-    program.data = vec![0; data_size as usize];
-
-    // ============================================================================
-    // AFFICHAGE DE LA CARTE DES INSTRUCTIONS
-    // ============================================================================
-    println!("\n=== CARTE COMPLÈTE DES INSTRUCTIONS ===");
-    let mut addr = 0u32;
-    let mut section_map = HashMap::new();
-    
-    // Définir les sections par index d'instruction
-    let sections = [
-        (0..7, "INIT"),
-        (7..10, "JMP"),
-        (10..14, "JmpIfEqual"),
-        (14..18, "JmpIfNotEqual"),
-        (18..22, "JmpIfGreater"),
-        (22..26, "JmpIfLess"),
-        (26..32, "JmpIfGreaterEqual"),
-        (32..38, "JmpIfLessEqual"),
-        (38..42, "JmpIfZero"),
-        (42..46, "JmpIfNotZero"),
-        (46..48, "FINAL"),
-    ];
-    
-    for (range, name) in &sections {
-        for i in range.clone() {
-            section_map.insert(i, *name);
-        }
-    }
-
-    for (idx, instr) in program.code.iter().enumerate() {
-        let size = instr.total_size();
-        let section = section_map.get(&idx).unwrap_or(&"UNKNOWN");
-
-        println!(
-            "Instruction {:2}: [{}] Adresse 0x{:04X}-0x{:04X} (taille {:2}): {:?}",
-            idx,
-            section,
-            addr,
-            addr + size as u32 - 1,
-            size,
-            instr.opcode
-        );
-
-        // Affichage spécial pour les branchements
-        if instr.opcode.is_branch() {
-            if let Ok(ArgValue::RelativeAddr(offset)) = instr.get_arg2_value() {
-                let target = (addr + size as u32) as i64 + offset as i64;
-                println!(
-                    "      -> Branchement relatif: offset={:+}, target=0x{:04X}",
-                    offset, target
-                );
-            }
-        }
-
-        addr += size as u32;
-    }
-
-    println!("\n=== RÉSUMÉ DES TESTS ===");
-    println!("Total: {} instructions, {} bytes", program.code.len(), addr);
-    println!("Tests de branchement: {} sections", sections.len() - 2); // -2 pour INIT et FINAL
-
-    println!("\n=== VALIDATION ATTENDUE ===");
-    println!("Si tous les tests réussissent:");
-    println!("- R0  = 254 (0xFE) - Marqueur de fin");
-    println!("- R10 = 19 - Compteur de succès (tous les tests passés)");
-    println!("- R15 = 0  - Aucun échec détecté");
-    println!("- Programme s'exécute complètement jusqu'à HALT");
-    println!("- Aucune erreur 'Instruction non trouvée'");
-    println!();
-
-    program
 }
 
 
@@ -862,26 +487,26 @@ pub fn punk_program_3() -> BytecodeFile {
     program.add_instruction(Instruction::create_jump_if_not_zero(0, 0));
     current_address = Instruction::calculate_current_address(&program.code);
 
-    // // ============================================================================
-    // // SECTION 12: TEST CALL/RET (Si implémenté)
-    // // ============================================================================
-    // println!("=== SECTION 12: TEST CALL/RET ===");
-    // current_address = Instruction::calculate_current_address(&program.code);
-    // let call_target = current_address + 8 + 6 ;
-    // // Sauter par-dessus la fonction pour aller au call
-    // program.add_instruction(Instruction::create_jump(current_address, call_target)); // Sauter la fonction
-    // current_address = Instruction::calculate_current_address(&program.code);
-    //
-    // // FONCTION: simple_function
-    // // Fonction qui met 0xFF dans R5 et retourne
-    // program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0xFF)); // R5 = 255
-    // program.add_instruction(Instruction::create_no_args(Opcode::Ret)); // Retour
-    // current_address = Instruction::calculate_current_address(&program.code);
-    //
-    // // Appel de la fonction (si CALL est implémenté)
-    // current_address = Instruction::calculate_current_address(&program.code);
-    // let function_offset = -12; // Retourner à la fonction
-    // // program.add_instruction(Instruction::create_call(function_offset));
+    // ============================================================================
+    // SECTION 12: TEST CALL/RET (Si implémenté)
+    // ============================================================================
+    println!("=== SECTION 12: TEST CALL/RET ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+    let call_target = current_address + 8 + 6 ;
+    // Sauter par-dessus la fonction pour aller au call
+    program.add_instruction(Instruction::create_jump(current_address, call_target)); // Sauter la fonction
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // FONCTION: simple_function
+    // Fonction qui met 0xFF dans R5 et retourne
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0xFF)); // R5 = 255
+    program.add_instruction(Instruction::create_no_args(Opcode::Ret)); // Retour
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Appel de la fonction (si CALL est implémenté)
+    current_address = Instruction::calculate_current_address(&program.code);
+    let function_offset = -12i32;// Retourner à la fonction
+    program.add_instruction(Instruction::create_call(function_offset as u32));
 
     // ============================================================================
     // SECTION 13: FINALISATION ET VÉRIFICATION
@@ -987,187 +612,10044 @@ pub fn punk_program_3() -> BytecodeFile {
     program
 }
 
+/// Crée un programme de test pour valider la stack machine
+fn create_stack_test_program() -> BytecodeFile {
+    let mut program = BytecodeFile::new();
+    let mut current_address: u32 = 0;
+    
+    // Initialiser la version et les métadonnées
+    program.version = BytecodeVersion::new(0, 1, 0, 0);
+    program.add_metadata("name", "PunkVM Stack Machine Test");
+    program.add_metadata("description", "Test complet de la stack machine avec PUSH/POP/CALL/RET");
+    program.add_metadata("author", "PunkVM Team");
+    
+    println!("\n=== CRÉATION DU PROGRAMME DE TEST STACK MACHINE ===");
+    
+    // ============================================================================
+    // SECTION 1: INITIALISATION
+    // ============================================================================
+    println!("=== SECTION 1: INITIALISATION ===");
+    
+    // Initialiser des valeurs dans les registres
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 42));   // R0 = 42
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 99));   // R1 = 99
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 0));    // R2 = 0 (pour résultat)
+    
+    // ============================================================================
+    // SECTION 2: TEST PUSH/POP BASIQUE
+    // ============================================================================
+    println!("=== SECTION 2: TEST PUSH/POP BASIQUE ===");
+
+    // Test PUSH R0 (42)
+    program.add_instruction(Instruction::create_push_register(0));
+
+    // Test PUSH R1 (99)
+    program.add_instruction(Instruction::create_push_register(1));
+
+    // Test PUSH immédiat 77
+    program.add_instruction(Instruction::create_push_immediate8(7, 77));
+
+    // Test POP R2 (devrait récupérer 77)
+    program.add_instruction(Instruction::create_pop_register(2));
+
+    // Test POP R3 (devrait récupérer 99)
+    program.add_instruction(Instruction::create_pop_register(3));
+
+    // Test POP R4 (devrait récupérer 42)
+    program.add_instruction(Instruction::create_pop_register(4));
+    
+    //Vérification: R2=77, R3=99, R4=42
+    
+    // ============================================================================
+    // SECTION 3: TEST CALL/RET SIMPLE
+    // ============================================================================
+    println!("=== SECTION 3: TEST CALL/RET SIMPLE ===");
+    
+    // Préparer des valeurs pour la fonction
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 10));   // R5 = 10
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 20));   // R6 = 20
+    
+    // Calculer l'adresse actuelle avant le CALL
+    current_address = Instruction::calculate_current_address(&program.code);
+    
+    // CALL vers la fonction - calculer l'adresse de la fonction ADD
+    // La fonction sera après: CALL (8 bytes) + MOV (6 bytes) = +14 bytes d'ici
+    let function_address = current_address + 8 + 6; // CALL + MOV
+    program.add_instruction(Instruction::create_call_relative(current_address, function_address));
+    
+    // Instructions après le CALL
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0xAA)); // R8 = 0xAA (marqueur retour OK)
+    
+    // FONCTION: add_function (exécutée directement, pas de JMP pour l'éviter)
+    // Additionne R5 et R6, met le résultat dans R7
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 7, 5, 6)); // R7 = R5 + R6
+    program.add_instruction(Instruction::create_return()); // RET
+    
+    // ============================================================================
+    // SECTION 4: TEST APPELS IMBRIQUÉS
+    // ============================================================================
+    println!("=== SECTION 4: TEST APPELS IMBRIQUÉS ===");
+    
+    // Fonction principale qui appelle une sous-fonction
+    current_address = Instruction::calculate_current_address(&program.code);
+    let nested_function_address = current_address + 6 + 8; // MOV + JMP
+    program.add_instruction(Instruction::create_call_relative(current_address, nested_function_address));
+    
+    // Marquer que nous sommes revenus de l'appel imbriqué
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xBB)); // R9 = 0xBB
+    
+    // Jump pour éviter les fonctions
+    current_address = Instruction::calculate_current_address(&program.code);
+    let skip_nested_offset = 40;
+    program.add_instruction(Instruction::create_jump(current_address, current_address + skip_nested_offset));
+    
+    // FONCTION NIVEAU 1: Appelle une autre fonction
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 1));   // R10 = 1 (niveau 1)
+    current_address = Instruction::calculate_current_address(&program.code);
+    let inner_function_address = current_address + 6; // RET instruction
+    program.add_instruction(Instruction::create_call_relative(current_address, inner_function_address));
+    program.add_instruction(Instruction::create_return());
+    
+    // FONCTION NIVEAU 2: Fonction finale
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 2));   // R11 = 2 (niveau 2)
+    program.add_instruction(Instruction::create_return());
+    
+    // ============================================================================
+    // SECTION 5: TEST PILE AVEC BOUCLE
+    // ============================================================================
+    println!("=== SECTION 5: TEST PILE AVEC BOUCLE ===");
+    
+    // Initialiser compteur et limite
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0));   // R12 = 0 (compteur)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 5));   // R13 = 5 (limite)
+    
+    // Début de la boucle
+    current_address = Instruction::calculate_current_address(&program.code);
+    let loop_start = current_address;
+    
+    // Push le compteur sur la pile
+    program.add_instruction(Instruction::create_push_register(12));
+    
+    // Incrémenter le compteur
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Inc, 12, 12));
+    
+    // Comparer avec la limite
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 12, 13));
+    
+    // Si pas égal, continuer la boucle
+    current_address = Instruction::calculate_current_address(&program.code);
+    let loop_offset = loop_start as i32 - (current_address + 8) as i32;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, loop_start));
+    
+    // Après la boucle, dépiler les valeurs (on devrait avoir 0,1,2,3,4 sur la pile)
+    program.add_instruction(Instruction::create_pop_register(14));  // R14 = 4
+    program.add_instruction(Instruction::create_pop_register(15));  // R15 = 3
+    
+    // ============================================================================
+    // SECTION 6: FINALISATION
+    // ============================================================================
+    println!("=== SECTION 6: FINALISATION ===");
+    
+    // Marquer la fin des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 0xFE)); // R0 = 254 (marqueur de fin)
+    
+    // Fin du programme
+    program.add_instruction(Instruction::create_no_args(Opcode::Halt));
+    
+    // ============================================================================
+    // CONFIGURATION DES SEGMENTS
+    // ============================================================================
+    let total_code_size: u32 = program
+        .code
+        .iter()
+        .map(|instr| instr.total_size() as u32)
+        .sum();
+    program.segments = vec![SegmentMetadata::new(SegmentType::Code, 0, total_code_size, 0)];
+    
+    // ============================================================================
+    // AFFICHAGE DE LA CARTE DES INSTRUCTIONS
+    // ============================================================================
+    println!("\n=== CARTE DES INSTRUCTIONS STACK TEST ===");
+    let mut addr = 0u32;
+    for (idx, instr) in program.code.iter().enumerate() {
+        let size = instr.total_size();
+        println!(
+            "Instruction {:2}: Adresse 0x{:04X}-0x{:04X} (taille {:2}): {:?}",
+            idx,
+            addr,
+            addr + size as u32 - 1,
+            size,
+            instr.opcode
+        );
+
+
+        if instr.opcode.is_branch() {
+            if let Ok(ArgValue::RelativeAddr(offset)) = instr.get_arg2_value() {
+                let target = (addr + size as u32) as i64 + offset as i64;
+                println!(
+                    "      -> Branchement relatif: offset={:+}, target=0x{:04X}",
+                    offset, target
+                );
+            }
+        }
+        addr += size as u32;
+    }
+    
+    println!("\n=== RÉSULTATS ATTENDUS ===");
+    println!("R0  = 254 (0xFE) - Marqueur de fin");
+    println!("R2  = 77  - Pop immédiat");
+    println!("R3  = 99  - Pop de R1");
+    println!("R4  = 42  - Pop de R0");
+    println!("R7  = 30  - Résultat addition (10+20)");
+    println!("R8  = 170 (0xAA) - Retour de CALL OK");
+    println!("R9  = 187 (0xBB) - Retour appels imbriqués OK");
+    println!("R10 = 1   - Fonction niveau 1 exécutée");
+    println!("R11 = 2   - Fonction niveau 2 exécutée");
+    println!("R14 = 4   - Dernière valeur empilée");
+    println!("R15 = 3   - Avant-dernière valeur empilée");
+    
+    program
+}
+
+/// Programme 1: Test basique des opérations PUSH/POP
+fn test_basic_stack_operations() -> BytecodeFile {
+    let mut program = BytecodeFile::new();
+    
+    // Initialiser la version et les métadonnées
+    program.version = BytecodeVersion::new(0, 1, 0, 0);
+    program.add_metadata("name", "PunkVM Basic Stack Test");
+    program.add_metadata("description", "Test des opérations PUSH/POP basiques avec registres et immédiat");
+    program.add_metadata("author", "PunkVM Team");
+    
+    println!("\n=== PROGRAMME 1: TEST BASIQUE STACK ===");
+    
+    // Initialiser des valeurs dans les registres
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 100));  // R0 = 100
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 200));  // R1 = 200
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 0));    // R2 = 0
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 0));    // R3 = 0
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0));    // R4 = 0
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0));    // R5 = 0
+    
+    // Test 1: PUSH registre
+    println!("Test 1: PUSH registres");
+    program.add_instruction(Instruction::create_push_register(0));    // PUSH R0 (100)
+    program.add_instruction(Instruction::create_push_register(1));    // PUSH R1 (200)
+    
+    // Test 2: PUSH immédiat (utilise maintenant le nouveau format)
+    println!("Test 2: PUSH immédiat");
+    program.add_instruction(Instruction::create_push_immediate8(7, 77));   // PUSH imm 77 dans R7
+    program.add_instruction(Instruction::create_push_immediate8(8, 88));   // PUSH imm 88 dans R8
+    
+    // Test 3: POP dans l'ordre inverse
+    println!("Test 3: POP dans l'ordre inverse");
+    program.add_instruction(Instruction::create_pop_register(2));     // POP R2 (devrait être 88)
+    program.add_instruction(Instruction::create_pop_register(3));     // POP R3 (devrait être 77)
+    program.add_instruction(Instruction::create_pop_register(4));     // POP R4 (devrait être 200)
+    program.add_instruction(Instruction::create_pop_register(5));     // POP R5 (devrait être 100)
+    
+    // Marquer la fin
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0xFF)); // R15 = 0xFF (marqueur)
+    program.add_instruction(Instruction::create_no_args(Opcode::Halt));
+    
+    // Configuration des segments
+    let total_code_size: u32 = program.code.iter()
+        .map(|instr| instr.total_size() as u32)
+        .sum();
+    program.segments = vec![SegmentMetadata::new(SegmentType::Code, 0, total_code_size, 0)];
+    
+    println!("\n=== RÉSULTATS ATTENDUS PROGRAMME 1 ===");
+    println!("R0  = 100 - Valeur initiale");
+    println!("R1  = 200 - Valeur initiale");
+    println!("R2  = 88  - Pop immédiat 88");
+    println!("R3  = 77  - Pop immédiat 77");
+    println!("R4  = 200 - Pop R1");
+    println!("R5  = 100 - Pop R0");
+    println!("R15 = 255 - Marqueur de fin");
+    
+    program
+}
+
+/// Programme 2: Test arithmétique avec pile
+fn test_arithmetic_with_stack() -> BytecodeFile {
+    let mut program = BytecodeFile::new();
+    
+    // Initialiser la version et les métadonnées
+    program.version = BytecodeVersion::new(0, 1, 0, 0);
+    program.add_metadata("name", "PunkVM Arithmetic Stack Test");
+    program.add_metadata("description", "Test des opérations arithmétiques utilisant la pile");
+    program.add_metadata("author", "PunkVM Team");
+    
+    println!("\n=== PROGRAMME 2: TEST ARITHMÉTIQUE AVEC STACK ===");
+    
+    // Initialiser des valeurs
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 10));   // R0 = 10
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 20));   // R1 = 20
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 30));   // R2 = 30
+    
+    // Sauvegarder les valeurs sur la pile
+    println!("Sauvegarde des valeurs sur la pile");
+    program.add_instruction(Instruction::create_push_register(0));    // PUSH R0 (10)
+    program.add_instruction(Instruction::create_push_register(1));    // PUSH R1 (20)
+    program.add_instruction(Instruction::create_push_register(2));    // PUSH R2 (30)
+    
+    // Effectuer des calculs qui écrasent les registres
+    println!("Calculs arithmétiques");
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 3, 0, 1));  // R3 = R0 + R1 = 30
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Mul, 4, 1, 2));  // R4 = R1 * R2 = 600
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Sub, 5, 2, 0));  // R5 = R2 - R0 = 20
+    
+    // Écraser les registres originaux
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 0));   // R0 = 0
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 0));   // R1 = 0
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 0));   // R2 = 0
+    
+    // Restaurer depuis la pile
+    println!("Restauration depuis la pile");
+    program.add_instruction(Instruction::create_pop_register(2));     // POP R2 (30)
+    program.add_instruction(Instruction::create_pop_register(1));     // POP R1 (20)
+    program.add_instruction(Instruction::create_pop_register(0));     // POP R0 (10)
+    
+    // Vérifier avec une nouvelle opération
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 6, 0, 1));  // R6 = R0 + R1 = 30
+    
+    // Marquer la fin
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0xAA)); // R15 = 0xAA
+    program.add_instruction(Instruction::create_no_args(Opcode::Halt));
+    
+    // Configuration des segments
+    let total_code_size: u32 = program.code.iter()
+        .map(|instr| instr.total_size() as u32)
+        .sum();
+    program.segments = vec![SegmentMetadata::new(SegmentType::Code, 0, total_code_size, 0)];
+    
+    println!("\n=== RÉSULTATS ATTENDUS PROGRAMME 2 ===");
+    println!("R0  = 10  - Restauré depuis pile");
+    println!("R1  = 20  - Restauré depuis pile");
+    println!("R2  = 30  - Restauré depuis pile");
+    println!("R3  = 30  - R0 + R1");
+    println!("R4  = 600 - R1 * R2");
+    println!("R5  = 20  - R2 - R0");
+    println!("R6  = 30  - R0 + R1 (après restauration)");
+    println!("R15 = 170 (0xAA) - Marqueur");
+    
+    program
+}
+
+/// Programme 3: Test combinaison avancée registres et pile
+fn test_advanced_stack_register() -> BytecodeFile {
+    let mut program = BytecodeFile::new();
+    
+    // Initialiser la version et les métadonnées
+    program.version = BytecodeVersion::new(0, 1, 0, 0);
+    program.add_metadata("name", "PunkVM Advanced Stack-Register Test");
+    program.add_metadata("description", "Test avancé de combinaison registres et pile avec boucle");
+    program.add_metadata("author", "PunkVM Team");
+    
+    println!("\n=== PROGRAMME 3: TEST COMBINAISON AVANCÉE ===");
+    
+    // Test : Calcul de factorielle 5 avec pile
+    // Utilise la pile pour sauvegarder les résultats intermédiaires
+    
+    // Initialiser
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 5));    // R0 = 5 (n)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 1));    // R1 = 1 (résultat)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 1));    // R2 = 1 (compteur)
+    
+    // Boucle : calculer factorielle en empilant les valeurs intermédiaires
+    let mut current_address = Instruction::calculate_current_address(&program.code);
+    let loop_start = current_address;
+    
+    // Corps de la boucle
+    program.add_instruction(Instruction::create_push_register(2));              // PUSH compteur
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Mul, 1, 1, 2)); // R1 = R1 * R2
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Inc, 2, 2));    // R2++
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 2, 0));    // Compare R2 avec R0
+    
+    // Saut conditionnel
+    current_address = Instruction::calculate_current_address(&program.code);
+    let loop_offset = loop_start as i32 - (current_address + 8) as i32;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, loop_start));
+    
+    // Sauvegarder le résultat final
+    program.add_instruction(Instruction::create_push_register(1));              // PUSH résultat (120)
+    
+    // Dépiler les valeurs empilées (5, 4, 3, 2, 1)
+    program.add_instruction(Instruction::create_pop_register(10));  // R10 = dernier (5)
+    program.add_instruction(Instruction::create_pop_register(11));  // R11 = 4
+    program.add_instruction(Instruction::create_pop_register(12));  // R12 = 3
+    program.add_instruction(Instruction::create_pop_register(13));  // R13 = 2
+    program.add_instruction(Instruction::create_pop_register(14));  // R14 = 1
+    program.add_instruction(Instruction::create_pop_register(15));  // R15 = résultat (120)
+    
+    // Fin
+    program.add_instruction(Instruction::create_no_args(Opcode::Halt));
+    
+    // Configuration des segments
+    let total_code_size: u32 = program.code.iter()
+        .map(|instr| instr.total_size() as u32)
+        .sum();
+    program.segments = vec![SegmentMetadata::new(SegmentType::Code, 0, total_code_size, 0)];
+    
+    println!("\n=== RÉSULTATS ATTENDUS PROGRAMME 3 ===");
+    println!("R0  = 5   - n (inchangé)");
+    println!("R1  = 120 - 5! = 120");
+    println!("R2  = 6   - Compteur final");
+    println!("R10 = 120 - Résultat dépilé");
+    println!("R11 = 5   - Valeur dépilée");
+    println!("R12 = 4   - Valeur dépilée");
+    println!("R13 = 3   - Valeur dépilée");
+    println!("R14 = 2   - Valeur dépilée");
+    println!("R15 = 1   - Valeur dépilée");
+    
+    program
+}
+
+/// Test de stress pour le forwarding avec chaînes de dépendances RAW
+fn forwarding_stress_test() -> BytecodeFile {
+    let mut program = BytecodeFile::new();
+    program.version = BytecodeVersion::new(0, 1, 0, 0);
+    program.add_metadata("name", "PunkVM Forwarding Stress Test");
+    program.add_metadata("description", "Test intensif de toutes les formes de forwarding");
+    program.add_metadata("author", "PunkVM Team");
+    
+    println!("=== CRÉATION DU TEST DE STRESS FORWARDING ===");
+    
+    // === Test 1: Chaîne simple de dépendances RAW (Execute→Execute) ===
+    println!("Test 1: Chaîne Execute→Execute forwarding");
+    // Instruction 1: MOV R0, 100
+    program.add_instruction(Instruction::create_reg_imm16(Opcode::Mov, 0, 100));
+    
+    // Instruction 2: ADD R0, R0, R0 (dépendance sur R0 depuis instr 1) 
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 0, 0, 0));
+    
+    // Instruction 3: MUL R0, R0, R0 (dépendance sur R0 depuis instr 2)
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Mul, 0, 0, 0));
+    
+    // Instruction 4: SUB R0, R0, #1 (dépendance sur R0 depuis instr 3)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Sub, 0, 1));
+    
+    // === Test 2: Dépendances multiples (Memory→Execute) ===
+    println!("Test 2: Memory→Execute forwarding");
+    // Instruction 5: MOV R1, 50
+    program.add_instruction(Instruction::create_reg_imm16(Opcode::Mov, 1, 50));
+    
+    // Instruction 6: MOV R2, 25
+    program.add_instruction(Instruction::create_reg_imm16(Opcode::Mov, 2, 25));
+    
+    // Instruction 7: ADD R3, R1, R2 (dépendance sur R1 et R2)
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 3, 1, 2));
+    
+    // === Test 3: Store-Load pattern pour tester le forwarding mémoire ===
+    println!("Test 3: Store-Load forwarding");
+    // Instruction 8: MOV R4, 0x1000 (adresse de base)
+    program.add_instruction(Instruction::create_reg_imm16(Opcode::Mov, 4, 0x1000));
+    
+    // Instruction 9: STORE [R4], R3 (stocker le résultat)
+    program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 3, 4, 0));
+    
+    // Instruction 10: LOAD R5, [R4] (charger depuis la même adresse)
+    program.add_instruction(Instruction::create_load_reg_offset(5, 4, 0));
+    
+    // Instruction 11: ADD R6, R5, R0 (utiliser la valeur chargée)
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 6, 5, 0));
+    
+    // === Test 4: Chaîne longue de dépendances ===
+    println!("Test 4: Chaîne longue de dépendances");
+    // Série d'instructions qui créent une chaîne de 8 dépendances
+    // D'abord, mettre 1 dans un registre temporaire
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 1));  // R6 = 1
+    for i in 7..15 {
+        // ADD Ri, Ri-1, R6 (chaque registre dépend du précédent)
+        program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, i, i-1, 6));
+    }
+    
+    // === Test 5: Dépendances croisées ===
+    println!("Test 5: Dépendances croisées");
+    // MOV R15, 42
+    program.add_instruction(Instruction::create_reg_imm16(Opcode::Mov, 15, 42));
+    
+    // ADD R16, R15, R14 (dépendance sur R15 immédiate et R14 à distance)
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 16, 15, 14));
+    
+    // SUB R17, R16, R15 (dépendances multiples récentes)
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Sub, 17, 16, 15));
+    
+    // === Fin du test ===
+    program.add_instruction(Instruction::create_no_args(Opcode::Halt));
+    
+    // Configuration des segments
+    let total_code_size: u32 = program.code.iter()
+        .map(|instr| instr.total_size() as u32)
+        .sum();
+    program.segments = vec![SegmentMetadata::new(SegmentType::Code, 0, total_code_size, 0)];
+    
+    println!("=== RÉSULTATS ATTENDUS FORWARDING STRESS ===");
+    println!("R0  = 39999 (100 + 100 = 200, 200 * 200 = 40000, 40000 - 1 = 39999)");
+    println!("R1  = 50");
+    println!("R2  = 25");
+    println!("R3  = 75 (50 + 25)");
+    println!("R4  = 0x1000");
+    println!("R5  = 75 (valeur chargée depuis [R4])");
+    println!("R6  = 40074 (75 + 39999)");
+    println!("R7  = 76 (75 + 1)");
+    println!("R8  = 77 (76 + 1)");
+    println!("R9  = 78 (77 + 1)");
+    println!("...etc");
+    println!("R15 = 42");
+    println!("R16 = 124 (42 + 82)");
+    println!("R17 = 82 (124 - 42)");
+    
+    program
+}/// Test spécifique pour le Store-Load forwarding avec imm8
+fn store_load_forwarding_test_8() -> BytecodeFile {
+    let mut program = BytecodeFile::new();
+    program.version = BytecodeVersion::new(0, 1, 0, 0);
+    program.add_metadata("name", "Store-Load Forwarding Test");
+    program.add_metadata("description", "Test spécifique pour le forwarding Store-Load");
+    program.add_metadata("author", "PunkVM Team");
+
+    println!("=== CRÉATION DU TEST STORE-LOAD FORWARDING ===");
+
+    // Initialisation
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 0x20)); // Adresse de base
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 123));    // Valeur à stocker
+
+    // Test 1: Store immédiatement suivi d'un Load à la même adresse
+    println!("Test 1: Store→Load immédiat");
+    program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 1, 0, 0));         // STORE [R0], R1
+    program.add_instruction(Instruction::create_load_reg_offset(2, 0, 0));          // LOAD R2, [R0]
+
+    // Test 2: Store avec offset, puis Load avec même offset
+    println!("Test 2: Store→Load avec offset");
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 255));    // Nouvelle valeur
+    program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 3, 0, 4));         // STORE [R0+4], R3
+    program.add_instruction(Instruction::create_load_reg_offset(4, 0, 4));          // LOAD R4, [R0+4]
+
+    // Test 3: Store puis utilisation immédiate de la valeur chargée
+    println!("Test 3: Store→Load→Use");
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 215));    // Nouvelle valeur
+    program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 5, 0, 8));         // STORE [R0+8], R5
+    program.add_instruction(Instruction::create_load_reg_offset(6, 0, 8));          // LOAD R6, [R0+8]
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 7, 6, 1)); // ADD R7, R6, R1
+    // program.add_instruction(PunkVM::bytecode::instructions::Instruction(Opcode::Add, 7, 6, 1)); // ADD R7, R6, R1
+
+    // Test 4: Stores multiples à des adresses différentes
+    println!("Test 4: Stores multiples");
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 100));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 200));
+    program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 8, 0, 12));        // STORE [R0+12], R8
+    program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 9, 0, 16));        // STORE [R0+16], R9
+    program.add_instruction(Instruction::create_load_reg_offset(10, 0, 12));        // LOAD R10, [R0+12]
+    program.add_instruction(Instruction::create_load_reg_offset(11, 0, 16));        // LOAD R11, [R0+16]
+
+    program.add_instruction(Instruction::create_no_args(Opcode::Halt));
+
+    // Configuration des segments
+    let total_code_size: u32 = program.code.iter()
+        .map(|instr| instr.total_size() as u32)
+        .sum();
+    program.segments = vec![SegmentMetadata::new(SegmentType::Code, 0, total_code_size, 0)];
+
+    println!("=== RÉSULTATS ATTENDUS STORE-LOAD ===");
+    println!("R0  = 0x2000 (adresse de base)");
+    println!("R1  = 123");
+    println!("R2  = 123 (forwardé depuis store)");
+    println!("R3  = 456");
+    println!("R4  = 456 (forwardé depuis store)");
+    println!("R5  = 789");
+    println!("R6  = 789 (forwardé depuis store)");
+    println!("R7  = 912 (789 + 123)");
+    println!("R8  = 100");
+    println!("R9  = 200");
+    println!("R10 = 100 (forwardé depuis store)");
+    println!("R11 = 200 (forwardé depuis store)");
+
+    program
+}
+
+/// Test spécifique pour le Store-Load forwarding avec immediate 16bit
+fn store_load_forwarding_test_16() -> BytecodeFile {
+    let mut program = BytecodeFile::new();
+    program.version = BytecodeVersion::new(0, 1, 0, 0);
+    program.add_metadata("name", "Store-Load Forwarding Test");
+    program.add_metadata("description", "Test spécifique pour le forwarding Store-Load");
+    program.add_metadata("author", "PunkVM Team");
+    
+    println!("=== CRÉATION DU TEST STORE-LOAD FORWARDING ===");
+    
+    // Initialisation
+    program.add_instruction(Instruction::create_reg_imm16(Opcode::Mov, 0, 0x2000)); // Adresse de base
+    program.add_instruction(Instruction::create_reg_imm16(Opcode::Mov, 1, 18599));    // Valeur à stocker
+    
+    // Test 1: Store immédiatement suivi d'un Load à la même adresse
+    println!("Test 1: Store→Load immédiat");
+    program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 1, 0, 0));         // STORE [R0], R1
+    program.add_instruction(Instruction::create_load_reg_offset(2, 0, 0));          // LOAD R2, [R0]
+    
+    // Test 2: Store avec offset, puis Load avec même offset
+    println!("Test 2: Store→Load avec offset");
+    program.add_instruction(Instruction::create_reg_imm16(Opcode::Mov, 3, 45645));    // Nouvelle valeur
+    program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 3, 0, 4));         // STORE [R0+4], R3
+    program.add_instruction(Instruction::create_load_reg_offset(4, 0, 4));          // LOAD R4, [R0+4]
+    
+    // Test 3: Store puis utilisation immédiate de la valeur chargée
+    println!("Test 3: Store→Load→Use");
+    program.add_instruction(Instruction::create_reg_imm16(Opcode::Mov, 5, 7809));    // Nouvelle valeur
+    program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 5, 0, 8));         // STORE [R0+8], R5
+    program.add_instruction(Instruction::create_load_reg_offset(6, 0, 8));          // LOAD R6, [R0+8]
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 7, 6, 1)); // ADD R7, R6, R1
+    
+    // Test 4: Stores multiples à des adresses différentes
+    println!("Test 4: Stores multiples");
+    program.add_instruction(Instruction::create_reg_imm16(Opcode::Mov, 8, 10140));
+    program.add_instruction(Instruction::create_reg_imm16(Opcode::Mov, 9, 29800));
+    program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 8, 0, 12));        // STORE [R0+12], R8
+    program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 9, 0, 16));        // STORE [R0+16], R9
+    program.add_instruction(Instruction::create_load_reg_offset(10, 0, 12));        // LOAD R10, [R0+12]
+    program.add_instruction(Instruction::create_load_reg_offset(11, 0, 16));        // LOAD R11, [R0+16]
+    
+    program.add_instruction(Instruction::create_no_args(Opcode::Halt));
+    
+    // Configuration des segments
+    let total_code_size: u32 = program.code.iter()
+        .map(|instr| instr.total_size() as u32)
+        .sum();
+    program.segments = vec![SegmentMetadata::new(SegmentType::Code, 0, total_code_size, 0)];
+    
+    println!("=== RÉSULTATS ATTENDUS STORE-LOAD ===");
+    println!("R0  = 0x2000 (adresse de base)");
+    println!("R1  = 18599");
+    println!("R2  = 18599 (forwardé depuis store)");
+    println!("R3  = 45645");
+    println!("R4  = 45645 (forwardé depuis store)");
+    println!("R5  = 7809");
+    println!("R6  = 7809 (forwardé depuis store)");
+    println!("R7  = 7998 (7809 + 18599)");
+    println!("R8  = 10140");
+    println!("R9  = 29800");
+    println!("R10 = 10140 (forwardé depuis store)");
+    println!("R11 = 29800 (forwardé depuis store)");
+
+    program
+}
+
+
+/// Test spécifique pour le Store-Load forwarding avec immediate 32bit
+fn store_load_forwarding_test_32() -> BytecodeFile {
+    let mut program = BytecodeFile::new();
+    program.version = BytecodeVersion::new(0, 1, 0, 0);
+    program.add_metadata("name", "Store-Load Forwarding Test");
+    program.add_metadata("description", "Test spécifique pour le forwarding Store-Load");
+    program.add_metadata("author", "PunkVM Team");
+
+    println!("=== CRÉATION DU TEST STORE-LOAD FORWARDING ===");
+
+    // Initialisation
+    program.add_instruction(Instruction::create_reg_imm32(Opcode::Mov, 0, 0x2000)); // Adresse de base
+    program.add_instruction(Instruction::create_reg_imm32(Opcode::Mov, 1, 1245453));    // Valeur à stocker
+
+    // Test 1: Store immédiatement suivi d'un Load à la même adresse
+    println!("Test 1: Store→Load immédiat");
+    program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 1, 0, 0));         // STORE [R0], R1
+    program.add_instruction(Instruction::create_load_reg_offset(2, 0, 0));          // LOAD R2, [R0]
+
+    // Test 2: Store avec offset, puis Load avec même offset
+    println!("Test 2: Store→Load avec offset");
+    program.add_instruction(Instruction::create_reg_imm32(Opcode::Mov, 3, 4542756));    // Nouvelle valeur
+    program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 3, 0, 4));         // STORE [R0+4], R3
+    program.add_instruction(Instruction::create_load_reg_offset(4, 0, 4));          // LOAD R4, [R0+4]
+
+    // Test 3: Store puis utilisation immédiate de la valeur chargée
+    println!("Test 3: Store→Load→Use");
+    program.add_instruction(Instruction::create_reg_imm32(Opcode::Mov, 5, 65214789));    // Nouvelle valeur
+    program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 5, 0, 8));         // STORE [R0+8], R5
+    program.add_instruction(Instruction::create_load_reg_offset(6, 0, 8));          // LOAD R6, [R0+8]
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 7, 6, 1)); // ADD R7, R6, R1
+    // Test 4: Stores multiples à des adresses différentes
+    println!("Test 4: Stores multiples");
+    program.add_instruction(Instruction::create_reg_imm32(Opcode::Mov, 8, 100000560));
+    program.add_instruction(Instruction::create_reg_imm32(Opcode::Mov, 9, 20004500));
+    program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 8, 0, 12));        // STORE [R0+12], R8
+    program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 9, 0, 16));        // STORE [R0+16], R9
+    program.add_instruction(Instruction::create_load_reg_offset(10, 0, 12));        // LOAD R10, [R0+12]
+    program.add_instruction(Instruction::create_load_reg_offset(11, 0, 16));        // LOAD R11, [R0+16]
+
+    program.add_instruction(Instruction::create_no_args(Opcode::Halt));
+
+    // Configuration des segments
+    let total_code_size: u32 = program.code.iter()
+        .map(|instr| instr.total_size() as u32)
+        .sum();
+    program.segments = vec![SegmentMetadata::new(SegmentType::Code, 0, total_code_size, 0)];
+
+    println!("=== RÉSULTATS ATTENDUS STORE-LOAD ===");
+    println!("R0  = 0x2000 (adresse de base)");
+    println!("R1  = 1245453");
+    println!("R2  = 1245453 (forwardé depuis store)");
+    println!("R3  = 4542756");
+    println!("R4  = 4542756 (forwardé depuis store)");
+    println!("R5  = 65214789");
+    println!("R6  = 65214789 (forwardé depuis store)");
+    println!("R7  = 65214789 + 1245453 (forwardé depuis store)"); // ADD R7, R6, R1
+    println!("R8  = 100000560");
+    println!("R9  = 20004500");
+    println!("R10 = 100000560 (forwardé depuis store)");
+    println!("R11 = 20004500 (forwardé depuis store)");
+
+    program
+}
+
+
+/// Test spécifique pour le Store-Load forwarding avec immediate 15bit
+fn store_load_forwarding_test_64() -> BytecodeFile {
+    let mut program = BytecodeFile::new();
+    program.version = BytecodeVersion::new(0, 1, 0, 0);
+    program.add_metadata("name", "Store-Load Forwarding Test");
+    program.add_metadata("description", "Test spécifique pour le forwarding Store-Load");
+    program.add_metadata("author", "PunkVM Team");
+
+    println!("=== CRÉATION DU TEST STORE-LOAD FORWARDING ===");
+
+    // Initialisation
+    program.add_instruction(Instruction::create_reg_imm64(Opcode::Mov, 0, 0x2000)); // Adresse de base
+    program.add_instruction(Instruction::create_reg_imm64(Opcode::Mov, 1, 123));    // Valeur à stocker
+
+    // Test 1: Store immédiatement suivi d'un Load à la même adresse
+    println!("Test 1: Store→Load immédiat");
+    program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 1, 0, 0));         // STORE [R0], R1
+    program.add_instruction(Instruction::create_load_reg_offset(2, 0, 0));          // LOAD R2, [R0]
+
+    // Test 2: Store avec offset, puis Load avec même offset
+    println!("Test 2: Store→Load avec offset");
+    program.add_instruction(Instruction::create_reg_imm64(Opcode::Mov, 3, 4561454541));    // Nouvelle valeur
+    program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 3, 0, 4));         // STORE [R0+4], R3
+    program.add_instruction(Instruction::create_load_reg_offset(4, 0, 4));          // LOAD R4, [R0+4]
+
+    // Test 3: Store puis utilisation immédiate de la valeur chargée
+    println!("Test 3: Store→Load→Use");
+    program.add_instruction(Instruction::create_reg_imm64(Opcode::Mov, 5, 7894547412));    // Nouvelle valeur
+    program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 5, 0, 8));         // STORE [R0+8], R5
+    program.add_instruction(Instruction::create_load_reg_offset(6, 0, 8));          // LOAD R6, [R0+8]
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 7, 6, 1)); // ADD R7, R6, R1
+
+    // Test 4: Stores multiples à des adresses différentes
+    println!("Test 4: Stores multiples");
+    program.add_instruction(Instruction::create_reg_imm64(Opcode::Mov, 8, 100000000000));
+    program.add_instruction(Instruction::create_reg_imm64(Opcode::Mov, 9, 200000000000));
+    program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 8, 0, 12));        // STORE [R0+12], R8
+    program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 9, 0, 16));        // STORE [R0+16], R9
+    program.add_instruction(Instruction::create_load_reg_offset(10, 0, 12));        // LOAD R10, [R0+12]
+    program.add_instruction(Instruction::create_load_reg_offset(11, 0, 16));        // LOAD R11, [R0+16]
+
+    program.add_instruction(Instruction::create_no_args(Opcode::Halt));
+
+    // Configuration des segments
+    let total_code_size: u32 = program.code.iter()
+        .map(|instr| instr.total_size() as u32)
+        .sum();
+    program.segments = vec![SegmentMetadata::new(SegmentType::Code, 0, total_code_size, 0)];
+
+    println!("=== RÉSULTATS ATTENDUS STORE-LOAD ===");
+    println!("R0  = 0x2000 (adresse de base)");
+    println!("R1  = 123");
+    println!("R2  = 123 (forwardé depuis store)");
+    println!("R3  = 4561454541");
+    println!("R4  = 4561454541 (forwardé depuis store)");
+    println!("R5  = 7894547412");
+    println!("R6  = 7894547412 (forwardé depuis store)");
+    println!("R7  = 7894547412 + 123 (forwardé depuis store)"); // ADD R7, R6, R1
+    println!("R8  = 100000000000");
+    println!("R9  = 200000000000");
+    println!("R10 = 100000000000 (forwardé depuis store)");
+    println!("R11 = 200000000000 (forwardé depuis store)");
 
 
 
 
 
+    program
+}
 
+/// Test pour mesurer l'efficacité du forwarding avec différents patterns
+fn forwarding_efficiency_test() -> BytecodeFile {
+    let mut program = BytecodeFile::new();
+    program.version = BytecodeVersion::new(0, 1, 0, 0);
+    program.add_metadata("name", "Forwarding Efficiency Test");
+    program.add_metadata("description", "Mesure de l'efficacité du forwarding avec patterns variés");
+    program.add_metadata("author", "PunkVM Team");
+    
+    println!("=== CRÉATION DU TEST D'EFFICACITÉ FORWARDING ===");
+    
+    // Pattern 1: Execute→Execute forwarding (le plus fréquent)
+    println!("Pattern 1: Execute→Execute");
+    program.add_instruction(Instruction::create_reg_imm16(Opcode::Mov, 0, 10));
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 1, 0, 0));   // R1 = R0 + R0
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Mul, 2, 1, 1));   // R2 = R1 * R1
+    
+    // Pattern 2: Memory→Execute forwarding
+    println!("Pattern 2: Memory→Execute");
+    program.add_instruction(Instruction::create_reg_imm16(Opcode::Mov, 3, 20));
+    program.add_instruction(Instruction::create_reg_imm16(Opcode::Mov, 4, 30));
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 5, 3, 4));   // Bubble
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Sub, 6, 5, 2));   // R6 = R5 - R2
+    
+    // Pattern 3: Mélange de forwarding et d'instructions indépendantes
+    println!("Pattern 3: Mélange");
+    program.add_instruction(Instruction::create_reg_imm16(Opcode::Mov, 7, 40));       // Indépendant
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 8, 6, 7));   // R8 = R6 + R7
+    program.add_instruction(Instruction::create_reg_imm16(Opcode::Mov, 9, 50));       // Indépendant
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Mul, 10, 8, 9));  // R10 = R8 * R9
+    
+    // Pattern 4: Load-Use qui DEVRAIT causer un stall
+    println!("Pattern 4: Load-Use (stall requis)");
+    program.add_instruction(Instruction::create_reg_imm16(Opcode::Mov, 11, 0x3000)); // Adresse
+    program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 10, 11, 0));         // STORE [R11], R10
+    program.add_instruction(Instruction::create_load_reg_offset(12, 11, 0));          // LOAD R12, [R11]
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 13, 12, 1)); // ADD R13, R12, R1 (Load-Use)
+    
+    program.add_instruction(Instruction::create_no_args(Opcode::Halt));
+
+    let total_code_size: u32 = program.code.iter()
+        .map(|instr| instr.total_size() as u32)
+        .sum();
+    program.segments = vec![SegmentMetadata::new(SegmentType::Code, 0, total_code_size, 0)];
+    
+    println!("=== RÉSULTATS ATTENDUS EFFICACITÉ ===");
+    println!("R0  = 10");
+    println!("R1  = 20 (10 + 10)");
+    println!("R2  = 400 (20 * 20)");
+    println!("R3  = 20");
+    println!("R4  = 30");
+    println!("R5  = 50 (20 + 30)");
+    println!("R6  = -350 (50 - 400)");
+    println!("R7  = 40");
+    println!("R8  = -310 (-350 + 40)");
+    println!("R9  = 50");
+    println!("R10 = -15500 (-310 * 50)");
+    println!("R11 = 0x3000");
+    println!("R12 = -15500 (chargé depuis mémoire)");
+    println!("R13 = -15480 (-15500 + 20)");
+    
+    program
+}
 pub fn punk_program_5() -> BytecodeFile {
     let mut program = BytecodeFile::new();
     program.version = BytecodeVersion::new(0, 1, 0, 0);
-    program.add_metadata("name", "PunkVM Branch Test 5");
-    program.add_metadata("description", "Comprehensive branch test with from_addr/to_addr");
+    program.add_metadata("name", "PunkVM Comprehensive Branch Test");
+    program.add_metadata("description", "Test complet de tous les types de branchements conditionnels et inconditionnels");
+    program.add_metadata("author", "PunkVM Team");
+    program.add_metadata("test_categories", "JMP, JmpIfEqual, JmpIfNotEqual, JmpIfGreater, JmpIfLess, JmpIfGreaterEqual, JmpIfLessEqual, JmpIfZero, JmpIfNotZero, Call, Ret");
 
-    // Initialiser les registres
+    // ============================================================================
+    // SECTION 1: INITIALISATION DES REGISTRES
+    // ============================================================================
+    println!("=== SECTION 1: INITIALISATION ===");
+
+    // Registres pour les comparaisons
     program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 10)); // R0 = 10
     program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 20)); // R1 = 20
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 10)); // R2 = 10
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 10)); // R2 = 10 (égal à R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 5));  // R3 = 5 (plus petit que R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0));  // R4 = 0 (pour tests de zéro)
+
+    // Registres pour stocker les résultats des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0));  // R8 = compteur de tests réussis
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0));  // R9 = compteur de tests échoués
+
+    // ============================================================================
+    // SECTION 2: TEST JMP (SAUT INCONDITIONNEL)
+    // ============================================================================
+    println!("=== SECTION 2: TEST JMP INCONDITIONNEL ===");
 
     let mut current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmp_target = current_address + jmp_instruction_size + 6; // Sauter par-dessus l'instruction MOV suivante
+    program.add_instruction(Instruction::create_jump(current_address, jmp_target));
 
-    // 1. JMP inconditionnel (saut en avant)
-    let jmp_target_1 = current_address + 24; // Sauter par-dessus 3 instructions
-    program.add_instruction(Instruction::create_jump(current_address, jmp_target_1));
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 0xFF)); // Ne doit pas être exécuté
-    current_address = Instruction::calculate_current_address(&program.code);
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0x01)); // R4 = 1 après le saut
-    current_address = Instruction::calculate_current_address(&program.code);
+    // Cette instruction ne doit PAS être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
 
-    // 2. JMP en arriere
-    let jmp_target_2 = 0; // Retour au début
-    program.add_instruction(Instruction::create_jump(current_address, jmp_target_2));
+    // Cette instruction doit être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x01)); // R10 = 1 (succès JMP)
     current_address = Instruction::calculate_current_address(&program.code);
 
-    // ici  il faudra tout  refaire les meme  test  qu avant mais en utilisant l'adresse du code
-    // todo!()
+    // ============================================================================
+    // SECTION 3: TEST JmpIfEqual (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 3: TEST JmpIfEqual ===");
 
-    // 3. JmpIfEqual (ZF=1, pris)
-    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2)); // R0 == R2 (ZF=1)
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
     current_address = Instruction::calculate_current_address(&program.code);
-    let jmpifequal_target_1 = current_address + 16;
+    let jmp_instruction_size = 8;
+    let jmpifequal_target_1 = current_address + jmp_instruction_size + 6;
     program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_1));
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0xFF)); // Ne doit pas être exécuté
-    current_address = Instruction::calculate_current_address(&program.code);
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x02)); // R5 = 2 (succès)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x02)); // R11 = 2 (succès)
     current_address = Instruction::calculate_current_address(&program.code);
 
-    // 4. JmpIfEqual (ZF=0, non pris)
-    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1)); // R0 != R1 (ZF=0)
+    // Test 2: R0 == R1 (10 == 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
     current_address = Instruction::calculate_current_address(&program.code);
-    let jmpifequal_target_2 = current_address + 16;
+    let jmpifequal_target_2 = current_address + 8 + 6;
     program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_2));
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0xFF)); // Ne doit pas être exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x03)); // R12 = 3 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x04)); // R13 = 4
     current_address = Instruction::calculate_current_address(&program.code);
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x03)); // R6 = 3 (succès, doit être exécuté)
+
+    // ============================================================================
+    // SECTION 4: TEST JmpIfNotEqual (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 4: TEST JmpIfNotEqual ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x05)); // R14 = 5 (succès)
     current_address = Instruction::calculate_current_address(&program.code);
 
+    // Test 2: R0 != R2 (10 != 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x06)); // R15 = 6 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x07)); // R5 = 7
+    current_address = Instruction::calculate_current_address(&program.code);
 
-    // TODO: Ajouter des tests similaires pour les autres instructions de branchement
-    // (JmpIfNotEqual, JmpIfGreater, JmpIfLess, etc.)
+    // ============================================================================
+    // SECTION 5: TEST JmpIfGreater (ZF = 0 ET SF = 0)
+    // ============================================================================
+    println!("=== SECTION 5: TEST JmpIfGreater ===");
 
+    // Test 1: R1 > R0 (20 > 10) → ZF = 0, SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x08)); // R6 = 8 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R3 > R0 (5 > 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x09)); // R7 = 9 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x0A)); // R8 = 10
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 6: TEST JmpIfLess (SF = 1)
+    // ============================================================================
+    println!("=== SECTION 6: TEST JmpIfLess ===");
+
+    // Test 1: R3 < R0 (5 < 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x0B)); // R9 = 11 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R1 < R0 (20 < 10) → SF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x0C)); // R10 = 12 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x0D)); // R11 = 13
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 7: TEST JmpIfGreaterEqual (SF = 0 ou ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 7: TEST JmpIfGreaterEqual ===");
+
+    // Test 1: R1 >= R0 (20 >= 10) → SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x0E)); // R12 = 14 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 >= R2 (10 >= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x0F)); // R13 = 15 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R3 >= R0 (5 >= 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x10)); // R14 = 16 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x11)); // R15 = 17
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 8: TEST JmpIfLessEqual (SF = 1 OU ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 8: TEST JmpIfLessEqual ===");
+
+    // Test 1: R3 <= R0 (5 <= 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x12)); // R5 = 18 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 <= R2 (10 <= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x13)); // R6 = 19 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R1 <= R0 (20 <= 10) → SF = 0, ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x14)); // R7 = 20 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x15)); // R8 = 21
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 9: TEST JmpIfZero (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 9: TEST JmpIfZero ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x16)); // R9 = 22 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R1 (10 != 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x17)); // R10 = 23 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x18)); // R11 = 24
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 10: TEST JmpIfNotZero (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 10: TEST JmpIfNotZero ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x19)); // R12 = 25 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R2 (10 == 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x1A)); // R13 = 26 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x1B)); // R14 = 27
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 11: TEST DE BOUCLE (Pattern pour le prédicteur)
+    // ============================================================================
+    println!("=== SECTION 11: TEST DE BOUCLE ===");
+
+    // Initialisation du compteur de boucle
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 3)); // R15 = 3 (compteur)
+
+    // Début de la boucle - cette étiquette sera utilisée pour le branchement arrière
+    let loop_start_instruction_index = program.code.len();
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Corps de la boucle
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1 (R4 = 0, donc R15 - 0, mais on veut R15-1)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Pour décrémenter correctement, on doit d'abord mettre 1 dans un registre
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 1)); // R4 = 1
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Comparer avec 0
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0)); // R4 = 0 pour comparaison
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 15, 4)); // Compare R15 avec 0
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Calculer l'offset pour retourner au début de la boucle
+    let current_instruction_index = program.code.len() + 1; // +1 car on ajoute l'instruction de branchement
+    let loop_body_size = current_instruction_index - loop_start_instruction_index;
+    let backward_offset = -(loop_body_size as i32 * 6 + 8); // chaque instruction fait ~6 bytes, +8 pour l'instruction de branchement
+    let  jmpifnotzero_loop =  current_address as i32 + backward_offset as i32 ;
+
+    // Branchement conditionnel vers le début de la boucle si R15 != 0
+    program.add_instruction(Instruction::create_jump_if_not_zero(0, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 12: TEST CALL/RET (Si implémenté)
+    // ============================================================================
+    println!("=== SECTION 12: TEST CALL/RET ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+    let call_target = current_address + 8 + 6 ;
+    // Sauter par-dessus la fonction pour aller au call
+    program.add_instruction(Instruction::create_jump(current_address, call_target)); // Sauter la fonction
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // FONCTION: simple_function
+    // Fonction qui met 0xFF dans R5 et retourne
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0xFF)); // R5 = 255
+    program.add_instruction(Instruction::create_no_args(Opcode::Ret)); // Retour
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Appel de la fonction (si CALL est implémenté)
+    current_address = Instruction::calculate_current_address(&program.code);
+    let function_offset = -12i32;// Retourner à la fonction
+    program.add_instruction(Instruction::create_call(function_offset as u32));
+
+    // ============================================================================
+    // SECTION 13: FINALISATION ET VÉRIFICATION
+    // ============================================================================
+    println!("=== SECTION 13: FINALISATION ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Marquer la fin des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 0xFE)); // R0 = 254 (marqueur de fin)
+
+
+
+    // ============================================================================
+    // SECTION 1: INITIALISATION DES REGISTRES
+    // ============================================================================
+    println!("=== SECTION 1: INITIALISATION ===");
+
+    // Registres pour les comparaisons
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 10)); // R0 = 10
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 20)); // R1 = 20
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 10)); // R2 = 10 (égal à R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 5));  // R3 = 5 (plus petit que R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0));  // R4 = 0 (pour tests de zéro)
+
+    // Registres pour stocker les résultats des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0));  // R8 = compteur de tests réussis
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0));  // R9 = compteur de tests échoués
+
+    // ============================================================================
+    // SECTION 2: TEST JMP (SAUT INCONDITIONNEL)
+    // ============================================================================
+    println!("=== SECTION 2: TEST JMP INCONDITIONNEL ===");
+
+    let mut current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmp_target = current_address + jmp_instruction_size + 6; // Sauter par-dessus l'instruction MOV suivante
+    program.add_instruction(Instruction::create_jump(current_address, jmp_target));
+
+    // Cette instruction ne doit PAS être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+
+    // Cette instruction doit être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x01)); // R10 = 1 (succès JMP)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 3: TEST JmpIfEqual (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 3: TEST JmpIfEqual ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmpifequal_target_1 = current_address + jmp_instruction_size + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x02)); // R11 = 2 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R1 (10 == 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x03)); // R12 = 3 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x04)); // R13 = 4
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 4: TEST JmpIfNotEqual (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 4: TEST JmpIfNotEqual ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x05)); // R14 = 5 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R2 (10 != 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x06)); // R15 = 6 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x07)); // R5 = 7
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 5: TEST JmpIfGreater (ZF = 0 ET SF = 0)
+    // ============================================================================
+    println!("=== SECTION 5: TEST JmpIfGreater ===");
+
+    // Test 1: R1 > R0 (20 > 10) → ZF = 0, SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x08)); // R6 = 8 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R3 > R0 (5 > 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x09)); // R7 = 9 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x0A)); // R8 = 10
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 6: TEST JmpIfLess (SF = 1)
+    // ============================================================================
+    println!("=== SECTION 6: TEST JmpIfLess ===");
+
+    // Test 1: R3 < R0 (5 < 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x0B)); // R9 = 11 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R1 < R0 (20 < 10) → SF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x0C)); // R10 = 12 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x0D)); // R11 = 13
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 7: TEST JmpIfGreaterEqual (SF = 0 ou ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 7: TEST JmpIfGreaterEqual ===");
+
+    // Test 1: R1 >= R0 (20 >= 10) → SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x0E)); // R12 = 14 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 >= R2 (10 >= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x0F)); // R13 = 15 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R3 >= R0 (5 >= 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x10)); // R14 = 16 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x11)); // R15 = 17
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 8: TEST JmpIfLessEqual (SF = 1 OU ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 8: TEST JmpIfLessEqual ===");
+
+    // Test 1: R3 <= R0 (5 <= 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x12)); // R5 = 18 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 <= R2 (10 <= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x13)); // R6 = 19 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R1 <= R0 (20 <= 10) → SF = 0, ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x14)); // R7 = 20 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x15)); // R8 = 21
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 9: TEST JmpIfZero (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 9: TEST JmpIfZero ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x16)); // R9 = 22 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R1 (10 != 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x17)); // R10 = 23 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x18)); // R11 = 24
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 10: TEST JmpIfNotZero (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 10: TEST JmpIfNotZero ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x19)); // R12 = 25 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R2 (10 == 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x1A)); // R13 = 26 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x1B)); // R14 = 27
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 11: TEST DE BOUCLE (Pattern pour le prédicteur)
+    // ============================================================================
+    println!("=== SECTION 11: TEST DE BOUCLE ===");
+
+    // Initialisation du compteur de boucle
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 3)); // R15 = 3 (compteur)
+
+    // Début de la boucle - cette étiquette sera utilisée pour le branchement arrière
+    let loop_start_instruction_index = program.code.len();
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Corps de la boucle
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1 (R4 = 0, donc R15 - 0, mais on veut R15-1)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Pour décrémenter correctement, on doit d'abord mettre 1 dans un registre
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 1)); // R4 = 1
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Comparer avec 0
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0)); // R4 = 0 pour comparaison
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 15, 4)); // Compare R15 avec 0
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Calculer l'offset pour retourner au début de la boucle
+    let current_instruction_index = program.code.len() + 1; // +1 car on ajoute l'instruction de branchement
+    let loop_body_size = current_instruction_index - loop_start_instruction_index;
+    let backward_offset = -(loop_body_size as i32 * 6 + 8); // chaque instruction fait ~6 bytes, +8 pour l'instruction de branchement
+    let  jmpifnotzero_loop =  current_address as i32 + backward_offset as i32 ;
+
+    // Branchement conditionnel vers le début de la boucle si R15 != 0
+    program.add_instruction(Instruction::create_jump_if_not_zero(0, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 12: TEST CALL/RET (Si implémenté)
+    // ============================================================================
+    println!("=== SECTION 12: TEST CALL/RET ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+    let call_target = current_address + 8 + 6 ;
+    // Sauter par-dessus la fonction pour aller au call
+    program.add_instruction(Instruction::create_jump(current_address, call_target)); // Sauter la fonction
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // FONCTION: simple_function
+    // Fonction qui met 0xFF dans R5 et retourne
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0xFF)); // R5 = 255
+    program.add_instruction(Instruction::create_no_args(Opcode::Ret)); // Retour
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Appel de la fonction (si CALL est implémenté)
+    current_address = Instruction::calculate_current_address(&program.code);
+    let function_offset = -12i32;// Retourner à la fonction
+    program.add_instruction(Instruction::create_call(function_offset as u32));
+
+    // ============================================================================
+    // SECTION 13: FINALISATION ET VÉRIFICATION
+    // ============================================================================
+    println!("=== SECTION 13: FINALISATION ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Marquer la fin des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 0xFE)); // R0 = 254 (marqueur de fin)
+
+    // ============================================================================
+    // SECTION 1: INITIALISATION DES REGISTRES
+    // ============================================================================
+    println!("=== SECTION 1: INITIALISATION ===");
+
+    // Registres pour les comparaisons
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 10)); // R0 = 10
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 20)); // R1 = 20
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 10)); // R2 = 10 (égal à R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 5));  // R3 = 5 (plus petit que R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0));  // R4 = 0 (pour tests de zéro)
+
+    // Registres pour stocker les résultats des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0));  // R8 = compteur de tests réussis
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0));  // R9 = compteur de tests échoués
+
+    // ============================================================================
+    // SECTION 2: TEST JMP (SAUT INCONDITIONNEL)
+    // ============================================================================
+    println!("=== SECTION 2: TEST JMP INCONDITIONNEL ===");
+
+    let mut current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmp_target = current_address + jmp_instruction_size + 6; // Sauter par-dessus l'instruction MOV suivante
+    program.add_instruction(Instruction::create_jump(current_address, jmp_target));
+
+    // Cette instruction ne doit PAS être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+
+    // Cette instruction doit être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x01)); // R10 = 1 (succès JMP)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 3: TEST JmpIfEqual (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 3: TEST JmpIfEqual ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmpifequal_target_1 = current_address + jmp_instruction_size + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x02)); // R11 = 2 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R1 (10 == 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x03)); // R12 = 3 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x04)); // R13 = 4
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 4: TEST JmpIfNotEqual (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 4: TEST JmpIfNotEqual ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x05)); // R14 = 5 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R2 (10 != 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x06)); // R15 = 6 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x07)); // R5 = 7
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 5: TEST JmpIfGreater (ZF = 0 ET SF = 0)
+    // ============================================================================
+    println!("=== SECTION 5: TEST JmpIfGreater ===");
+
+    // Test 1: R1 > R0 (20 > 10) → ZF = 0, SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x08)); // R6 = 8 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R3 > R0 (5 > 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x09)); // R7 = 9 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x0A)); // R8 = 10
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 6: TEST JmpIfLess (SF = 1)
+    // ============================================================================
+    println!("=== SECTION 6: TEST JmpIfLess ===");
+
+    // Test 1: R3 < R0 (5 < 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x0B)); // R9 = 11 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R1 < R0 (20 < 10) → SF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x0C)); // R10 = 12 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x0D)); // R11 = 13
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 7: TEST JmpIfGreaterEqual (SF = 0 ou ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 7: TEST JmpIfGreaterEqual ===");
+
+    // Test 1: R1 >= R0 (20 >= 10) → SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x0E)); // R12 = 14 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 >= R2 (10 >= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x0F)); // R13 = 15 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R3 >= R0 (5 >= 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x10)); // R14 = 16 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x11)); // R15 = 17
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 8: TEST JmpIfLessEqual (SF = 1 OU ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 8: TEST JmpIfLessEqual ===");
+
+    // Test 1: R3 <= R0 (5 <= 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x12)); // R5 = 18 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 <= R2 (10 <= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x13)); // R6 = 19 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R1 <= R0 (20 <= 10) → SF = 0, ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x14)); // R7 = 20 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x15)); // R8 = 21
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 9: TEST JmpIfZero (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 9: TEST JmpIfZero ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x16)); // R9 = 22 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R1 (10 != 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x17)); // R10 = 23 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x18)); // R11 = 24
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 10: TEST JmpIfNotZero (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 10: TEST JmpIfNotZero ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x19)); // R12 = 25 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R2 (10 == 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x1A)); // R13 = 26 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x1B)); // R14 = 27
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 11: TEST DE BOUCLE (Pattern pour le prédicteur)
+    // ============================================================================
+    println!("=== SECTION 11: TEST DE BOUCLE ===");
+
+    // Initialisation du compteur de boucle
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 3)); // R15 = 3 (compteur)
+
+    // Début de la boucle - cette étiquette sera utilisée pour le branchement arrière
+    let loop_start_instruction_index = program.code.len();
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Corps de la boucle
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1 (R4 = 0, donc R15 - 0, mais on veut R15-1)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Pour décrémenter correctement, on doit d'abord mettre 1 dans un registre
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 1)); // R4 = 1
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Comparer avec 0
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0)); // R4 = 0 pour comparaison
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 15, 4)); // Compare R15 avec 0
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Calculer l'offset pour retourner au début de la boucle
+    let current_instruction_index = program.code.len() + 1; // +1 car on ajoute l'instruction de branchement
+    let loop_body_size = current_instruction_index - loop_start_instruction_index;
+    let backward_offset = -(loop_body_size as i32 * 6 + 8); // chaque instruction fait ~6 bytes, +8 pour l'instruction de branchement
+    let  jmpifnotzero_loop =  current_address as i32 + backward_offset as i32 ;
+
+    // Branchement conditionnel vers le début de la boucle si R15 != 0
+    program.add_instruction(Instruction::create_jump_if_not_zero(0, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 12: TEST CALL/RET (Si implémenté)
+    // ============================================================================
+    println!("=== SECTION 12: TEST CALL/RET ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+    let call_target = current_address + 8 + 6 ;
+    // Sauter par-dessus la fonction pour aller au call
+    program.add_instruction(Instruction::create_jump(current_address, call_target)); // Sauter la fonction
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // FONCTION: simple_function
+    // Fonction qui met 0xFF dans R5 et retourne
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0xFF)); // R5 = 255
+    program.add_instruction(Instruction::create_no_args(Opcode::Ret)); // Retour
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Appel de la fonction (si CALL est implémenté)
+    current_address = Instruction::calculate_current_address(&program.code);
+    let function_offset = -12i32;// Retourner à la fonction
+    program.add_instruction(Instruction::create_call(function_offset as u32));
+
+    // ============================================================================
+    // SECTION 13: FINALISATION ET VÉRIFICATION
+    // ============================================================================
+    println!("=== SECTION 13: FINALISATION ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Marquer la fin des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 0xFE)); // R0 = 254 (marqueur de fin)
+
+
+
+    // ============================================================================
+    // SECTION 1: INITIALISATION DES REGISTRES
+    // ============================================================================
+    println!("=== SECTION 1: INITIALISATION ===");
+
+    // Registres pour les comparaisons
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 10)); // R0 = 10
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 20)); // R1 = 20
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 10)); // R2 = 10 (égal à R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 5));  // R3 = 5 (plus petit que R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0));  // R4 = 0 (pour tests de zéro)
+
+    // Registres pour stocker les résultats des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0));  // R8 = compteur de tests réussis
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0));  // R9 = compteur de tests échoués
+
+    // ============================================================================
+    // SECTION 2: TEST JMP (SAUT INCONDITIONNEL)
+    // ============================================================================
+    println!("=== SECTION 2: TEST JMP INCONDITIONNEL ===");
+
+    let mut current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmp_target = current_address + jmp_instruction_size + 6; // Sauter par-dessus l'instruction MOV suivante
+    program.add_instruction(Instruction::create_jump(current_address, jmp_target));
+
+    // Cette instruction ne doit PAS être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+
+    // Cette instruction doit être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x01)); // R10 = 1 (succès JMP)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 3: TEST JmpIfEqual (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 3: TEST JmpIfEqual ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmpifequal_target_1 = current_address + jmp_instruction_size + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x02)); // R11 = 2 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R1 (10 == 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x03)); // R12 = 3 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x04)); // R13 = 4
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 4: TEST JmpIfNotEqual (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 4: TEST JmpIfNotEqual ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x05)); // R14 = 5 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R2 (10 != 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x06)); // R15 = 6 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x07)); // R5 = 7
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 5: TEST JmpIfGreater (ZF = 0 ET SF = 0)
+    // ============================================================================
+    println!("=== SECTION 5: TEST JmpIfGreater ===");
+
+    // Test 1: R1 > R0 (20 > 10) → ZF = 0, SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x08)); // R6 = 8 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R3 > R0 (5 > 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x09)); // R7 = 9 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x0A)); // R8 = 10
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 6: TEST JmpIfLess (SF = 1)
+    // ============================================================================
+    println!("=== SECTION 6: TEST JmpIfLess ===");
+
+    // Test 1: R3 < R0 (5 < 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x0B)); // R9 = 11 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R1 < R0 (20 < 10) → SF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x0C)); // R10 = 12 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x0D)); // R11 = 13
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 7: TEST JmpIfGreaterEqual (SF = 0 ou ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 7: TEST JmpIfGreaterEqual ===");
+
+    // Test 1: R1 >= R0 (20 >= 10) → SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x0E)); // R12 = 14 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 >= R2 (10 >= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x0F)); // R13 = 15 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R3 >= R0 (5 >= 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x10)); // R14 = 16 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x11)); // R15 = 17
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 8: TEST JmpIfLessEqual (SF = 1 OU ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 8: TEST JmpIfLessEqual ===");
+
+    // Test 1: R3 <= R0 (5 <= 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x12)); // R5 = 18 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 <= R2 (10 <= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x13)); // R6 = 19 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R1 <= R0 (20 <= 10) → SF = 0, ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x14)); // R7 = 20 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x15)); // R8 = 21
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 9: TEST JmpIfZero (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 9: TEST JmpIfZero ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x16)); // R9 = 22 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R1 (10 != 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x17)); // R10 = 23 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x18)); // R11 = 24
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 10: TEST JmpIfNotZero (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 10: TEST JmpIfNotZero ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x19)); // R12 = 25 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R2 (10 == 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x1A)); // R13 = 26 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x1B)); // R14 = 27
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 11: TEST DE BOUCLE (Pattern pour le prédicteur)
+    // ============================================================================
+    println!("=== SECTION 11: TEST DE BOUCLE ===");
+
+    // Initialisation du compteur de boucle
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 3)); // R15 = 3 (compteur)
+
+    // Début de la boucle - cette étiquette sera utilisée pour le branchement arrière
+    let loop_start_instruction_index = program.code.len();
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Corps de la boucle
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1 (R4 = 0, donc R15 - 0, mais on veut R15-1)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Pour décrémenter correctement, on doit d'abord mettre 1 dans un registre
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 1)); // R4 = 1
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Comparer avec 0
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0)); // R4 = 0 pour comparaison
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 15, 4)); // Compare R15 avec 0
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Calculer l'offset pour retourner au début de la boucle
+    let current_instruction_index = program.code.len() + 1; // +1 car on ajoute l'instruction de branchement
+    let loop_body_size = current_instruction_index - loop_start_instruction_index;
+    let backward_offset = -(loop_body_size as i32 * 6 + 8); // chaque instruction fait ~6 bytes, +8 pour l'instruction de branchement
+    let  jmpifnotzero_loop =  current_address as i32 + backward_offset as i32 ;
+
+    // Branchement conditionnel vers le début de la boucle si R15 != 0
+    program.add_instruction(Instruction::create_jump_if_not_zero(0, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 12: TEST CALL/RET (Si implémenté)
+    // ============================================================================
+    println!("=== SECTION 12: TEST CALL/RET ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+    let call_target = current_address + 8 + 6 ;
+    // Sauter par-dessus la fonction pour aller au call
+    program.add_instruction(Instruction::create_jump(current_address, call_target)); // Sauter la fonction
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // FONCTION: simple_function
+    // Fonction qui met 0xFF dans R5 et retourne
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0xFF)); // R5 = 255
+    program.add_instruction(Instruction::create_no_args(Opcode::Ret)); // Retour
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Appel de la fonction (si CALL est implémenté)
+    current_address = Instruction::calculate_current_address(&program.code);
+    let function_offset = -12i32;// Retourner à la fonction
+    program.add_instruction(Instruction::create_call(function_offset as u32));
+
+    // ============================================================================
+    // SECTION 13: FINALISATION ET VÉRIFICATION
+    // ============================================================================
+    println!("=== SECTION 13: FINALISATION ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Marquer la fin des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 0xFE)); // R0 = 254 (marqueur de fin)
+
+
+
+
+    // ============================================================================
+    // SECTION 1: INITIALISATION DES REGISTRES
+    // ============================================================================
+    println!("=== SECTION 1: INITIALISATION ===");
+
+    // Registres pour les comparaisons
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 10)); // R0 = 10
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 20)); // R1 = 20
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 10)); // R2 = 10 (égal à R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 5));  // R3 = 5 (plus petit que R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0));  // R4 = 0 (pour tests de zéro)
+
+    // Registres pour stocker les résultats des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0));  // R8 = compteur de tests réussis
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0));  // R9 = compteur de tests échoués
+
+    // ============================================================================
+    // SECTION 2: TEST JMP (SAUT INCONDITIONNEL)
+    // ============================================================================
+    println!("=== SECTION 2: TEST JMP INCONDITIONNEL ===");
+
+    let mut current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmp_target = current_address + jmp_instruction_size + 6; // Sauter par-dessus l'instruction MOV suivante
+    program.add_instruction(Instruction::create_jump(current_address, jmp_target));
+
+    // Cette instruction ne doit PAS être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+
+    // Cette instruction doit être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x01)); // R10 = 1 (succès JMP)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 3: TEST JmpIfEqual (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 3: TEST JmpIfEqual ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmpifequal_target_1 = current_address + jmp_instruction_size + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x02)); // R11 = 2 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R1 (10 == 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x03)); // R12 = 3 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x04)); // R13 = 4
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 4: TEST JmpIfNotEqual (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 4: TEST JmpIfNotEqual ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x05)); // R14 = 5 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R2 (10 != 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x06)); // R15 = 6 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x07)); // R5 = 7
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 5: TEST JmpIfGreater (ZF = 0 ET SF = 0)
+    // ============================================================================
+    println!("=== SECTION 5: TEST JmpIfGreater ===");
+
+    // Test 1: R1 > R0 (20 > 10) → ZF = 0, SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x08)); // R6 = 8 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R3 > R0 (5 > 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x09)); // R7 = 9 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x0A)); // R8 = 10
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 6: TEST JmpIfLess (SF = 1)
+    // ============================================================================
+    println!("=== SECTION 6: TEST JmpIfLess ===");
+
+    // Test 1: R3 < R0 (5 < 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x0B)); // R9 = 11 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R1 < R0 (20 < 10) → SF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x0C)); // R10 = 12 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x0D)); // R11 = 13
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 7: TEST JmpIfGreaterEqual (SF = 0 ou ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 7: TEST JmpIfGreaterEqual ===");
+
+    // Test 1: R1 >= R0 (20 >= 10) → SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x0E)); // R12 = 14 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 >= R2 (10 >= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x0F)); // R13 = 15 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R3 >= R0 (5 >= 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x10)); // R14 = 16 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x11)); // R15 = 17
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 8: TEST JmpIfLessEqual (SF = 1 OU ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 8: TEST JmpIfLessEqual ===");
+
+    // Test 1: R3 <= R0 (5 <= 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x12)); // R5 = 18 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 <= R2 (10 <= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x13)); // R6 = 19 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R1 <= R0 (20 <= 10) → SF = 0, ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x14)); // R7 = 20 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x15)); // R8 = 21
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 9: TEST JmpIfZero (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 9: TEST JmpIfZero ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x16)); // R9 = 22 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R1 (10 != 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x17)); // R10 = 23 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x18)); // R11 = 24
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 10: TEST JmpIfNotZero (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 10: TEST JmpIfNotZero ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x19)); // R12 = 25 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R2 (10 == 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x1A)); // R13 = 26 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x1B)); // R14 = 27
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 11: TEST DE BOUCLE (Pattern pour le prédicteur)
+    // ============================================================================
+    println!("=== SECTION 11: TEST DE BOUCLE ===");
+
+    // Initialisation du compteur de boucle
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 3)); // R15 = 3 (compteur)
+
+    // Début de la boucle - cette étiquette sera utilisée pour le branchement arrière
+    let loop_start_instruction_index = program.code.len();
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Corps de la boucle
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1 (R4 = 0, donc R15 - 0, mais on veut R15-1)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Pour décrémenter correctement, on doit d'abord mettre 1 dans un registre
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 1)); // R4 = 1
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Comparer avec 0
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0)); // R4 = 0 pour comparaison
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 15, 4)); // Compare R15 avec 0
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Calculer l'offset pour retourner au début de la boucle
+    let current_instruction_index = program.code.len() + 1; // +1 car on ajoute l'instruction de branchement
+    let loop_body_size = current_instruction_index - loop_start_instruction_index;
+    let backward_offset = -(loop_body_size as i32 * 6 + 8); // chaque instruction fait ~6 bytes, +8 pour l'instruction de branchement
+    let  jmpifnotzero_loop =  current_address as i32 + backward_offset as i32 ;
+
+    // Branchement conditionnel vers le début de la boucle si R15 != 0
+    program.add_instruction(Instruction::create_jump_if_not_zero(0, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 12: TEST CALL/RET (Si implémenté)
+    // ============================================================================
+    println!("=== SECTION 12: TEST CALL/RET ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+    let call_target = current_address + 8 + 6 ;
+    // Sauter par-dessus la fonction pour aller au call
+    program.add_instruction(Instruction::create_jump(current_address, call_target)); // Sauter la fonction
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // FONCTION: simple_function
+    // Fonction qui met 0xFF dans R5 et retourne
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0xFF)); // R5 = 255
+    program.add_instruction(Instruction::create_no_args(Opcode::Ret)); // Retour
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Appel de la fonction (si CALL est implémenté)
+    current_address = Instruction::calculate_current_address(&program.code);
+    let function_offset = -12i32;// Retourner à la fonction
+    program.add_instruction(Instruction::create_call(function_offset as u32));
+
+    // ============================================================================
+    // SECTION 13: FINALISATION ET VÉRIFICATION
+    // ============================================================================
+    println!("=== SECTION 13: FINALISATION ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Marquer la fin des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 0xFE)); // R0 = 254 (marqueur de fin)
+
+
+
+    // ============================================================================
+    // SECTION 1: INITIALISATION DES REGISTRES
+    // ============================================================================
+    println!("=== SECTION 1: INITIALISATION ===");
+
+    // Registres pour les comparaisons
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 10)); // R0 = 10
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 20)); // R1 = 20
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 10)); // R2 = 10 (égal à R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 5));  // R3 = 5 (plus petit que R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0));  // R4 = 0 (pour tests de zéro)
+
+    // Registres pour stocker les résultats des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0));  // R8 = compteur de tests réussis
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0));  // R9 = compteur de tests échoués
+
+    // ============================================================================
+    // SECTION 2: TEST JMP (SAUT INCONDITIONNEL)
+    // ============================================================================
+    println!("=== SECTION 2: TEST JMP INCONDITIONNEL ===");
+
+    let mut current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmp_target = current_address + jmp_instruction_size + 6; // Sauter par-dessus l'instruction MOV suivante
+    program.add_instruction(Instruction::create_jump(current_address, jmp_target));
+
+    // Cette instruction ne doit PAS être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+
+    // Cette instruction doit être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x01)); // R10 = 1 (succès JMP)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 3: TEST JmpIfEqual (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 3: TEST JmpIfEqual ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmpifequal_target_1 = current_address + jmp_instruction_size + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x02)); // R11 = 2 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R1 (10 == 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x03)); // R12 = 3 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x04)); // R13 = 4
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 4: TEST JmpIfNotEqual (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 4: TEST JmpIfNotEqual ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x05)); // R14 = 5 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R2 (10 != 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x06)); // R15 = 6 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x07)); // R5 = 7
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 5: TEST JmpIfGreater (ZF = 0 ET SF = 0)
+    // ============================================================================
+    println!("=== SECTION 5: TEST JmpIfGreater ===");
+
+    // Test 1: R1 > R0 (20 > 10) → ZF = 0, SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x08)); // R6 = 8 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R3 > R0 (5 > 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x09)); // R7 = 9 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x0A)); // R8 = 10
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 6: TEST JmpIfLess (SF = 1)
+    // ============================================================================
+    println!("=== SECTION 6: TEST JmpIfLess ===");
+
+    // Test 1: R3 < R0 (5 < 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x0B)); // R9 = 11 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R1 < R0 (20 < 10) → SF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x0C)); // R10 = 12 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x0D)); // R11 = 13
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 7: TEST JmpIfGreaterEqual (SF = 0 ou ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 7: TEST JmpIfGreaterEqual ===");
+
+    // Test 1: R1 >= R0 (20 >= 10) → SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x0E)); // R12 = 14 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 >= R2 (10 >= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x0F)); // R13 = 15 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R3 >= R0 (5 >= 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x10)); // R14 = 16 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x11)); // R15 = 17
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 8: TEST JmpIfLessEqual (SF = 1 OU ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 8: TEST JmpIfLessEqual ===");
+
+    // Test 1: R3 <= R0 (5 <= 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x12)); // R5 = 18 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 <= R2 (10 <= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x13)); // R6 = 19 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R1 <= R0 (20 <= 10) → SF = 0, ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x14)); // R7 = 20 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x15)); // R8 = 21
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 9: TEST JmpIfZero (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 9: TEST JmpIfZero ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x16)); // R9 = 22 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R1 (10 != 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x17)); // R10 = 23 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x18)); // R11 = 24
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 10: TEST JmpIfNotZero (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 10: TEST JmpIfNotZero ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x19)); // R12 = 25 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R2 (10 == 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x1A)); // R13 = 26 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x1B)); // R14 = 27
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 11: TEST DE BOUCLE (Pattern pour le prédicteur)
+    // ============================================================================
+    println!("=== SECTION 11: TEST DE BOUCLE ===");
+
+    // Initialisation du compteur de boucle
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 3)); // R15 = 3 (compteur)
+
+    // Début de la boucle - cette étiquette sera utilisée pour le branchement arrière
+    let loop_start_instruction_index = program.code.len();
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Corps de la boucle
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1 (R4 = 0, donc R15 - 0, mais on veut R15-1)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Pour décrémenter correctement, on doit d'abord mettre 1 dans un registre
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 1)); // R4 = 1
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Comparer avec 0
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0)); // R4 = 0 pour comparaison
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 15, 4)); // Compare R15 avec 0
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Calculer l'offset pour retourner au début de la boucle
+    let current_instruction_index = program.code.len() + 1; // +1 car on ajoute l'instruction de branchement
+    let loop_body_size = current_instruction_index - loop_start_instruction_index;
+    let backward_offset = -(loop_body_size as i32 * 6 + 8); // chaque instruction fait ~6 bytes, +8 pour l'instruction de branchement
+    let  jmpifnotzero_loop =  current_address as i32 + backward_offset as i32 ;
+
+    // Branchement conditionnel vers le début de la boucle si R15 != 0
+    program.add_instruction(Instruction::create_jump_if_not_zero(0, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 12: TEST CALL/RET (Si implémenté)
+    // ============================================================================
+    println!("=== SECTION 12: TEST CALL/RET ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+    let call_target = current_address + 8 + 6 ;
+    // Sauter par-dessus la fonction pour aller au call
+    program.add_instruction(Instruction::create_jump(current_address, call_target)); // Sauter la fonction
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // FONCTION: simple_function
+    // Fonction qui met 0xFF dans R5 et retourne
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0xFF)); // R5 = 255
+    program.add_instruction(Instruction::create_no_args(Opcode::Ret)); // Retour
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Appel de la fonction (si CALL est implémenté)
+    current_address = Instruction::calculate_current_address(&program.code);
+    let function_offset = -12i32;// Retourner à la fonction
+    program.add_instruction(Instruction::create_call(function_offset as u32));
+
+    // ============================================================================
+    // SECTION 13: FINALISATION ET VÉRIFICATION
+    // ============================================================================
+    println!("=== SECTION 13: FINALISATION ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Marquer la fin des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 0xFE)); // R0 = 254 (marqueur de fin)
+
+
+
+    // ============================================================================
+    // SECTION 1: INITIALISATION DES REGISTRES
+    // ============================================================================
+    println!("=== SECTION 1: INITIALISATION ===");
+
+    // Registres pour les comparaisons
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 10)); // R0 = 10
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 20)); // R1 = 20
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 10)); // R2 = 10 (égal à R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 5));  // R3 = 5 (plus petit que R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0));  // R4 = 0 (pour tests de zéro)
+
+    // Registres pour stocker les résultats des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0));  // R8 = compteur de tests réussis
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0));  // R9 = compteur de tests échoués
+
+    // ============================================================================
+    // SECTION 2: TEST JMP (SAUT INCONDITIONNEL)
+    // ============================================================================
+    println!("=== SECTION 2: TEST JMP INCONDITIONNEL ===");
+
+    let mut current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmp_target = current_address + jmp_instruction_size + 6; // Sauter par-dessus l'instruction MOV suivante
+    program.add_instruction(Instruction::create_jump(current_address, jmp_target));
+
+    // Cette instruction ne doit PAS être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+
+    // Cette instruction doit être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x01)); // R10 = 1 (succès JMP)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 3: TEST JmpIfEqual (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 3: TEST JmpIfEqual ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmpifequal_target_1 = current_address + jmp_instruction_size + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x02)); // R11 = 2 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R1 (10 == 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x03)); // R12 = 3 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x04)); // R13 = 4
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 4: TEST JmpIfNotEqual (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 4: TEST JmpIfNotEqual ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x05)); // R14 = 5 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R2 (10 != 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x06)); // R15 = 6 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x07)); // R5 = 7
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 5: TEST JmpIfGreater (ZF = 0 ET SF = 0)
+    // ============================================================================
+    println!("=== SECTION 5: TEST JmpIfGreater ===");
+
+    // Test 1: R1 > R0 (20 > 10) → ZF = 0, SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x08)); // R6 = 8 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R3 > R0 (5 > 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x09)); // R7 = 9 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x0A)); // R8 = 10
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 6: TEST JmpIfLess (SF = 1)
+    // ============================================================================
+    println!("=== SECTION 6: TEST JmpIfLess ===");
+
+    // Test 1: R3 < R0 (5 < 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x0B)); // R9 = 11 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R1 < R0 (20 < 10) → SF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x0C)); // R10 = 12 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x0D)); // R11 = 13
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 7: TEST JmpIfGreaterEqual (SF = 0 ou ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 7: TEST JmpIfGreaterEqual ===");
+
+    // Test 1: R1 >= R0 (20 >= 10) → SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x0E)); // R12 = 14 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 >= R2 (10 >= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x0F)); // R13 = 15 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R3 >= R0 (5 >= 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x10)); // R14 = 16 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x11)); // R15 = 17
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 8: TEST JmpIfLessEqual (SF = 1 OU ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 8: TEST JmpIfLessEqual ===");
+
+    // Test 1: R3 <= R0 (5 <= 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x12)); // R5 = 18 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 <= R2 (10 <= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x13)); // R6 = 19 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R1 <= R0 (20 <= 10) → SF = 0, ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x14)); // R7 = 20 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x15)); // R8 = 21
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 9: TEST JmpIfZero (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 9: TEST JmpIfZero ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x16)); // R9 = 22 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R1 (10 != 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x17)); // R10 = 23 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x18)); // R11 = 24
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 10: TEST JmpIfNotZero (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 10: TEST JmpIfNotZero ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x19)); // R12 = 25 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R2 (10 == 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x1A)); // R13 = 26 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x1B)); // R14 = 27
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 11: TEST DE BOUCLE (Pattern pour le prédicteur)
+    // ============================================================================
+    println!("=== SECTION 11: TEST DE BOUCLE ===");
+
+    // Initialisation du compteur de boucle
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 3)); // R15 = 3 (compteur)
+
+    // Début de la boucle - cette étiquette sera utilisée pour le branchement arrière
+    let loop_start_instruction_index = program.code.len();
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Corps de la boucle
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1 (R4 = 0, donc R15 - 0, mais on veut R15-1)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Pour décrémenter correctement, on doit d'abord mettre 1 dans un registre
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 1)); // R4 = 1
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Comparer avec 0
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0)); // R4 = 0 pour comparaison
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 15, 4)); // Compare R15 avec 0
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Calculer l'offset pour retourner au début de la boucle
+    let current_instruction_index = program.code.len() + 1; // +1 car on ajoute l'instruction de branchement
+    let loop_body_size = current_instruction_index - loop_start_instruction_index;
+    let backward_offset = -(loop_body_size as i32 * 6 + 8); // chaque instruction fait ~6 bytes, +8 pour l'instruction de branchement
+    let  jmpifnotzero_loop =  current_address as i32 + backward_offset as i32 ;
+
+    // Branchement conditionnel vers le début de la boucle si R15 != 0
+    program.add_instruction(Instruction::create_jump_if_not_zero(0, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 12: TEST CALL/RET (Si implémenté)
+    // ============================================================================
+    println!("=== SECTION 12: TEST CALL/RET ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+    let call_target = current_address + 8 + 6 ;
+    // Sauter par-dessus la fonction pour aller au call
+    program.add_instruction(Instruction::create_jump(current_address, call_target)); // Sauter la fonction
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // FONCTION: simple_function
+    // Fonction qui met 0xFF dans R5 et retourne
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0xFF)); // R5 = 255
+    program.add_instruction(Instruction::create_no_args(Opcode::Ret)); // Retour
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Appel de la fonction (si CALL est implémenté)
+    current_address = Instruction::calculate_current_address(&program.code);
+    let function_offset = -12i32;// Retourner à la fonction
+    program.add_instruction(Instruction::create_call(function_offset as u32));
+
+    // ============================================================================
+    // SECTION 13: FINALISATION ET VÉRIFICATION
+    // ============================================================================
+    println!("=== SECTION 13: FINALISATION ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Marquer la fin des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 0xFE)); // R0 = 254 (marqueur de fin)
+
+    // ============================================================================
+    // SECTION 1: INITIALISATION DES REGISTRES
+    // ============================================================================
+    println!("=== SECTION 1: INITIALISATION ===");
+
+    // Registres pour les comparaisons
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 10)); // R0 = 10
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 20)); // R1 = 20
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 10)); // R2 = 10 (égal à R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 5));  // R3 = 5 (plus petit que R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0));  // R4 = 0 (pour tests de zéro)
+
+    // Registres pour stocker les résultats des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0));  // R8 = compteur de tests réussis
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0));  // R9 = compteur de tests échoués
+
+    // ============================================================================
+    // SECTION 2: TEST JMP (SAUT INCONDITIONNEL)
+    // ============================================================================
+    println!("=== SECTION 2: TEST JMP INCONDITIONNEL ===");
+
+    let mut current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmp_target = current_address + jmp_instruction_size + 6; // Sauter par-dessus l'instruction MOV suivante
+    program.add_instruction(Instruction::create_jump(current_address, jmp_target));
+
+    // Cette instruction ne doit PAS être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+
+    // Cette instruction doit être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x01)); // R10 = 1 (succès JMP)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 3: TEST JmpIfEqual (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 3: TEST JmpIfEqual ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmpifequal_target_1 = current_address + jmp_instruction_size + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x02)); // R11 = 2 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R1 (10 == 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x03)); // R12 = 3 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x04)); // R13 = 4
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 4: TEST JmpIfNotEqual (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 4: TEST JmpIfNotEqual ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x05)); // R14 = 5 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R2 (10 != 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x06)); // R15 = 6 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x07)); // R5 = 7
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 5: TEST JmpIfGreater (ZF = 0 ET SF = 0)
+    // ============================================================================
+    println!("=== SECTION 5: TEST JmpIfGreater ===");
+
+    // Test 1: R1 > R0 (20 > 10) → ZF = 0, SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x08)); // R6 = 8 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R3 > R0 (5 > 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x09)); // R7 = 9 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x0A)); // R8 = 10
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 6: TEST JmpIfLess (SF = 1)
+    // ============================================================================
+    println!("=== SECTION 6: TEST JmpIfLess ===");
+
+    // Test 1: R3 < R0 (5 < 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x0B)); // R9 = 11 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R1 < R0 (20 < 10) → SF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x0C)); // R10 = 12 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x0D)); // R11 = 13
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 7: TEST JmpIfGreaterEqual (SF = 0 ou ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 7: TEST JmpIfGreaterEqual ===");
+
+    // Test 1: R1 >= R0 (20 >= 10) → SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x0E)); // R12 = 14 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 >= R2 (10 >= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x0F)); // R13 = 15 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R3 >= R0 (5 >= 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x10)); // R14 = 16 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x11)); // R15 = 17
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 8: TEST JmpIfLessEqual (SF = 1 OU ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 8: TEST JmpIfLessEqual ===");
+
+    // Test 1: R3 <= R0 (5 <= 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x12)); // R5 = 18 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 <= R2 (10 <= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x13)); // R6 = 19 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R1 <= R0 (20 <= 10) → SF = 0, ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x14)); // R7 = 20 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x15)); // R8 = 21
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 9: TEST JmpIfZero (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 9: TEST JmpIfZero ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x16)); // R9 = 22 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R1 (10 != 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x17)); // R10 = 23 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x18)); // R11 = 24
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 10: TEST JmpIfNotZero (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 10: TEST JmpIfNotZero ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x19)); // R12 = 25 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R2 (10 == 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x1A)); // R13 = 26 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x1B)); // R14 = 27
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 11: TEST DE BOUCLE (Pattern pour le prédicteur)
+    // ============================================================================
+    println!("=== SECTION 11: TEST DE BOUCLE ===");
+
+    // Initialisation du compteur de boucle
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 3)); // R15 = 3 (compteur)
+
+    // Début de la boucle - cette étiquette sera utilisée pour le branchement arrière
+    let loop_start_instruction_index = program.code.len();
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Corps de la boucle
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1 (R4 = 0, donc R15 - 0, mais on veut R15-1)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Pour décrémenter correctement, on doit d'abord mettre 1 dans un registre
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 1)); // R4 = 1
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Comparer avec 0
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0)); // R4 = 0 pour comparaison
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 15, 4)); // Compare R15 avec 0
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Calculer l'offset pour retourner au début de la boucle
+    let current_instruction_index = program.code.len() + 1; // +1 car on ajoute l'instruction de branchement
+    let loop_body_size = current_instruction_index - loop_start_instruction_index;
+    let backward_offset = -(loop_body_size as i32 * 6 + 8); // chaque instruction fait ~6 bytes, +8 pour l'instruction de branchement
+    let  jmpifnotzero_loop =  current_address as i32 + backward_offset as i32 ;
+
+    // Branchement conditionnel vers le début de la boucle si R15 != 0
+    program.add_instruction(Instruction::create_jump_if_not_zero(0, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 12: TEST CALL/RET (Si implémenté)
+    // ============================================================================
+    println!("=== SECTION 12: TEST CALL/RET ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+    let call_target = current_address + 8 + 6 ;
+    // Sauter par-dessus la fonction pour aller au call
+    program.add_instruction(Instruction::create_jump(current_address, call_target)); // Sauter la fonction
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // FONCTION: simple_function
+    // Fonction qui met 0xFF dans R5 et retourne
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0xFF)); // R5 = 255
+    program.add_instruction(Instruction::create_no_args(Opcode::Ret)); // Retour
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Appel de la fonction (si CALL est implémenté)
+    current_address = Instruction::calculate_current_address(&program.code);
+    let function_offset = -12i32;// Retourner à la fonction
+    program.add_instruction(Instruction::create_call(function_offset as u32));
+
+    // ============================================================================
+    // SECTION 13: FINALISATION ET VÉRIFICATION
+    // ============================================================================
+    println!("=== SECTION 13: FINALISATION ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Marquer la fin des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 0xFE)); // R0 = 254 (marqueur de fin)
+
+
+
+    // ============================================================================
+    // SECTION 1: INITIALISATION DES REGISTRES
+    // ============================================================================
+    println!("=== SECTION 1: INITIALISATION ===");
+
+    // Registres pour les comparaisons
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 10)); // R0 = 10
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 20)); // R1 = 20
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 10)); // R2 = 10 (égal à R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 5));  // R3 = 5 (plus petit que R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0));  // R4 = 0 (pour tests de zéro)
+
+    // Registres pour stocker les résultats des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0));  // R8 = compteur de tests réussis
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0));  // R9 = compteur de tests échoués
+
+    // ============================================================================
+    // SECTION 2: TEST JMP (SAUT INCONDITIONNEL)
+    // ============================================================================
+    println!("=== SECTION 2: TEST JMP INCONDITIONNEL ===");
+
+    let mut current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmp_target = current_address + jmp_instruction_size + 6; // Sauter par-dessus l'instruction MOV suivante
+    program.add_instruction(Instruction::create_jump(current_address, jmp_target));
+
+    // Cette instruction ne doit PAS être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+
+    // Cette instruction doit être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x01)); // R10 = 1 (succès JMP)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 3: TEST JmpIfEqual (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 3: TEST JmpIfEqual ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmpifequal_target_1 = current_address + jmp_instruction_size + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x02)); // R11 = 2 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R1 (10 == 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x03)); // R12 = 3 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x04)); // R13 = 4
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 4: TEST JmpIfNotEqual (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 4: TEST JmpIfNotEqual ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x05)); // R14 = 5 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R2 (10 != 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x06)); // R15 = 6 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x07)); // R5 = 7
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 5: TEST JmpIfGreater (ZF = 0 ET SF = 0)
+    // ============================================================================
+    println!("=== SECTION 5: TEST JmpIfGreater ===");
+
+    // Test 1: R1 > R0 (20 > 10) → ZF = 0, SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x08)); // R6 = 8 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R3 > R0 (5 > 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x09)); // R7 = 9 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x0A)); // R8 = 10
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 6: TEST JmpIfLess (SF = 1)
+    // ============================================================================
+    println!("=== SECTION 6: TEST JmpIfLess ===");
+
+    // Test 1: R3 < R0 (5 < 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x0B)); // R9 = 11 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R1 < R0 (20 < 10) → SF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x0C)); // R10 = 12 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x0D)); // R11 = 13
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 7: TEST JmpIfGreaterEqual (SF = 0 ou ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 7: TEST JmpIfGreaterEqual ===");
+
+    // Test 1: R1 >= R0 (20 >= 10) → SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x0E)); // R12 = 14 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 >= R2 (10 >= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x0F)); // R13 = 15 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R3 >= R0 (5 >= 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x10)); // R14 = 16 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x11)); // R15 = 17
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 8: TEST JmpIfLessEqual (SF = 1 OU ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 8: TEST JmpIfLessEqual ===");
+
+    // Test 1: R3 <= R0 (5 <= 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x12)); // R5 = 18 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 <= R2 (10 <= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x13)); // R6 = 19 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R1 <= R0 (20 <= 10) → SF = 0, ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x14)); // R7 = 20 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x15)); // R8 = 21
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 9: TEST JmpIfZero (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 9: TEST JmpIfZero ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x16)); // R9 = 22 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R1 (10 != 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x17)); // R10 = 23 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x18)); // R11 = 24
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 10: TEST JmpIfNotZero (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 10: TEST JmpIfNotZero ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x19)); // R12 = 25 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R2 (10 == 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x1A)); // R13 = 26 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x1B)); // R14 = 27
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 11: TEST DE BOUCLE (Pattern pour le prédicteur)
+    // ============================================================================
+    println!("=== SECTION 11: TEST DE BOUCLE ===");
+
+    // Initialisation du compteur de boucle
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 3)); // R15 = 3 (compteur)
+
+    // Début de la boucle - cette étiquette sera utilisée pour le branchement arrière
+    let loop_start_instruction_index = program.code.len();
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Corps de la boucle
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1 (R4 = 0, donc R15 - 0, mais on veut R15-1)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Pour décrémenter correctement, on doit d'abord mettre 1 dans un registre
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 1)); // R4 = 1
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Comparer avec 0
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0)); // R4 = 0 pour comparaison
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 15, 4)); // Compare R15 avec 0
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Calculer l'offset pour retourner au début de la boucle
+    let current_instruction_index = program.code.len() + 1; // +1 car on ajoute l'instruction de branchement
+    let loop_body_size = current_instruction_index - loop_start_instruction_index;
+    let backward_offset = -(loop_body_size as i32 * 6 + 8); // chaque instruction fait ~6 bytes, +8 pour l'instruction de branchement
+    let  jmpifnotzero_loop =  current_address as i32 + backward_offset as i32 ;
+
+    // Branchement conditionnel vers le début de la boucle si R15 != 0
+    program.add_instruction(Instruction::create_jump_if_not_zero(0, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 12: TEST CALL/RET (Si implémenté)
+    // ============================================================================
+    println!("=== SECTION 12: TEST CALL/RET ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+    let call_target = current_address + 8 + 6 ;
+    // Sauter par-dessus la fonction pour aller au call
+    program.add_instruction(Instruction::create_jump(current_address, call_target)); // Sauter la fonction
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // FONCTION: simple_function
+    // Fonction qui met 0xFF dans R5 et retourne
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0xFF)); // R5 = 255
+    program.add_instruction(Instruction::create_no_args(Opcode::Ret)); // Retour
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Appel de la fonction (si CALL est implémenté)
+    current_address = Instruction::calculate_current_address(&program.code);
+    let function_offset = -12i32;// Retourner à la fonction
+    program.add_instruction(Instruction::create_call(function_offset as u32));
+
+    // ============================================================================
+    // SECTION 13: FINALISATION ET VÉRIFICATION
+    // ============================================================================
+    println!("=== SECTION 13: FINALISATION ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Marquer la fin des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 0xFE)); // R0 = 254 (marqueur de fin)
+
+
+
+
+    // ============================================================================
+    // SECTION 1: INITIALISATION DES REGISTRES
+    // ============================================================================
+    println!("=== SECTION 1: INITIALISATION ===");
+
+    // Registres pour les comparaisons
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 10)); // R0 = 10
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 20)); // R1 = 20
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 10)); // R2 = 10 (égal à R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 5));  // R3 = 5 (plus petit que R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0));  // R4 = 0 (pour tests de zéro)
+
+    // Registres pour stocker les résultats des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0));  // R8 = compteur de tests réussis
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0));  // R9 = compteur de tests échoués
+
+    // ============================================================================
+    // SECTION 2: TEST JMP (SAUT INCONDITIONNEL)
+    // ============================================================================
+    println!("=== SECTION 2: TEST JMP INCONDITIONNEL ===");
+
+    let mut current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmp_target = current_address + jmp_instruction_size + 6; // Sauter par-dessus l'instruction MOV suivante
+    program.add_instruction(Instruction::create_jump(current_address, jmp_target));
+
+    // Cette instruction ne doit PAS être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+
+    // Cette instruction doit être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x01)); // R10 = 1 (succès JMP)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 3: TEST JmpIfEqual (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 3: TEST JmpIfEqual ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmpifequal_target_1 = current_address + jmp_instruction_size + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x02)); // R11 = 2 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R1 (10 == 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x03)); // R12 = 3 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x04)); // R13 = 4
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 4: TEST JmpIfNotEqual (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 4: TEST JmpIfNotEqual ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x05)); // R14 = 5 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R2 (10 != 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x06)); // R15 = 6 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x07)); // R5 = 7
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 5: TEST JmpIfGreater (ZF = 0 ET SF = 0)
+    // ============================================================================
+    println!("=== SECTION 5: TEST JmpIfGreater ===");
+
+    // Test 1: R1 > R0 (20 > 10) → ZF = 0, SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x08)); // R6 = 8 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R3 > R0 (5 > 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x09)); // R7 = 9 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x0A)); // R8 = 10
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 6: TEST JmpIfLess (SF = 1)
+    // ============================================================================
+    println!("=== SECTION 6: TEST JmpIfLess ===");
+
+    // Test 1: R3 < R0 (5 < 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x0B)); // R9 = 11 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R1 < R0 (20 < 10) → SF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x0C)); // R10 = 12 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x0D)); // R11 = 13
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 7: TEST JmpIfGreaterEqual (SF = 0 ou ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 7: TEST JmpIfGreaterEqual ===");
+
+    // Test 1: R1 >= R0 (20 >= 10) → SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x0E)); // R12 = 14 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 >= R2 (10 >= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x0F)); // R13 = 15 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R3 >= R0 (5 >= 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x10)); // R14 = 16 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x11)); // R15 = 17
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 8: TEST JmpIfLessEqual (SF = 1 OU ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 8: TEST JmpIfLessEqual ===");
+
+    // Test 1: R3 <= R0 (5 <= 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x12)); // R5 = 18 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 <= R2 (10 <= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x13)); // R6 = 19 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R1 <= R0 (20 <= 10) → SF = 0, ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x14)); // R7 = 20 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x15)); // R8 = 21
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 9: TEST JmpIfZero (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 9: TEST JmpIfZero ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x16)); // R9 = 22 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R1 (10 != 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x17)); // R10 = 23 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x18)); // R11 = 24
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 10: TEST JmpIfNotZero (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 10: TEST JmpIfNotZero ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x19)); // R12 = 25 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R2 (10 == 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x1A)); // R13 = 26 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x1B)); // R14 = 27
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 11: TEST DE BOUCLE (Pattern pour le prédicteur)
+    // ============================================================================
+    println!("=== SECTION 11: TEST DE BOUCLE ===");
+
+    // Initialisation du compteur de boucle
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 3)); // R15 = 3 (compteur)
+
+    // Début de la boucle - cette étiquette sera utilisée pour le branchement arrière
+    let loop_start_instruction_index = program.code.len();
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Corps de la boucle
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1 (R4 = 0, donc R15 - 0, mais on veut R15-1)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Pour décrémenter correctement, on doit d'abord mettre 1 dans un registre
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 1)); // R4 = 1
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Comparer avec 0
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0)); // R4 = 0 pour comparaison
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 15, 4)); // Compare R15 avec 0
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Calculer l'offset pour retourner au début de la boucle
+    let current_instruction_index = program.code.len() + 1; // +1 car on ajoute l'instruction de branchement
+    let loop_body_size = current_instruction_index - loop_start_instruction_index;
+    let backward_offset = -(loop_body_size as i32 * 6 + 8); // chaque instruction fait ~6 bytes, +8 pour l'instruction de branchement
+    let  jmpifnotzero_loop =  current_address as i32 + backward_offset as i32 ;
+
+    // Branchement conditionnel vers le début de la boucle si R15 != 0
+    program.add_instruction(Instruction::create_jump_if_not_zero(0, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 12: TEST CALL/RET (Si implémenté)
+    // ============================================================================
+    println!("=== SECTION 12: TEST CALL/RET ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+    let call_target = current_address + 8 + 6 ;
+    // Sauter par-dessus la fonction pour aller au call
+    program.add_instruction(Instruction::create_jump(current_address, call_target)); // Sauter la fonction
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // FONCTION: simple_function
+    // Fonction qui met 0xFF dans R5 et retourne
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0xFF)); // R5 = 255
+    program.add_instruction(Instruction::create_no_args(Opcode::Ret)); // Retour
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Appel de la fonction (si CALL est implémenté)
+    current_address = Instruction::calculate_current_address(&program.code);
+    let function_offset = -12i32;// Retourner à la fonction
+    program.add_instruction(Instruction::create_call(function_offset as u32));
+
+    // ============================================================================
+    // SECTION 13: FINALISATION ET VÉRIFICATION
+    // ============================================================================
+    println!("=== SECTION 13: FINALISATION ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Marquer la fin des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 0xFE)); // R0 = 254 (marqueur de fin)
+
+
+
+
+    // ============================================================================
+    // SECTION 1: INITIALISATION DES REGISTRES
+    // ============================================================================
+    println!("=== SECTION 1: INITIALISATION ===");
+
+    // Registres pour les comparaisons
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 10)); // R0 = 10
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 20)); // R1 = 20
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 10)); // R2 = 10 (égal à R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 5));  // R3 = 5 (plus petit que R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0));  // R4 = 0 (pour tests de zéro)
+
+    // Registres pour stocker les résultats des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0));  // R8 = compteur de tests réussis
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0));  // R9 = compteur de tests échoués
+
+    // ============================================================================
+    // SECTION 2: TEST JMP (SAUT INCONDITIONNEL)
+    // ============================================================================
+    println!("=== SECTION 2: TEST JMP INCONDITIONNEL ===");
+
+    let mut current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmp_target = current_address + jmp_instruction_size + 6; // Sauter par-dessus l'instruction MOV suivante
+    program.add_instruction(Instruction::create_jump(current_address, jmp_target));
+
+    // Cette instruction ne doit PAS être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+
+    // Cette instruction doit être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x01)); // R10 = 1 (succès JMP)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 3: TEST JmpIfEqual (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 3: TEST JmpIfEqual ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmpifequal_target_1 = current_address + jmp_instruction_size + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x02)); // R11 = 2 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R1 (10 == 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x03)); // R12 = 3 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x04)); // R13 = 4
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 4: TEST JmpIfNotEqual (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 4: TEST JmpIfNotEqual ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x05)); // R14 = 5 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R2 (10 != 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x06)); // R15 = 6 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x07)); // R5 = 7
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 5: TEST JmpIfGreater (ZF = 0 ET SF = 0)
+    // ============================================================================
+    println!("=== SECTION 5: TEST JmpIfGreater ===");
+
+    // Test 1: R1 > R0 (20 > 10) → ZF = 0, SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x08)); // R6 = 8 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R3 > R0 (5 > 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x09)); // R7 = 9 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x0A)); // R8 = 10
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 6: TEST JmpIfLess (SF = 1)
+    // ============================================================================
+    println!("=== SECTION 6: TEST JmpIfLess ===");
+
+    // Test 1: R3 < R0 (5 < 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x0B)); // R9 = 11 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R1 < R0 (20 < 10) → SF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x0C)); // R10 = 12 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x0D)); // R11 = 13
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 7: TEST JmpIfGreaterEqual (SF = 0 ou ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 7: TEST JmpIfGreaterEqual ===");
+
+    // Test 1: R1 >= R0 (20 >= 10) → SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x0E)); // R12 = 14 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 >= R2 (10 >= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x0F)); // R13 = 15 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R3 >= R0 (5 >= 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x10)); // R14 = 16 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x11)); // R15 = 17
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 8: TEST JmpIfLessEqual (SF = 1 OU ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 8: TEST JmpIfLessEqual ===");
+
+    // Test 1: R3 <= R0 (5 <= 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x12)); // R5 = 18 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 <= R2 (10 <= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x13)); // R6 = 19 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R1 <= R0 (20 <= 10) → SF = 0, ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x14)); // R7 = 20 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x15)); // R8 = 21
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 9: TEST JmpIfZero (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 9: TEST JmpIfZero ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x16)); // R9 = 22 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R1 (10 != 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x17)); // R10 = 23 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x18)); // R11 = 24
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 10: TEST JmpIfNotZero (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 10: TEST JmpIfNotZero ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x19)); // R12 = 25 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R2 (10 == 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x1A)); // R13 = 26 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x1B)); // R14 = 27
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 11: TEST DE BOUCLE (Pattern pour le prédicteur)
+    // ============================================================================
+    println!("=== SECTION 11: TEST DE BOUCLE ===");
+
+    // Initialisation du compteur de boucle
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 3)); // R15 = 3 (compteur)
+
+    // Début de la boucle - cette étiquette sera utilisée pour le branchement arrière
+    let loop_start_instruction_index = program.code.len();
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Corps de la boucle
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1 (R4 = 0, donc R15 - 0, mais on veut R15-1)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Pour décrémenter correctement, on doit d'abord mettre 1 dans un registre
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 1)); // R4 = 1
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Comparer avec 0
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0)); // R4 = 0 pour comparaison
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 15, 4)); // Compare R15 avec 0
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Calculer l'offset pour retourner au début de la boucle
+    let current_instruction_index = program.code.len() + 1; // +1 car on ajoute l'instruction de branchement
+    let loop_body_size = current_instruction_index - loop_start_instruction_index;
+    let backward_offset = -(loop_body_size as i32 * 6 + 8); // chaque instruction fait ~6 bytes, +8 pour l'instruction de branchement
+    let  jmpifnotzero_loop =  current_address as i32 + backward_offset as i32 ;
+
+    // Branchement conditionnel vers le début de la boucle si R15 != 0
+    program.add_instruction(Instruction::create_jump_if_not_zero(0, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 12: TEST CALL/RET (Si implémenté)
+    // ============================================================================
+    println!("=== SECTION 12: TEST CALL/RET ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+    let call_target = current_address + 8 + 6 ;
+    // Sauter par-dessus la fonction pour aller au call
+    program.add_instruction(Instruction::create_jump(current_address, call_target)); // Sauter la fonction
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // FONCTION: simple_function
+    // Fonction qui met 0xFF dans R5 et retourne
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0xFF)); // R5 = 255
+    program.add_instruction(Instruction::create_no_args(Opcode::Ret)); // Retour
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Appel de la fonction (si CALL est implémenté)
+    current_address = Instruction::calculate_current_address(&program.code);
+    let function_offset = -12i32;// Retourner à la fonction
+    program.add_instruction(Instruction::create_call(function_offset as u32));
+
+    // ============================================================================
+    // SECTION 13: FINALISATION ET VÉRIFICATION
+    // ============================================================================
+    println!("=== SECTION 13: FINALISATION ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Marquer la fin des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 0xFE)); // R0 = 254 (marqueur de fin)
+
+
+
+    // ============================================================================
+    // SECTION 1: INITIALISATION DES REGISTRES
+    // ============================================================================
+    println!("=== SECTION 1: INITIALISATION ===");
+
+    // Registres pour les comparaisons
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 10)); // R0 = 10
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 20)); // R1 = 20
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 10)); // R2 = 10 (égal à R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 5));  // R3 = 5 (plus petit que R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0));  // R4 = 0 (pour tests de zéro)
+
+    // Registres pour stocker les résultats des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0));  // R8 = compteur de tests réussis
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0));  // R9 = compteur de tests échoués
+
+    // ============================================================================
+    // SECTION 2: TEST JMP (SAUT INCONDITIONNEL)
+    // ============================================================================
+    println!("=== SECTION 2: TEST JMP INCONDITIONNEL ===");
+
+    let mut current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmp_target = current_address + jmp_instruction_size + 6; // Sauter par-dessus l'instruction MOV suivante
+    program.add_instruction(Instruction::create_jump(current_address, jmp_target));
+
+    // Cette instruction ne doit PAS être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+
+    // Cette instruction doit être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x01)); // R10 = 1 (succès JMP)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 3: TEST JmpIfEqual (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 3: TEST JmpIfEqual ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmpifequal_target_1 = current_address + jmp_instruction_size + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x02)); // R11 = 2 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R1 (10 == 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x03)); // R12 = 3 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x04)); // R13 = 4
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 4: TEST JmpIfNotEqual (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 4: TEST JmpIfNotEqual ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x05)); // R14 = 5 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R2 (10 != 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x06)); // R15 = 6 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x07)); // R5 = 7
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 5: TEST JmpIfGreater (ZF = 0 ET SF = 0)
+    // ============================================================================
+    println!("=== SECTION 5: TEST JmpIfGreater ===");
+
+    // Test 1: R1 > R0 (20 > 10) → ZF = 0, SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x08)); // R6 = 8 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R3 > R0 (5 > 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x09)); // R7 = 9 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x0A)); // R8 = 10
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 6: TEST JmpIfLess (SF = 1)
+    // ============================================================================
+    println!("=== SECTION 6: TEST JmpIfLess ===");
+
+    // Test 1: R3 < R0 (5 < 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x0B)); // R9 = 11 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R1 < R0 (20 < 10) → SF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x0C)); // R10 = 12 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x0D)); // R11 = 13
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 7: TEST JmpIfGreaterEqual (SF = 0 ou ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 7: TEST JmpIfGreaterEqual ===");
+
+    // Test 1: R1 >= R0 (20 >= 10) → SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x0E)); // R12 = 14 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 >= R2 (10 >= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x0F)); // R13 = 15 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R3 >= R0 (5 >= 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x10)); // R14 = 16 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x11)); // R15 = 17
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 8: TEST JmpIfLessEqual (SF = 1 OU ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 8: TEST JmpIfLessEqual ===");
+
+    // Test 1: R3 <= R0 (5 <= 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x12)); // R5 = 18 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 <= R2 (10 <= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x13)); // R6 = 19 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R1 <= R0 (20 <= 10) → SF = 0, ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x14)); // R7 = 20 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x15)); // R8 = 21
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 9: TEST JmpIfZero (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 9: TEST JmpIfZero ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x16)); // R9 = 22 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R1 (10 != 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x17)); // R10 = 23 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x18)); // R11 = 24
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 10: TEST JmpIfNotZero (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 10: TEST JmpIfNotZero ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x19)); // R12 = 25 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R2 (10 == 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x1A)); // R13 = 26 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x1B)); // R14 = 27
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 11: TEST DE BOUCLE (Pattern pour le prédicteur)
+    // ============================================================================
+    println!("=== SECTION 11: TEST DE BOUCLE ===");
+
+    // Initialisation du compteur de boucle
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 3)); // R15 = 3 (compteur)
+
+    // Début de la boucle - cette étiquette sera utilisée pour le branchement arrière
+    let loop_start_instruction_index = program.code.len();
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Corps de la boucle
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1 (R4 = 0, donc R15 - 0, mais on veut R15-1)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Pour décrémenter correctement, on doit d'abord mettre 1 dans un registre
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 1)); // R4 = 1
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Comparer avec 0
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0)); // R4 = 0 pour comparaison
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 15, 4)); // Compare R15 avec 0
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Calculer l'offset pour retourner au début de la boucle
+    let current_instruction_index = program.code.len() + 1; // +1 car on ajoute l'instruction de branchement
+    let loop_body_size = current_instruction_index - loop_start_instruction_index;
+    let backward_offset = -(loop_body_size as i32 * 6 + 8); // chaque instruction fait ~6 bytes, +8 pour l'instruction de branchement
+    let  jmpifnotzero_loop =  current_address as i32 + backward_offset as i32 ;
+
+    // Branchement conditionnel vers le début de la boucle si R15 != 0
+    program.add_instruction(Instruction::create_jump_if_not_zero(0, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 12: TEST CALL/RET (Si implémenté)
+    // ============================================================================
+    println!("=== SECTION 12: TEST CALL/RET ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+    let call_target = current_address + 8 + 6 ;
+    // Sauter par-dessus la fonction pour aller au call
+    program.add_instruction(Instruction::create_jump(current_address, call_target)); // Sauter la fonction
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // FONCTION: simple_function
+    // Fonction qui met 0xFF dans R5 et retourne
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0xFF)); // R5 = 255
+    program.add_instruction(Instruction::create_no_args(Opcode::Ret)); // Retour
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Appel de la fonction (si CALL est implémenté)
+    current_address = Instruction::calculate_current_address(&program.code);
+    let function_offset = -12i32;// Retourner à la fonction
+    program.add_instruction(Instruction::create_call(function_offset as u32));
+
+    // ============================================================================
+    // SECTION 13: FINALISATION ET VÉRIFICATION
+    // ============================================================================
+    println!("=== SECTION 13: FINALISATION ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Marquer la fin des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 0xFE)); // R0 = 254 (marqueur de fin)
+
+    // ============================================================================
+    // SECTION 1: INITIALISATION DES REGISTRES
+    // ============================================================================
+    println!("=== SECTION 1: INITIALISATION ===");
+
+    // Registres pour les comparaisons
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 10)); // R0 = 10
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 20)); // R1 = 20
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 10)); // R2 = 10 (égal à R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 5));  // R3 = 5 (plus petit que R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0));  // R4 = 0 (pour tests de zéro)
+
+    // Registres pour stocker les résultats des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0));  // R8 = compteur de tests réussis
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0));  // R9 = compteur de tests échoués
+
+    // ============================================================================
+    // SECTION 2: TEST JMP (SAUT INCONDITIONNEL)
+    // ============================================================================
+    println!("=== SECTION 2: TEST JMP INCONDITIONNEL ===");
+
+    let mut current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmp_target = current_address + jmp_instruction_size + 6; // Sauter par-dessus l'instruction MOV suivante
+    program.add_instruction(Instruction::create_jump(current_address, jmp_target));
+
+    // Cette instruction ne doit PAS être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+
+    // Cette instruction doit être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x01)); // R10 = 1 (succès JMP)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 3: TEST JmpIfEqual (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 3: TEST JmpIfEqual ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmpifequal_target_1 = current_address + jmp_instruction_size + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x02)); // R11 = 2 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R1 (10 == 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x03)); // R12 = 3 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x04)); // R13 = 4
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 4: TEST JmpIfNotEqual (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 4: TEST JmpIfNotEqual ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x05)); // R14 = 5 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R2 (10 != 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x06)); // R15 = 6 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x07)); // R5 = 7
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 5: TEST JmpIfGreater (ZF = 0 ET SF = 0)
+    // ============================================================================
+    println!("=== SECTION 5: TEST JmpIfGreater ===");
+
+    // Test 1: R1 > R0 (20 > 10) → ZF = 0, SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x08)); // R6 = 8 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R3 > R0 (5 > 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x09)); // R7 = 9 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x0A)); // R8 = 10
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 6: TEST JmpIfLess (SF = 1)
+    // ============================================================================
+    println!("=== SECTION 6: TEST JmpIfLess ===");
+
+    // Test 1: R3 < R0 (5 < 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x0B)); // R9 = 11 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R1 < R0 (20 < 10) → SF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x0C)); // R10 = 12 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x0D)); // R11 = 13
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 7: TEST JmpIfGreaterEqual (SF = 0 ou ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 7: TEST JmpIfGreaterEqual ===");
+
+    // Test 1: R1 >= R0 (20 >= 10) → SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x0E)); // R12 = 14 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 >= R2 (10 >= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x0F)); // R13 = 15 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R3 >= R0 (5 >= 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x10)); // R14 = 16 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x11)); // R15 = 17
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 8: TEST JmpIfLessEqual (SF = 1 OU ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 8: TEST JmpIfLessEqual ===");
+
+    // Test 1: R3 <= R0 (5 <= 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x12)); // R5 = 18 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 <= R2 (10 <= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x13)); // R6 = 19 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R1 <= R0 (20 <= 10) → SF = 0, ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x14)); // R7 = 20 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x15)); // R8 = 21
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 9: TEST JmpIfZero (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 9: TEST JmpIfZero ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x16)); // R9 = 22 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R1 (10 != 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x17)); // R10 = 23 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x18)); // R11 = 24
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 10: TEST JmpIfNotZero (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 10: TEST JmpIfNotZero ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x19)); // R12 = 25 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R2 (10 == 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x1A)); // R13 = 26 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x1B)); // R14 = 27
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 11: TEST DE BOUCLE (Pattern pour le prédicteur)
+    // ============================================================================
+    println!("=== SECTION 11: TEST DE BOUCLE ===");
+
+    // Initialisation du compteur de boucle
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 3)); // R15 = 3 (compteur)
+
+    // Début de la boucle - cette étiquette sera utilisée pour le branchement arrière
+    let loop_start_instruction_index = program.code.len();
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Corps de la boucle
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1 (R4 = 0, donc R15 - 0, mais on veut R15-1)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Pour décrémenter correctement, on doit d'abord mettre 1 dans un registre
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 1)); // R4 = 1
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Comparer avec 0
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0)); // R4 = 0 pour comparaison
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 15, 4)); // Compare R15 avec 0
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Calculer l'offset pour retourner au début de la boucle
+    let current_instruction_index = program.code.len() + 1; // +1 car on ajoute l'instruction de branchement
+    let loop_body_size = current_instruction_index - loop_start_instruction_index;
+    let backward_offset = -(loop_body_size as i32 * 6 + 8); // chaque instruction fait ~6 bytes, +8 pour l'instruction de branchement
+    let  jmpifnotzero_loop =  current_address as i32 + backward_offset as i32 ;
+
+    // Branchement conditionnel vers le début de la boucle si R15 != 0
+    program.add_instruction(Instruction::create_jump_if_not_zero(0, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 12: TEST CALL/RET (Si implémenté)
+    // ============================================================================
+    println!("=== SECTION 12: TEST CALL/RET ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+    let call_target = current_address + 8 + 6 ;
+    // Sauter par-dessus la fonction pour aller au call
+    program.add_instruction(Instruction::create_jump(current_address, call_target)); // Sauter la fonction
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // FONCTION: simple_function
+    // Fonction qui met 0xFF dans R5 et retourne
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0xFF)); // R5 = 255
+    program.add_instruction(Instruction::create_no_args(Opcode::Ret)); // Retour
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Appel de la fonction (si CALL est implémenté)
+    current_address = Instruction::calculate_current_address(&program.code);
+    let function_offset = -12i32;// Retourner à la fonction
+    program.add_instruction(Instruction::create_call(function_offset as u32));
+
+    // ============================================================================
+    // SECTION 13: FINALISATION ET VÉRIFICATION
+    // ============================================================================
+    println!("=== SECTION 13: FINALISATION ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Marquer la fin des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 0xFE)); // R0 = 254 (marqueur de fin)
+
+
+
+    // ============================================================================
+    // SECTION 1: INITIALISATION DES REGISTRES
+    // ============================================================================
+    println!("=== SECTION 1: INITIALISATION ===");
+
+    // Registres pour les comparaisons
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 10)); // R0 = 10
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 20)); // R1 = 20
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 10)); // R2 = 10 (égal à R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 5));  // R3 = 5 (plus petit que R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0));  // R4 = 0 (pour tests de zéro)
+
+    // Registres pour stocker les résultats des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0));  // R8 = compteur de tests réussis
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0));  // R9 = compteur de tests échoués
+
+    // ============================================================================
+    // SECTION 2: TEST JMP (SAUT INCONDITIONNEL)
+    // ============================================================================
+    println!("=== SECTION 2: TEST JMP INCONDITIONNEL ===");
+
+    let mut current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmp_target = current_address + jmp_instruction_size + 6; // Sauter par-dessus l'instruction MOV suivante
+    program.add_instruction(Instruction::create_jump(current_address, jmp_target));
+
+    // Cette instruction ne doit PAS être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+
+    // Cette instruction doit être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x01)); // R10 = 1 (succès JMP)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 3: TEST JmpIfEqual (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 3: TEST JmpIfEqual ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmpifequal_target_1 = current_address + jmp_instruction_size + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x02)); // R11 = 2 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R1 (10 == 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x03)); // R12 = 3 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x04)); // R13 = 4
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 4: TEST JmpIfNotEqual (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 4: TEST JmpIfNotEqual ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x05)); // R14 = 5 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R2 (10 != 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x06)); // R15 = 6 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x07)); // R5 = 7
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 5: TEST JmpIfGreater (ZF = 0 ET SF = 0)
+    // ============================================================================
+    println!("=== SECTION 5: TEST JmpIfGreater ===");
+
+    // Test 1: R1 > R0 (20 > 10) → ZF = 0, SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x08)); // R6 = 8 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R3 > R0 (5 > 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x09)); // R7 = 9 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x0A)); // R8 = 10
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 6: TEST JmpIfLess (SF = 1)
+    // ============================================================================
+    println!("=== SECTION 6: TEST JmpIfLess ===");
+
+    // Test 1: R3 < R0 (5 < 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x0B)); // R9 = 11 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R1 < R0 (20 < 10) → SF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x0C)); // R10 = 12 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x0D)); // R11 = 13
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 7: TEST JmpIfGreaterEqual (SF = 0 ou ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 7: TEST JmpIfGreaterEqual ===");
+
+    // Test 1: R1 >= R0 (20 >= 10) → SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x0E)); // R12 = 14 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 >= R2 (10 >= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x0F)); // R13 = 15 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R3 >= R0 (5 >= 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x10)); // R14 = 16 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x11)); // R15 = 17
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 8: TEST JmpIfLessEqual (SF = 1 OU ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 8: TEST JmpIfLessEqual ===");
+
+    // Test 1: R3 <= R0 (5 <= 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x12)); // R5 = 18 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 <= R2 (10 <= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x13)); // R6 = 19 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R1 <= R0 (20 <= 10) → SF = 0, ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x14)); // R7 = 20 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x15)); // R8 = 21
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 9: TEST JmpIfZero (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 9: TEST JmpIfZero ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x16)); // R9 = 22 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R1 (10 != 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x17)); // R10 = 23 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x18)); // R11 = 24
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 10: TEST JmpIfNotZero (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 10: TEST JmpIfNotZero ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x19)); // R12 = 25 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R2 (10 == 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x1A)); // R13 = 26 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x1B)); // R14 = 27
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 11: TEST DE BOUCLE (Pattern pour le prédicteur)
+    // ============================================================================
+    println!("=== SECTION 11: TEST DE BOUCLE ===");
+
+    // Initialisation du compteur de boucle
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 3)); // R15 = 3 (compteur)
+
+    // Début de la boucle - cette étiquette sera utilisée pour le branchement arrière
+    let loop_start_instruction_index = program.code.len();
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Corps de la boucle
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1 (R4 = 0, donc R15 - 0, mais on veut R15-1)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Pour décrémenter correctement, on doit d'abord mettre 1 dans un registre
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 1)); // R4 = 1
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Comparer avec 0
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0)); // R4 = 0 pour comparaison
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 15, 4)); // Compare R15 avec 0
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Calculer l'offset pour retourner au début de la boucle
+    let current_instruction_index = program.code.len() + 1; // +1 car on ajoute l'instruction de branchement
+    let loop_body_size = current_instruction_index - loop_start_instruction_index;
+    let backward_offset = -(loop_body_size as i32 * 6 + 8); // chaque instruction fait ~6 bytes, +8 pour l'instruction de branchement
+    let  jmpifnotzero_loop =  current_address as i32 + backward_offset as i32 ;
+
+    // Branchement conditionnel vers le début de la boucle si R15 != 0
+    program.add_instruction(Instruction::create_jump_if_not_zero(0, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 12: TEST CALL/RET (Si implémenté)
+    // ============================================================================
+    println!("=== SECTION 12: TEST CALL/RET ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+    let call_target = current_address + 8 + 6 ;
+    // Sauter par-dessus la fonction pour aller au call
+    program.add_instruction(Instruction::create_jump(current_address, call_target)); // Sauter la fonction
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // FONCTION: simple_function
+    // Fonction qui met 0xFF dans R5 et retourne
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0xFF)); // R5 = 255
+    program.add_instruction(Instruction::create_no_args(Opcode::Ret)); // Retour
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Appel de la fonction (si CALL est implémenté)
+    current_address = Instruction::calculate_current_address(&program.code);
+    let function_offset = -12i32;// Retourner à la fonction
+    program.add_instruction(Instruction::create_call(function_offset as u32));
+
+    // ============================================================================
+    // SECTION 13: FINALISATION ET VÉRIFICATION
+    // ============================================================================
+    println!("=== SECTION 13: FINALISATION ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Marquer la fin des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 0xFE)); // R0 = 254 (marqueur de fin)
+
+
+
+
+    // ============================================================================
+    // SECTION 1: INITIALISATION DES REGISTRES
+    // ============================================================================
+    println!("=== SECTION 1: INITIALISATION ===");
+
+    // Registres pour les comparaisons
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 10)); // R0 = 10
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 20)); // R1 = 20
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 10)); // R2 = 10 (égal à R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 5));  // R3 = 5 (plus petit que R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0));  // R4 = 0 (pour tests de zéro)
+
+    // Registres pour stocker les résultats des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0));  // R8 = compteur de tests réussis
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0));  // R9 = compteur de tests échoués
+
+    // ============================================================================
+    // SECTION 2: TEST JMP (SAUT INCONDITIONNEL)
+    // ============================================================================
+    println!("=== SECTION 2: TEST JMP INCONDITIONNEL ===");
+
+    let mut current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmp_target = current_address + jmp_instruction_size + 6; // Sauter par-dessus l'instruction MOV suivante
+    program.add_instruction(Instruction::create_jump(current_address, jmp_target));
+
+    // Cette instruction ne doit PAS être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+
+    // Cette instruction doit être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x01)); // R10 = 1 (succès JMP)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 3: TEST JmpIfEqual (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 3: TEST JmpIfEqual ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmpifequal_target_1 = current_address + jmp_instruction_size + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x02)); // R11 = 2 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R1 (10 == 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x03)); // R12 = 3 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x04)); // R13 = 4
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 4: TEST JmpIfNotEqual (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 4: TEST JmpIfNotEqual ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x05)); // R14 = 5 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R2 (10 != 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x06)); // R15 = 6 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x07)); // R5 = 7
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 5: TEST JmpIfGreater (ZF = 0 ET SF = 0)
+    // ============================================================================
+    println!("=== SECTION 5: TEST JmpIfGreater ===");
+
+    // Test 1: R1 > R0 (20 > 10) → ZF = 0, SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x08)); // R6 = 8 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R3 > R0 (5 > 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x09)); // R7 = 9 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x0A)); // R8 = 10
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 6: TEST JmpIfLess (SF = 1)
+    // ============================================================================
+    println!("=== SECTION 6: TEST JmpIfLess ===");
+
+    // Test 1: R3 < R0 (5 < 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x0B)); // R9 = 11 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R1 < R0 (20 < 10) → SF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x0C)); // R10 = 12 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x0D)); // R11 = 13
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 7: TEST JmpIfGreaterEqual (SF = 0 ou ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 7: TEST JmpIfGreaterEqual ===");
+
+    // Test 1: R1 >= R0 (20 >= 10) → SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x0E)); // R12 = 14 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 >= R2 (10 >= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x0F)); // R13 = 15 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R3 >= R0 (5 >= 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x10)); // R14 = 16 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x11)); // R15 = 17
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 8: TEST JmpIfLessEqual (SF = 1 OU ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 8: TEST JmpIfLessEqual ===");
+
+    // Test 1: R3 <= R0 (5 <= 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x12)); // R5 = 18 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 <= R2 (10 <= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x13)); // R6 = 19 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R1 <= R0 (20 <= 10) → SF = 0, ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x14)); // R7 = 20 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x15)); // R8 = 21
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 9: TEST JmpIfZero (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 9: TEST JmpIfZero ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x16)); // R9 = 22 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R1 (10 != 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x17)); // R10 = 23 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x18)); // R11 = 24
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 10: TEST JmpIfNotZero (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 10: TEST JmpIfNotZero ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x19)); // R12 = 25 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R2 (10 == 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x1A)); // R13 = 26 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x1B)); // R14 = 27
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 11: TEST DE BOUCLE (Pattern pour le prédicteur)
+    // ============================================================================
+    println!("=== SECTION 11: TEST DE BOUCLE ===");
+
+    // Initialisation du compteur de boucle
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 3)); // R15 = 3 (compteur)
+
+    // Début de la boucle - cette étiquette sera utilisée pour le branchement arrière
+    let loop_start_instruction_index = program.code.len();
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Corps de la boucle
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1 (R4 = 0, donc R15 - 0, mais on veut R15-1)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Pour décrémenter correctement, on doit d'abord mettre 1 dans un registre
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 1)); // R4 = 1
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Comparer avec 0
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0)); // R4 = 0 pour comparaison
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 15, 4)); // Compare R15 avec 0
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Calculer l'offset pour retourner au début de la boucle
+    let current_instruction_index = program.code.len() + 1; // +1 car on ajoute l'instruction de branchement
+    let loop_body_size = current_instruction_index - loop_start_instruction_index;
+    let backward_offset = -(loop_body_size as i32 * 6 + 8); // chaque instruction fait ~6 bytes, +8 pour l'instruction de branchement
+    let  jmpifnotzero_loop =  current_address as i32 + backward_offset as i32 ;
+
+    // Branchement conditionnel vers le début de la boucle si R15 != 0
+    program.add_instruction(Instruction::create_jump_if_not_zero(0, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 12: TEST CALL/RET (Si implémenté)
+    // ============================================================================
+    println!("=== SECTION 12: TEST CALL/RET ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+    let call_target = current_address + 8 + 6 ;
+    // Sauter par-dessus la fonction pour aller au call
+    program.add_instruction(Instruction::create_jump(current_address, call_target)); // Sauter la fonction
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // FONCTION: simple_function
+    // Fonction qui met 0xFF dans R5 et retourne
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0xFF)); // R5 = 255
+    program.add_instruction(Instruction::create_no_args(Opcode::Ret)); // Retour
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Appel de la fonction (si CALL est implémenté)
+    current_address = Instruction::calculate_current_address(&program.code);
+    let function_offset = -12i32;// Retourner à la fonction
+    program.add_instruction(Instruction::create_call(function_offset as u32));
+
+    // ============================================================================
+    // SECTION 13: FINALISATION ET VÉRIFICATION
+    // ============================================================================
+    println!("=== SECTION 13: FINALISATION ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Marquer la fin des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 0xFE)); // R0 = 254 (marqueur de fin)
+
+
+
+    // ============================================================================
+    // SECTION 1: INITIALISATION DES REGISTRES
+    // ============================================================================
+    println!("=== SECTION 1: INITIALISATION ===");
+
+    // Registres pour les comparaisons
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 10)); // R0 = 10
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 20)); // R1 = 20
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 10)); // R2 = 10 (égal à R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 5));  // R3 = 5 (plus petit que R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0));  // R4 = 0 (pour tests de zéro)
+
+    // Registres pour stocker les résultats des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0));  // R8 = compteur de tests réussis
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0));  // R9 = compteur de tests échoués
+
+    // ============================================================================
+    // SECTION 2: TEST JMP (SAUT INCONDITIONNEL)
+    // ============================================================================
+    println!("=== SECTION 2: TEST JMP INCONDITIONNEL ===");
+
+    let mut current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmp_target = current_address + jmp_instruction_size + 6; // Sauter par-dessus l'instruction MOV suivante
+    program.add_instruction(Instruction::create_jump(current_address, jmp_target));
+
+    // Cette instruction ne doit PAS être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+
+    // Cette instruction doit être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x01)); // R10 = 1 (succès JMP)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 3: TEST JmpIfEqual (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 3: TEST JmpIfEqual ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmpifequal_target_1 = current_address + jmp_instruction_size + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x02)); // R11 = 2 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R1 (10 == 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x03)); // R12 = 3 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x04)); // R13 = 4
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 4: TEST JmpIfNotEqual (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 4: TEST JmpIfNotEqual ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x05)); // R14 = 5 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R2 (10 != 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x06)); // R15 = 6 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x07)); // R5 = 7
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 5: TEST JmpIfGreater (ZF = 0 ET SF = 0)
+    // ============================================================================
+    println!("=== SECTION 5: TEST JmpIfGreater ===");
+
+    // Test 1: R1 > R0 (20 > 10) → ZF = 0, SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x08)); // R6 = 8 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R3 > R0 (5 > 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x09)); // R7 = 9 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x0A)); // R8 = 10
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 6: TEST JmpIfLess (SF = 1)
+    // ============================================================================
+    println!("=== SECTION 6: TEST JmpIfLess ===");
+
+    // Test 1: R3 < R0 (5 < 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x0B)); // R9 = 11 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R1 < R0 (20 < 10) → SF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x0C)); // R10 = 12 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x0D)); // R11 = 13
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 7: TEST JmpIfGreaterEqual (SF = 0 ou ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 7: TEST JmpIfGreaterEqual ===");
+
+    // Test 1: R1 >= R0 (20 >= 10) → SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x0E)); // R12 = 14 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 >= R2 (10 >= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x0F)); // R13 = 15 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R3 >= R0 (5 >= 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x10)); // R14 = 16 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x11)); // R15 = 17
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 8: TEST JmpIfLessEqual (SF = 1 OU ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 8: TEST JmpIfLessEqual ===");
+
+    // Test 1: R3 <= R0 (5 <= 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x12)); // R5 = 18 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 <= R2 (10 <= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x13)); // R6 = 19 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R1 <= R0 (20 <= 10) → SF = 0, ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x14)); // R7 = 20 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x15)); // R8 = 21
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 9: TEST JmpIfZero (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 9: TEST JmpIfZero ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x16)); // R9 = 22 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R1 (10 != 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x17)); // R10 = 23 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x18)); // R11 = 24
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 10: TEST JmpIfNotZero (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 10: TEST JmpIfNotZero ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x19)); // R12 = 25 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R2 (10 == 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x1A)); // R13 = 26 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x1B)); // R14 = 27
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 11: TEST DE BOUCLE (Pattern pour le prédicteur)
+    // ============================================================================
+    println!("=== SECTION 11: TEST DE BOUCLE ===");
+
+    // Initialisation du compteur de boucle
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 3)); // R15 = 3 (compteur)
+
+    // Début de la boucle - cette étiquette sera utilisée pour le branchement arrière
+    let loop_start_instruction_index = program.code.len();
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Corps de la boucle
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1 (R4 = 0, donc R15 - 0, mais on veut R15-1)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Pour décrémenter correctement, on doit d'abord mettre 1 dans un registre
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 1)); // R4 = 1
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Comparer avec 0
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0)); // R4 = 0 pour comparaison
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 15, 4)); // Compare R15 avec 0
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Calculer l'offset pour retourner au début de la boucle
+    let current_instruction_index = program.code.len() + 1; // +1 car on ajoute l'instruction de branchement
+    let loop_body_size = current_instruction_index - loop_start_instruction_index;
+    let backward_offset = -(loop_body_size as i32 * 6 + 8); // chaque instruction fait ~6 bytes, +8 pour l'instruction de branchement
+    let  jmpifnotzero_loop =  current_address as i32 + backward_offset as i32 ;
+
+    // Branchement conditionnel vers le début de la boucle si R15 != 0
+    program.add_instruction(Instruction::create_jump_if_not_zero(0, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 12: TEST CALL/RET (Si implémenté)
+    // ============================================================================
+    println!("=== SECTION 12: TEST CALL/RET ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+    let call_target = current_address + 8 + 6 ;
+    // Sauter par-dessus la fonction pour aller au call
+    program.add_instruction(Instruction::create_jump(current_address, call_target)); // Sauter la fonction
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // FONCTION: simple_function
+    // Fonction qui met 0xFF dans R5 et retourne
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0xFF)); // R5 = 255
+    program.add_instruction(Instruction::create_no_args(Opcode::Ret)); // Retour
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Appel de la fonction (si CALL est implémenté)
+    current_address = Instruction::calculate_current_address(&program.code);
+    let function_offset = -12i32;// Retourner à la fonction
+    program.add_instruction(Instruction::create_call(function_offset as u32));
+
+    // ============================================================================
+    // SECTION 13: FINALISATION ET VÉRIFICATION
+    // ============================================================================
+    println!("=== SECTION 13: FINALISATION ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Marquer la fin des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 0xFE)); // R0 = 254 (marqueur de fin)
+
+
+
+    // ============================================================================
+    // SECTION 1: INITIALISATION DES REGISTRES
+    // ============================================================================
+    println!("=== SECTION 1: INITIALISATION ===");
+
+    // Registres pour les comparaisons
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 10)); // R0 = 10
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 20)); // R1 = 20
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 10)); // R2 = 10 (égal à R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 5));  // R3 = 5 (plus petit que R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0));  // R4 = 0 (pour tests de zéro)
+
+    // Registres pour stocker les résultats des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0));  // R8 = compteur de tests réussis
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0));  // R9 = compteur de tests échoués
+
+    // ============================================================================
+    // SECTION 2: TEST JMP (SAUT INCONDITIONNEL)
+    // ============================================================================
+    println!("=== SECTION 2: TEST JMP INCONDITIONNEL ===");
+
+    let mut current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmp_target = current_address + jmp_instruction_size + 6; // Sauter par-dessus l'instruction MOV suivante
+    program.add_instruction(Instruction::create_jump(current_address, jmp_target));
+
+    // Cette instruction ne doit PAS être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+
+    // Cette instruction doit être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x01)); // R10 = 1 (succès JMP)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 3: TEST JmpIfEqual (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 3: TEST JmpIfEqual ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmpifequal_target_1 = current_address + jmp_instruction_size + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x02)); // R11 = 2 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R1 (10 == 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x03)); // R12 = 3 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x04)); // R13 = 4
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 4: TEST JmpIfNotEqual (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 4: TEST JmpIfNotEqual ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x05)); // R14 = 5 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R2 (10 != 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x06)); // R15 = 6 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x07)); // R5 = 7
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 5: TEST JmpIfGreater (ZF = 0 ET SF = 0)
+    // ============================================================================
+    println!("=== SECTION 5: TEST JmpIfGreater ===");
+
+    // Test 1: R1 > R0 (20 > 10) → ZF = 0, SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x08)); // R6 = 8 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R3 > R0 (5 > 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x09)); // R7 = 9 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x0A)); // R8 = 10
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 6: TEST JmpIfLess (SF = 1)
+    // ============================================================================
+    println!("=== SECTION 6: TEST JmpIfLess ===");
+
+    // Test 1: R3 < R0 (5 < 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x0B)); // R9 = 11 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R1 < R0 (20 < 10) → SF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x0C)); // R10 = 12 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x0D)); // R11 = 13
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 7: TEST JmpIfGreaterEqual (SF = 0 ou ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 7: TEST JmpIfGreaterEqual ===");
+
+    // Test 1: R1 >= R0 (20 >= 10) → SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x0E)); // R12 = 14 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 >= R2 (10 >= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x0F)); // R13 = 15 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R3 >= R0 (5 >= 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x10)); // R14 = 16 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x11)); // R15 = 17
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 8: TEST JmpIfLessEqual (SF = 1 OU ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 8: TEST JmpIfLessEqual ===");
+
+    // Test 1: R3 <= R0 (5 <= 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x12)); // R5 = 18 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 <= R2 (10 <= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x13)); // R6 = 19 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R1 <= R0 (20 <= 10) → SF = 0, ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x14)); // R7 = 20 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x15)); // R8 = 21
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 9: TEST JmpIfZero (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 9: TEST JmpIfZero ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x16)); // R9 = 22 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R1 (10 != 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x17)); // R10 = 23 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x18)); // R11 = 24
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 10: TEST JmpIfNotZero (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 10: TEST JmpIfNotZero ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x19)); // R12 = 25 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R2 (10 == 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x1A)); // R13 = 26 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x1B)); // R14 = 27
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 11: TEST DE BOUCLE (Pattern pour le prédicteur)
+    // ============================================================================
+    println!("=== SECTION 11: TEST DE BOUCLE ===");
+
+    // Initialisation du compteur de boucle
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 3)); // R15 = 3 (compteur)
+
+    // Début de la boucle - cette étiquette sera utilisée pour le branchement arrière
+    let loop_start_instruction_index = program.code.len();
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Corps de la boucle
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1 (R4 = 0, donc R15 - 0, mais on veut R15-1)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Pour décrémenter correctement, on doit d'abord mettre 1 dans un registre
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 1)); // R4 = 1
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Comparer avec 0
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0)); // R4 = 0 pour comparaison
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 15, 4)); // Compare R15 avec 0
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Calculer l'offset pour retourner au début de la boucle
+    let current_instruction_index = program.code.len() + 1; // +1 car on ajoute l'instruction de branchement
+    let loop_body_size = current_instruction_index - loop_start_instruction_index;
+    let backward_offset = -(loop_body_size as i32 * 6 + 8); // chaque instruction fait ~6 bytes, +8 pour l'instruction de branchement
+    let  jmpifnotzero_loop =  current_address as i32 + backward_offset as i32 ;
+
+    // Branchement conditionnel vers le début de la boucle si R15 != 0
+    program.add_instruction(Instruction::create_jump_if_not_zero(0, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 12: TEST CALL/RET (Si implémenté)
+    // ============================================================================
+    println!("=== SECTION 12: TEST CALL/RET ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+    let call_target = current_address + 8 + 6 ;
+    // Sauter par-dessus la fonction pour aller au call
+    program.add_instruction(Instruction::create_jump(current_address, call_target)); // Sauter la fonction
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // FONCTION: simple_function
+    // Fonction qui met 0xFF dans R5 et retourne
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0xFF)); // R5 = 255
+    program.add_instruction(Instruction::create_no_args(Opcode::Ret)); // Retour
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Appel de la fonction (si CALL est implémenté)
+    current_address = Instruction::calculate_current_address(&program.code);
+    let function_offset = -12i32;// Retourner à la fonction
+    program.add_instruction(Instruction::create_call(function_offset as u32));
+
+    // ============================================================================
+    // SECTION 13: FINALISATION ET VÉRIFICATION
+    // ============================================================================
+    println!("=== SECTION 13: FINALISATION ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Marquer la fin des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 0xFE)); // R0 = 254 (marqueur de fin)
+
+    // ============================================================================
+    // SECTION 1: INITIALISATION DES REGISTRES
+    // ============================================================================
+    println!("=== SECTION 1: INITIALISATION ===");
+
+    // Registres pour les comparaisons
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 10)); // R0 = 10
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 20)); // R1 = 20
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 10)); // R2 = 10 (égal à R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 5));  // R3 = 5 (plus petit que R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0));  // R4 = 0 (pour tests de zéro)
+
+    // Registres pour stocker les résultats des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0));  // R8 = compteur de tests réussis
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0));  // R9 = compteur de tests échoués
+
+    // ============================================================================
+    // SECTION 2: TEST JMP (SAUT INCONDITIONNEL)
+    // ============================================================================
+    println!("=== SECTION 2: TEST JMP INCONDITIONNEL ===");
+
+    let mut current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmp_target = current_address + jmp_instruction_size + 6; // Sauter par-dessus l'instruction MOV suivante
+    program.add_instruction(Instruction::create_jump(current_address, jmp_target));
+
+    // Cette instruction ne doit PAS être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+
+    // Cette instruction doit être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x01)); // R10 = 1 (succès JMP)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 3: TEST JmpIfEqual (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 3: TEST JmpIfEqual ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmpifequal_target_1 = current_address + jmp_instruction_size + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x02)); // R11 = 2 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R1 (10 == 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x03)); // R12 = 3 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x04)); // R13 = 4
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 4: TEST JmpIfNotEqual (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 4: TEST JmpIfNotEqual ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x05)); // R14 = 5 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R2 (10 != 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x06)); // R15 = 6 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x07)); // R5 = 7
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 5: TEST JmpIfGreater (ZF = 0 ET SF = 0)
+    // ============================================================================
+    println!("=== SECTION 5: TEST JmpIfGreater ===");
+
+    // Test 1: R1 > R0 (20 > 10) → ZF = 0, SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x08)); // R6 = 8 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R3 > R0 (5 > 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x09)); // R7 = 9 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x0A)); // R8 = 10
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 6: TEST JmpIfLess (SF = 1)
+    // ============================================================================
+    println!("=== SECTION 6: TEST JmpIfLess ===");
+
+    // Test 1: R3 < R0 (5 < 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x0B)); // R9 = 11 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R1 < R0 (20 < 10) → SF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x0C)); // R10 = 12 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x0D)); // R11 = 13
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 7: TEST JmpIfGreaterEqual (SF = 0 ou ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 7: TEST JmpIfGreaterEqual ===");
+
+    // Test 1: R1 >= R0 (20 >= 10) → SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x0E)); // R12 = 14 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 >= R2 (10 >= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x0F)); // R13 = 15 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R3 >= R0 (5 >= 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x10)); // R14 = 16 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x11)); // R15 = 17
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 8: TEST JmpIfLessEqual (SF = 1 OU ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 8: TEST JmpIfLessEqual ===");
+
+    // Test 1: R3 <= R0 (5 <= 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x12)); // R5 = 18 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 <= R2 (10 <= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x13)); // R6 = 19 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R1 <= R0 (20 <= 10) → SF = 0, ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x14)); // R7 = 20 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x15)); // R8 = 21
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 9: TEST JmpIfZero (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 9: TEST JmpIfZero ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x16)); // R9 = 22 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R1 (10 != 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x17)); // R10 = 23 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x18)); // R11 = 24
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 10: TEST JmpIfNotZero (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 10: TEST JmpIfNotZero ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x19)); // R12 = 25 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R2 (10 == 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x1A)); // R13 = 26 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x1B)); // R14 = 27
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 11: TEST DE BOUCLE (Pattern pour le prédicteur)
+    // ============================================================================
+    println!("=== SECTION 11: TEST DE BOUCLE ===");
+
+    // Initialisation du compteur de boucle
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 3)); // R15 = 3 (compteur)
+
+    // Début de la boucle - cette étiquette sera utilisée pour le branchement arrière
+    let loop_start_instruction_index = program.code.len();
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Corps de la boucle
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1 (R4 = 0, donc R15 - 0, mais on veut R15-1)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Pour décrémenter correctement, on doit d'abord mettre 1 dans un registre
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 1)); // R4 = 1
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Comparer avec 0
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0)); // R4 = 0 pour comparaison
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 15, 4)); // Compare R15 avec 0
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Calculer l'offset pour retourner au début de la boucle
+    let current_instruction_index = program.code.len() + 1; // +1 car on ajoute l'instruction de branchement
+    let loop_body_size = current_instruction_index - loop_start_instruction_index;
+    let backward_offset = -(loop_body_size as i32 * 6 + 8); // chaque instruction fait ~6 bytes, +8 pour l'instruction de branchement
+    let  jmpifnotzero_loop =  current_address as i32 + backward_offset as i32 ;
+
+    // Branchement conditionnel vers le début de la boucle si R15 != 0
+    program.add_instruction(Instruction::create_jump_if_not_zero(0, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 12: TEST CALL/RET (Si implémenté)
+    // ============================================================================
+    println!("=== SECTION 12: TEST CALL/RET ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+    let call_target = current_address + 8 + 6 ;
+    // Sauter par-dessus la fonction pour aller au call
+    program.add_instruction(Instruction::create_jump(current_address, call_target)); // Sauter la fonction
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // FONCTION: simple_function
+    // Fonction qui met 0xFF dans R5 et retourne
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0xFF)); // R5 = 255
+    program.add_instruction(Instruction::create_no_args(Opcode::Ret)); // Retour
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Appel de la fonction (si CALL est implémenté)
+    current_address = Instruction::calculate_current_address(&program.code);
+    let function_offset = -12i32;// Retourner à la fonction
+    program.add_instruction(Instruction::create_call(function_offset as u32));
+
+    // ============================================================================
+    // SECTION 13: FINALISATION ET VÉRIFICATION
+    // ============================================================================
+    println!("=== SECTION 13: FINALISATION ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Marquer la fin des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 0xFE)); // R0 = 254 (marqueur de fin)
+
+
+
+    // ============================================================================
+    // SECTION 1: INITIALISATION DES REGISTRES
+    // ============================================================================
+    println!("=== SECTION 1: INITIALISATION ===");
+
+    // Registres pour les comparaisons
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 10)); // R0 = 10
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 20)); // R1 = 20
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 10)); // R2 = 10 (égal à R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 5));  // R3 = 5 (plus petit que R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0));  // R4 = 0 (pour tests de zéro)
+
+    // Registres pour stocker les résultats des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0));  // R8 = compteur de tests réussis
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0));  // R9 = compteur de tests échoués
+
+    // ============================================================================
+    // SECTION 2: TEST JMP (SAUT INCONDITIONNEL)
+    // ============================================================================
+    println!("=== SECTION 2: TEST JMP INCONDITIONNEL ===");
+
+    let mut current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmp_target = current_address + jmp_instruction_size + 6; // Sauter par-dessus l'instruction MOV suivante
+    program.add_instruction(Instruction::create_jump(current_address, jmp_target));
+
+    // Cette instruction ne doit PAS être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+
+    // Cette instruction doit être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x01)); // R10 = 1 (succès JMP)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 3: TEST JmpIfEqual (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 3: TEST JmpIfEqual ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmpifequal_target_1 = current_address + jmp_instruction_size + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x02)); // R11 = 2 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R1 (10 == 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x03)); // R12 = 3 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x04)); // R13 = 4
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 4: TEST JmpIfNotEqual (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 4: TEST JmpIfNotEqual ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x05)); // R14 = 5 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R2 (10 != 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x06)); // R15 = 6 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x07)); // R5 = 7
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 5: TEST JmpIfGreater (ZF = 0 ET SF = 0)
+    // ============================================================================
+    println!("=== SECTION 5: TEST JmpIfGreater ===");
+
+    // Test 1: R1 > R0 (20 > 10) → ZF = 0, SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x08)); // R6 = 8 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R3 > R0 (5 > 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x09)); // R7 = 9 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x0A)); // R8 = 10
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 6: TEST JmpIfLess (SF = 1)
+    // ============================================================================
+    println!("=== SECTION 6: TEST JmpIfLess ===");
+
+    // Test 1: R3 < R0 (5 < 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x0B)); // R9 = 11 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R1 < R0 (20 < 10) → SF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x0C)); // R10 = 12 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x0D)); // R11 = 13
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 7: TEST JmpIfGreaterEqual (SF = 0 ou ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 7: TEST JmpIfGreaterEqual ===");
+
+    // Test 1: R1 >= R0 (20 >= 10) → SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x0E)); // R12 = 14 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 >= R2 (10 >= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x0F)); // R13 = 15 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R3 >= R0 (5 >= 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x10)); // R14 = 16 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x11)); // R15 = 17
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 8: TEST JmpIfLessEqual (SF = 1 OU ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 8: TEST JmpIfLessEqual ===");
+
+    // Test 1: R3 <= R0 (5 <= 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x12)); // R5 = 18 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 <= R2 (10 <= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x13)); // R6 = 19 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R1 <= R0 (20 <= 10) → SF = 0, ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x14)); // R7 = 20 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x15)); // R8 = 21
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 9: TEST JmpIfZero (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 9: TEST JmpIfZero ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x16)); // R9 = 22 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R1 (10 != 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x17)); // R10 = 23 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x18)); // R11 = 24
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 10: TEST JmpIfNotZero (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 10: TEST JmpIfNotZero ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x19)); // R12 = 25 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R2 (10 == 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x1A)); // R13 = 26 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x1B)); // R14 = 27
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 11: TEST DE BOUCLE (Pattern pour le prédicteur)
+    // ============================================================================
+    println!("=== SECTION 11: TEST DE BOUCLE ===");
+
+    // Initialisation du compteur de boucle
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 3)); // R15 = 3 (compteur)
+
+    // Début de la boucle - cette étiquette sera utilisée pour le branchement arrière
+    let loop_start_instruction_index = program.code.len();
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Corps de la boucle
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1 (R4 = 0, donc R15 - 0, mais on veut R15-1)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Pour décrémenter correctement, on doit d'abord mettre 1 dans un registre
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 1)); // R4 = 1
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Comparer avec 0
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0)); // R4 = 0 pour comparaison
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 15, 4)); // Compare R15 avec 0
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Calculer l'offset pour retourner au début de la boucle
+    let current_instruction_index = program.code.len() + 1; // +1 car on ajoute l'instruction de branchement
+    let loop_body_size = current_instruction_index - loop_start_instruction_index;
+    let backward_offset = -(loop_body_size as i32 * 6 + 8); // chaque instruction fait ~6 bytes, +8 pour l'instruction de branchement
+    let  jmpifnotzero_loop =  current_address as i32 + backward_offset as i32 ;
+
+    // Branchement conditionnel vers le début de la boucle si R15 != 0
+    program.add_instruction(Instruction::create_jump_if_not_zero(0, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 12: TEST CALL/RET (Si implémenté)
+    // ============================================================================
+    println!("=== SECTION 12: TEST CALL/RET ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+    let call_target = current_address + 8 + 6 ;
+    // Sauter par-dessus la fonction pour aller au call
+    program.add_instruction(Instruction::create_jump(current_address, call_target)); // Sauter la fonction
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // FONCTION: simple_function
+    // Fonction qui met 0xFF dans R5 et retourne
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0xFF)); // R5 = 255
+    program.add_instruction(Instruction::create_no_args(Opcode::Ret)); // Retour
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Appel de la fonction (si CALL est implémenté)
+    current_address = Instruction::calculate_current_address(&program.code);
+    let function_offset = -12i32;// Retourner à la fonction
+    program.add_instruction(Instruction::create_call(function_offset as u32));
+
+    // ============================================================================
+    // SECTION 13: FINALISATION ET VÉRIFICATION
+    // ============================================================================
+    println!("=== SECTION 13: FINALISATION ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Marquer la fin des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 0xFE)); // R0 = 254 (marqueur de fin)
+
+
+
+
+    // ============================================================================
+    // SECTION 1: INITIALISATION DES REGISTRES
+    // ============================================================================
+    println!("=== SECTION 1: INITIALISATION ===");
+
+    // Registres pour les comparaisons
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 10)); // R0 = 10
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 20)); // R1 = 20
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 10)); // R2 = 10 (égal à R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 5));  // R3 = 5 (plus petit que R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0));  // R4 = 0 (pour tests de zéro)
+
+    // Registres pour stocker les résultats des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0));  // R8 = compteur de tests réussis
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0));  // R9 = compteur de tests échoués
+
+    // ============================================================================
+    // SECTION 2: TEST JMP (SAUT INCONDITIONNEL)
+    // ============================================================================
+    println!("=== SECTION 2: TEST JMP INCONDITIONNEL ===");
+
+    let mut current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmp_target = current_address + jmp_instruction_size + 6; // Sauter par-dessus l'instruction MOV suivante
+    program.add_instruction(Instruction::create_jump(current_address, jmp_target));
+
+    // Cette instruction ne doit PAS être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+
+    // Cette instruction doit être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x01)); // R10 = 1 (succès JMP)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 3: TEST JmpIfEqual (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 3: TEST JmpIfEqual ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmpifequal_target_1 = current_address + jmp_instruction_size + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x02)); // R11 = 2 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R1 (10 == 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x03)); // R12 = 3 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x04)); // R13 = 4
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 4: TEST JmpIfNotEqual (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 4: TEST JmpIfNotEqual ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x05)); // R14 = 5 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R2 (10 != 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x06)); // R15 = 6 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x07)); // R5 = 7
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 5: TEST JmpIfGreater (ZF = 0 ET SF = 0)
+    // ============================================================================
+    println!("=== SECTION 5: TEST JmpIfGreater ===");
+
+    // Test 1: R1 > R0 (20 > 10) → ZF = 0, SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x08)); // R6 = 8 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R3 > R0 (5 > 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x09)); // R7 = 9 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x0A)); // R8 = 10
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 6: TEST JmpIfLess (SF = 1)
+    // ============================================================================
+    println!("=== SECTION 6: TEST JmpIfLess ===");
+
+    // Test 1: R3 < R0 (5 < 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x0B)); // R9 = 11 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R1 < R0 (20 < 10) → SF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x0C)); // R10 = 12 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x0D)); // R11 = 13
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 7: TEST JmpIfGreaterEqual (SF = 0 ou ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 7: TEST JmpIfGreaterEqual ===");
+
+    // Test 1: R1 >= R0 (20 >= 10) → SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x0E)); // R12 = 14 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 >= R2 (10 >= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x0F)); // R13 = 15 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R3 >= R0 (5 >= 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x10)); // R14 = 16 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x11)); // R15 = 17
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 8: TEST JmpIfLessEqual (SF = 1 OU ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 8: TEST JmpIfLessEqual ===");
+
+    // Test 1: R3 <= R0 (5 <= 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x12)); // R5 = 18 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 <= R2 (10 <= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x13)); // R6 = 19 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R1 <= R0 (20 <= 10) → SF = 0, ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x14)); // R7 = 20 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x15)); // R8 = 21
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 9: TEST JmpIfZero (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 9: TEST JmpIfZero ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x16)); // R9 = 22 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R1 (10 != 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x17)); // R10 = 23 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x18)); // R11 = 24
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 10: TEST JmpIfNotZero (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 10: TEST JmpIfNotZero ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x19)); // R12 = 25 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R2 (10 == 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x1A)); // R13 = 26 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x1B)); // R14 = 27
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 11: TEST DE BOUCLE (Pattern pour le prédicteur)
+    // ============================================================================
+    println!("=== SECTION 11: TEST DE BOUCLE ===");
+
+    // Initialisation du compteur de boucle
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 3)); // R15 = 3 (compteur)
+
+    // Début de la boucle - cette étiquette sera utilisée pour le branchement arrière
+    let loop_start_instruction_index = program.code.len();
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Corps de la boucle
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1 (R4 = 0, donc R15 - 0, mais on veut R15-1)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Pour décrémenter correctement, on doit d'abord mettre 1 dans un registre
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 1)); // R4 = 1
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Comparer avec 0
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0)); // R4 = 0 pour comparaison
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 15, 4)); // Compare R15 avec 0
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Calculer l'offset pour retourner au début de la boucle
+    let current_instruction_index = program.code.len() + 1; // +1 car on ajoute l'instruction de branchement
+    let loop_body_size = current_instruction_index - loop_start_instruction_index;
+    let backward_offset = -(loop_body_size as i32 * 6 + 8); // chaque instruction fait ~6 bytes, +8 pour l'instruction de branchement
+    let  jmpifnotzero_loop =  current_address as i32 + backward_offset as i32 ;
+
+    // Branchement conditionnel vers le début de la boucle si R15 != 0
+    program.add_instruction(Instruction::create_jump_if_not_zero(0, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 12: TEST CALL/RET (Si implémenté)
+    // ============================================================================
+    println!("=== SECTION 12: TEST CALL/RET ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+    let call_target = current_address + 8 + 6 ;
+    // Sauter par-dessus la fonction pour aller au call
+    program.add_instruction(Instruction::create_jump(current_address, call_target)); // Sauter la fonction
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // FONCTION: simple_function
+    // Fonction qui met 0xFF dans R5 et retourne
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0xFF)); // R5 = 255
+    program.add_instruction(Instruction::create_no_args(Opcode::Ret)); // Retour
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Appel de la fonction (si CALL est implémenté)
+    current_address = Instruction::calculate_current_address(&program.code);
+    let function_offset = -12i32;// Retourner à la fonction
+    program.add_instruction(Instruction::create_call(function_offset as u32));
+
+    // ============================================================================
+    // SECTION 13: FINALISATION ET VÉRIFICATION
+    // ============================================================================
+    println!("=== SECTION 13: FINALISATION ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Marquer la fin des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 0xFE)); // R0 = 254 (marqueur de fin)
+
+    // ============================================================================
+    // SECTION 1: INITIALISATION DES REGISTRES
+    // ============================================================================
+    println!("=== SECTION 1: INITIALISATION ===");
+
+    // Registres pour les comparaisons
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 10)); // R0 = 10
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 20)); // R1 = 20
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 10)); // R2 = 10 (égal à R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 5));  // R3 = 5 (plus petit que R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0));  // R4 = 0 (pour tests de zéro)
+
+    // Registres pour stocker les résultats des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0));  // R8 = compteur de tests réussis
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0));  // R9 = compteur de tests échoués
+
+    // ============================================================================
+    // SECTION 2: TEST JMP (SAUT INCONDITIONNEL)
+    // ============================================================================
+    println!("=== SECTION 2: TEST JMP INCONDITIONNEL ===");
+
+    let mut current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmp_target = current_address + jmp_instruction_size + 6; // Sauter par-dessus l'instruction MOV suivante
+    program.add_instruction(Instruction::create_jump(current_address, jmp_target));
+
+    // Cette instruction ne doit PAS être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+
+    // Cette instruction doit être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x01)); // R10 = 1 (succès JMP)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 3: TEST JmpIfEqual (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 3: TEST JmpIfEqual ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmpifequal_target_1 = current_address + jmp_instruction_size + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x02)); // R11 = 2 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R1 (10 == 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x03)); // R12 = 3 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x04)); // R13 = 4
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 4: TEST JmpIfNotEqual (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 4: TEST JmpIfNotEqual ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x05)); // R14 = 5 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R2 (10 != 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x06)); // R15 = 6 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x07)); // R5 = 7
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 5: TEST JmpIfGreater (ZF = 0 ET SF = 0)
+    // ============================================================================
+    println!("=== SECTION 5: TEST JmpIfGreater ===");
+
+    // Test 1: R1 > R0 (20 > 10) → ZF = 0, SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x08)); // R6 = 8 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R3 > R0 (5 > 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x09)); // R7 = 9 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x0A)); // R8 = 10
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 6: TEST JmpIfLess (SF = 1)
+    // ============================================================================
+    println!("=== SECTION 6: TEST JmpIfLess ===");
+
+    // Test 1: R3 < R0 (5 < 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x0B)); // R9 = 11 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R1 < R0 (20 < 10) → SF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x0C)); // R10 = 12 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x0D)); // R11 = 13
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 7: TEST JmpIfGreaterEqual (SF = 0 ou ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 7: TEST JmpIfGreaterEqual ===");
+
+    // Test 1: R1 >= R0 (20 >= 10) → SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x0E)); // R12 = 14 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 >= R2 (10 >= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x0F)); // R13 = 15 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R3 >= R0 (5 >= 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x10)); // R14 = 16 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x11)); // R15 = 17
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 8: TEST JmpIfLessEqual (SF = 1 OU ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 8: TEST JmpIfLessEqual ===");
+
+    // Test 1: R3 <= R0 (5 <= 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x12)); // R5 = 18 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 <= R2 (10 <= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x13)); // R6 = 19 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R1 <= R0 (20 <= 10) → SF = 0, ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x14)); // R7 = 20 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x15)); // R8 = 21
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 9: TEST JmpIfZero (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 9: TEST JmpIfZero ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x16)); // R9 = 22 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R1 (10 != 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x17)); // R10 = 23 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x18)); // R11 = 24
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 10: TEST JmpIfNotZero (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 10: TEST JmpIfNotZero ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x19)); // R12 = 25 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R2 (10 == 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x1A)); // R13 = 26 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x1B)); // R14 = 27
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 11: TEST DE BOUCLE (Pattern pour le prédicteur)
+    // ============================================================================
+    println!("=== SECTION 11: TEST DE BOUCLE ===");
+
+    // Initialisation du compteur de boucle
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 3)); // R15 = 3 (compteur)
+
+    // Début de la boucle - cette étiquette sera utilisée pour le branchement arrière
+    let loop_start_instruction_index = program.code.len();
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Corps de la boucle
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1 (R4 = 0, donc R15 - 0, mais on veut R15-1)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Pour décrémenter correctement, on doit d'abord mettre 1 dans un registre
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 1)); // R4 = 1
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Comparer avec 0
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0)); // R4 = 0 pour comparaison
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 15, 4)); // Compare R15 avec 0
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Calculer l'offset pour retourner au début de la boucle
+    let current_instruction_index = program.code.len() + 1; // +1 car on ajoute l'instruction de branchement
+    let loop_body_size = current_instruction_index - loop_start_instruction_index;
+    let backward_offset = -(loop_body_size as i32 * 6 + 8); // chaque instruction fait ~6 bytes, +8 pour l'instruction de branchement
+    let  jmpifnotzero_loop =  current_address as i32 + backward_offset as i32 ;
+
+    // Branchement conditionnel vers le début de la boucle si R15 != 0
+    program.add_instruction(Instruction::create_jump_if_not_zero(0, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 12: TEST CALL/RET (Si implémenté)
+    // ============================================================================
+    println!("=== SECTION 12: TEST CALL/RET ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+    let call_target = current_address + 8 + 6 ;
+    // Sauter par-dessus la fonction pour aller au call
+    program.add_instruction(Instruction::create_jump(current_address, call_target)); // Sauter la fonction
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // FONCTION: simple_function
+    // Fonction qui met 0xFF dans R5 et retourne
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0xFF)); // R5 = 255
+    program.add_instruction(Instruction::create_no_args(Opcode::Ret)); // Retour
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Appel de la fonction (si CALL est implémenté)
+    current_address = Instruction::calculate_current_address(&program.code);
+    let function_offset = -12i32;// Retourner à la fonction
+    program.add_instruction(Instruction::create_call(function_offset as u32));
+
+    // ============================================================================
+    // SECTION 13: FINALISATION ET VÉRIFICATION
+    // ============================================================================
+    println!("=== SECTION 13: FINALISATION ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Marquer la fin des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 0xFE)); // R0 = 254 (marqueur de fin)
+
+
+
+    // ============================================================================
+    // SECTION 1: INITIALISATION DES REGISTRES
+    // ============================================================================
+    println!("=== SECTION 1: INITIALISATION ===");
+
+    // Registres pour les comparaisons
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 10)); // R0 = 10
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 20)); // R1 = 20
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 10)); // R2 = 10 (égal à R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 5));  // R3 = 5 (plus petit que R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0));  // R4 = 0 (pour tests de zéro)
+
+    // Registres pour stocker les résultats des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0));  // R8 = compteur de tests réussis
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0));  // R9 = compteur de tests échoués
+
+    // ============================================================================
+    // SECTION 2: TEST JMP (SAUT INCONDITIONNEL)
+    // ============================================================================
+    println!("=== SECTION 2: TEST JMP INCONDITIONNEL ===");
+
+    let mut current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmp_target = current_address + jmp_instruction_size + 6; // Sauter par-dessus l'instruction MOV suivante
+    program.add_instruction(Instruction::create_jump(current_address, jmp_target));
+
+    // Cette instruction ne doit PAS être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+
+    // Cette instruction doit être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x01)); // R10 = 1 (succès JMP)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 3: TEST JmpIfEqual (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 3: TEST JmpIfEqual ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmpifequal_target_1 = current_address + jmp_instruction_size + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x02)); // R11 = 2 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R1 (10 == 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x03)); // R12 = 3 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x04)); // R13 = 4
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 4: TEST JmpIfNotEqual (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 4: TEST JmpIfNotEqual ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x05)); // R14 = 5 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R2 (10 != 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x06)); // R15 = 6 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x07)); // R5 = 7
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 5: TEST JmpIfGreater (ZF = 0 ET SF = 0)
+    // ============================================================================
+    println!("=== SECTION 5: TEST JmpIfGreater ===");
+
+    // Test 1: R1 > R0 (20 > 10) → ZF = 0, SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x08)); // R6 = 8 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R3 > R0 (5 > 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x09)); // R7 = 9 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x0A)); // R8 = 10
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 6: TEST JmpIfLess (SF = 1)
+    // ============================================================================
+    println!("=== SECTION 6: TEST JmpIfLess ===");
+
+    // Test 1: R3 < R0 (5 < 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x0B)); // R9 = 11 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R1 < R0 (20 < 10) → SF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x0C)); // R10 = 12 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x0D)); // R11 = 13
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 7: TEST JmpIfGreaterEqual (SF = 0 ou ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 7: TEST JmpIfGreaterEqual ===");
+
+    // Test 1: R1 >= R0 (20 >= 10) → SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x0E)); // R12 = 14 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 >= R2 (10 >= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x0F)); // R13 = 15 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R3 >= R0 (5 >= 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x10)); // R14 = 16 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x11)); // R15 = 17
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 8: TEST JmpIfLessEqual (SF = 1 OU ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 8: TEST JmpIfLessEqual ===");
+
+    // Test 1: R3 <= R0 (5 <= 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x12)); // R5 = 18 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 <= R2 (10 <= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x13)); // R6 = 19 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R1 <= R0 (20 <= 10) → SF = 0, ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x14)); // R7 = 20 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x15)); // R8 = 21
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 9: TEST JmpIfZero (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 9: TEST JmpIfZero ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x16)); // R9 = 22 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R1 (10 != 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x17)); // R10 = 23 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x18)); // R11 = 24
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 10: TEST JmpIfNotZero (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 10: TEST JmpIfNotZero ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x19)); // R12 = 25 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R2 (10 == 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x1A)); // R13 = 26 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x1B)); // R14 = 27
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 11: TEST DE BOUCLE (Pattern pour le prédicteur)
+    // ============================================================================
+    println!("=== SECTION 11: TEST DE BOUCLE ===");
+
+    // Initialisation du compteur de boucle
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 3)); // R15 = 3 (compteur)
+
+    // Début de la boucle - cette étiquette sera utilisée pour le branchement arrière
+    let loop_start_instruction_index = program.code.len();
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Corps de la boucle
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1 (R4 = 0, donc R15 - 0, mais on veut R15-1)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Pour décrémenter correctement, on doit d'abord mettre 1 dans un registre
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 1)); // R4 = 1
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Comparer avec 0
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0)); // R4 = 0 pour comparaison
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 15, 4)); // Compare R15 avec 0
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Calculer l'offset pour retourner au début de la boucle
+    let current_instruction_index = program.code.len() + 1; // +1 car on ajoute l'instruction de branchement
+    let loop_body_size = current_instruction_index - loop_start_instruction_index;
+    let backward_offset = -(loop_body_size as i32 * 6 + 8); // chaque instruction fait ~6 bytes, +8 pour l'instruction de branchement
+    let  jmpifnotzero_loop =  current_address as i32 + backward_offset as i32 ;
+
+    // Branchement conditionnel vers le début de la boucle si R15 != 0
+    program.add_instruction(Instruction::create_jump_if_not_zero(0, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 12: TEST CALL/RET (Si implémenté)
+    // ============================================================================
+    println!("=== SECTION 12: TEST CALL/RET ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+    let call_target = current_address + 8 + 6 ;
+    // Sauter par-dessus la fonction pour aller au call
+    program.add_instruction(Instruction::create_jump(current_address, call_target)); // Sauter la fonction
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // FONCTION: simple_function
+    // Fonction qui met 0xFF dans R5 et retourne
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0xFF)); // R5 = 255
+    program.add_instruction(Instruction::create_no_args(Opcode::Ret)); // Retour
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Appel de la fonction (si CALL est implémenté)
+    current_address = Instruction::calculate_current_address(&program.code);
+    let function_offset = -12i32;// Retourner à la fonction
+    program.add_instruction(Instruction::create_call(function_offset as u32));
+
+    // ============================================================================
+    // SECTION 13: FINALISATION ET VÉRIFICATION
+    // ============================================================================
+    println!("=== SECTION 13: FINALISATION ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Marquer la fin des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 0xFE)); // R0 = 254 (marqueur de fin)
+
+    // ============================================================================
+    // SECTION 1: INITIALISATION DES REGISTRES
+    // ============================================================================
+    println!("=== SECTION 1: INITIALISATION ===");
+
+    // Registres pour les comparaisons
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 10)); // R0 = 10
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 20)); // R1 = 20
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 10)); // R2 = 10 (égal à R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 5));  // R3 = 5 (plus petit que R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0));  // R4 = 0 (pour tests de zéro)
+
+    // Registres pour stocker les résultats des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0));  // R8 = compteur de tests réussis
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0));  // R9 = compteur de tests échoués
+
+    // ============================================================================
+    // SECTION 2: TEST JMP (SAUT INCONDITIONNEL)
+    // ============================================================================
+    println!("=== SECTION 2: TEST JMP INCONDITIONNEL ===");
+
+    let mut current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmp_target = current_address + jmp_instruction_size + 6; // Sauter par-dessus l'instruction MOV suivante
+    program.add_instruction(Instruction::create_jump(current_address, jmp_target));
+
+    // Cette instruction ne doit PAS être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+
+    // Cette instruction doit être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x01)); // R10 = 1 (succès JMP)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 3: TEST JmpIfEqual (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 3: TEST JmpIfEqual ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmpifequal_target_1 = current_address + jmp_instruction_size + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x02)); // R11 = 2 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R1 (10 == 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x03)); // R12 = 3 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x04)); // R13 = 4
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 4: TEST JmpIfNotEqual (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 4: TEST JmpIfNotEqual ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x05)); // R14 = 5 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R2 (10 != 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x06)); // R15 = 6 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x07)); // R5 = 7
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 5: TEST JmpIfGreater (ZF = 0 ET SF = 0)
+    // ============================================================================
+    println!("=== SECTION 5: TEST JmpIfGreater ===");
+
+    // Test 1: R1 > R0 (20 > 10) → ZF = 0, SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x08)); // R6 = 8 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R3 > R0 (5 > 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x09)); // R7 = 9 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x0A)); // R8 = 10
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 6: TEST JmpIfLess (SF = 1)
+    // ============================================================================
+    println!("=== SECTION 6: TEST JmpIfLess ===");
+
+    // Test 1: R3 < R0 (5 < 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x0B)); // R9 = 11 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R1 < R0 (20 < 10) → SF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x0C)); // R10 = 12 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x0D)); // R11 = 13
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 7: TEST JmpIfGreaterEqual (SF = 0 ou ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 7: TEST JmpIfGreaterEqual ===");
+
+    // Test 1: R1 >= R0 (20 >= 10) → SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x0E)); // R12 = 14 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 >= R2 (10 >= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x0F)); // R13 = 15 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R3 >= R0 (5 >= 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x10)); // R14 = 16 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x11)); // R15 = 17
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 8: TEST JmpIfLessEqual (SF = 1 OU ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 8: TEST JmpIfLessEqual ===");
+
+    // Test 1: R3 <= R0 (5 <= 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x12)); // R5 = 18 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 <= R2 (10 <= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x13)); // R6 = 19 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R1 <= R0 (20 <= 10) → SF = 0, ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x14)); // R7 = 20 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x15)); // R8 = 21
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 9: TEST JmpIfZero (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 9: TEST JmpIfZero ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x16)); // R9 = 22 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R1 (10 != 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x17)); // R10 = 23 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x18)); // R11 = 24
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 10: TEST JmpIfNotZero (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 10: TEST JmpIfNotZero ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x19)); // R12 = 25 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R2 (10 == 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x1A)); // R13 = 26 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x1B)); // R14 = 27
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 11: TEST DE BOUCLE (Pattern pour le prédicteur)
+    // ============================================================================
+    println!("=== SECTION 11: TEST DE BOUCLE ===");
+
+    // Initialisation du compteur de boucle
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 3)); // R15 = 3 (compteur)
+
+    // Début de la boucle - cette étiquette sera utilisée pour le branchement arrière
+    let loop_start_instruction_index = program.code.len();
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Corps de la boucle
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1 (R4 = 0, donc R15 - 0, mais on veut R15-1)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Pour décrémenter correctement, on doit d'abord mettre 1 dans un registre
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 1)); // R4 = 1
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Comparer avec 0
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0)); // R4 = 0 pour comparaison
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 15, 4)); // Compare R15 avec 0
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Calculer l'offset pour retourner au début de la boucle
+    let current_instruction_index = program.code.len() + 1; // +1 car on ajoute l'instruction de branchement
+    let loop_body_size = current_instruction_index - loop_start_instruction_index;
+    let backward_offset = -(loop_body_size as i32 * 6 + 8); // chaque instruction fait ~6 bytes, +8 pour l'instruction de branchement
+    let  jmpifnotzero_loop =  current_address as i32 + backward_offset as i32 ;
+
+    // Branchement conditionnel vers le début de la boucle si R15 != 0
+    program.add_instruction(Instruction::create_jump_if_not_zero(0, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 12: TEST CALL/RET (Si implémenté)
+    // ============================================================================
+    println!("=== SECTION 12: TEST CALL/RET ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+    let call_target = current_address + 8 + 6 ;
+    // Sauter par-dessus la fonction pour aller au call
+    program.add_instruction(Instruction::create_jump(current_address, call_target)); // Sauter la fonction
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // FONCTION: simple_function
+    // Fonction qui met 0xFF dans R5 et retourne
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0xFF)); // R5 = 255
+    program.add_instruction(Instruction::create_no_args(Opcode::Ret)); // Retour
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Appel de la fonction (si CALL est implémenté)
+    current_address = Instruction::calculate_current_address(&program.code);
+    let function_offset = -12i32;// Retourner à la fonction
+    program.add_instruction(Instruction::create_call(function_offset as u32));
+
+    // ============================================================================
+    // SECTION 13: FINALISATION ET VÉRIFICATION
+    // ============================================================================
+    println!("=== SECTION 13: FINALISATION ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Marquer la fin des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 0xFE)); // R0 = 254 (marqueur de fin)
+
+
+
+    // ============================================================================
+    // SECTION 1: INITIALISATION DES REGISTRES
+    // ============================================================================
+    println!("=== SECTION 1: INITIALISATION ===");
+
+    // Registres pour les comparaisons
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 10)); // R0 = 10
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 20)); // R1 = 20
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 10)); // R2 = 10 (égal à R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 5));  // R3 = 5 (plus petit que R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0));  // R4 = 0 (pour tests de zéro)
+
+    // Registres pour stocker les résultats des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0));  // R8 = compteur de tests réussis
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0));  // R9 = compteur de tests échoués
+
+    // ============================================================================
+    // SECTION 2: TEST JMP (SAUT INCONDITIONNEL)
+    // ============================================================================
+    println!("=== SECTION 2: TEST JMP INCONDITIONNEL ===");
+
+    let mut current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmp_target = current_address + jmp_instruction_size + 6; // Sauter par-dessus l'instruction MOV suivante
+    program.add_instruction(Instruction::create_jump(current_address, jmp_target));
+
+    // Cette instruction ne doit PAS être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+
+    // Cette instruction doit être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x01)); // R10 = 1 (succès JMP)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 3: TEST JmpIfEqual (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 3: TEST JmpIfEqual ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmpifequal_target_1 = current_address + jmp_instruction_size + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x02)); // R11 = 2 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R1 (10 == 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x03)); // R12 = 3 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x04)); // R13 = 4
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 4: TEST JmpIfNotEqual (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 4: TEST JmpIfNotEqual ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x05)); // R14 = 5 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R2 (10 != 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x06)); // R15 = 6 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x07)); // R5 = 7
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 5: TEST JmpIfGreater (ZF = 0 ET SF = 0)
+    // ============================================================================
+    println!("=== SECTION 5: TEST JmpIfGreater ===");
+
+    // Test 1: R1 > R0 (20 > 10) → ZF = 0, SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x08)); // R6 = 8 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R3 > R0 (5 > 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x09)); // R7 = 9 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x0A)); // R8 = 10
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 6: TEST JmpIfLess (SF = 1)
+    // ============================================================================
+    println!("=== SECTION 6: TEST JmpIfLess ===");
+
+    // Test 1: R3 < R0 (5 < 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x0B)); // R9 = 11 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R1 < R0 (20 < 10) → SF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x0C)); // R10 = 12 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x0D)); // R11 = 13
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 7: TEST JmpIfGreaterEqual (SF = 0 ou ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 7: TEST JmpIfGreaterEqual ===");
+
+    // Test 1: R1 >= R0 (20 >= 10) → SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x0E)); // R12 = 14 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 >= R2 (10 >= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x0F)); // R13 = 15 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R3 >= R0 (5 >= 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x10)); // R14 = 16 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x11)); // R15 = 17
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 8: TEST JmpIfLessEqual (SF = 1 OU ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 8: TEST JmpIfLessEqual ===");
+
+    // Test 1: R3 <= R0 (5 <= 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x12)); // R5 = 18 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 <= R2 (10 <= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x13)); // R6 = 19 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R1 <= R0 (20 <= 10) → SF = 0, ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x14)); // R7 = 20 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x15)); // R8 = 21
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 9: TEST JmpIfZero (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 9: TEST JmpIfZero ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x16)); // R9 = 22 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R1 (10 != 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x17)); // R10 = 23 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x18)); // R11 = 24
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 10: TEST JmpIfNotZero (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 10: TEST JmpIfNotZero ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x19)); // R12 = 25 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R2 (10 == 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x1A)); // R13 = 26 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x1B)); // R14 = 27
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 11: TEST DE BOUCLE (Pattern pour le prédicteur)
+    // ============================================================================
+    println!("=== SECTION 11: TEST DE BOUCLE ===");
+
+    // Initialisation du compteur de boucle
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 3)); // R15 = 3 (compteur)
+
+    // Début de la boucle - cette étiquette sera utilisée pour le branchement arrière
+    let loop_start_instruction_index = program.code.len();
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Corps de la boucle
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1 (R4 = 0, donc R15 - 0, mais on veut R15-1)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Pour décrémenter correctement, on doit d'abord mettre 1 dans un registre
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 1)); // R4 = 1
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Comparer avec 0
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0)); // R4 = 0 pour comparaison
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 15, 4)); // Compare R15 avec 0
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Calculer l'offset pour retourner au début de la boucle
+    let current_instruction_index = program.code.len() + 1; // +1 car on ajoute l'instruction de branchement
+    let loop_body_size = current_instruction_index - loop_start_instruction_index;
+    let backward_offset = -(loop_body_size as i32 * 6 + 8); // chaque instruction fait ~6 bytes, +8 pour l'instruction de branchement
+    let  jmpifnotzero_loop =  current_address as i32 + backward_offset as i32 ;
+
+    // Branchement conditionnel vers le début de la boucle si R15 != 0
+    program.add_instruction(Instruction::create_jump_if_not_zero(0, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 12: TEST CALL/RET (Si implémenté)
+    // ============================================================================
+    println!("=== SECTION 12: TEST CALL/RET ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+    let call_target = current_address + 8 + 6 ;
+    // Sauter par-dessus la fonction pour aller au call
+    program.add_instruction(Instruction::create_jump(current_address, call_target)); // Sauter la fonction
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // FONCTION: simple_function
+    // Fonction qui met 0xFF dans R5 et retourne
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0xFF)); // R5 = 255
+    program.add_instruction(Instruction::create_no_args(Opcode::Ret)); // Retour
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Appel de la fonction (si CALL est implémenté)
+    current_address = Instruction::calculate_current_address(&program.code);
+    let function_offset = -12i32;// Retourner à la fonction
+    program.add_instruction(Instruction::create_call(function_offset as u32));
+
+    // ============================================================================
+    // SECTION 13: FINALISATION ET VÉRIFICATION
+    // ============================================================================
+    println!("=== SECTION 13: FINALISATION ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Marquer la fin des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 0xFE)); // R0 = 254 (marqueur de fin)
+
+
+
+
+    // ============================================================================
+    // SECTION 1: INITIALISATION DES REGISTRES
+    // ============================================================================
+    println!("=== SECTION 1: INITIALISATION ===");
+
+    // Registres pour les comparaisons
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 10)); // R0 = 10
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 20)); // R1 = 20
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 10)); // R2 = 10 (égal à R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 5));  // R3 = 5 (plus petit que R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0));  // R4 = 0 (pour tests de zéro)
+
+    // Registres pour stocker les résultats des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0));  // R8 = compteur de tests réussis
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0));  // R9 = compteur de tests échoués
+
+    // ============================================================================
+    // SECTION 2: TEST JMP (SAUT INCONDITIONNEL)
+    // ============================================================================
+    println!("=== SECTION 2: TEST JMP INCONDITIONNEL ===");
+
+    let mut current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmp_target = current_address + jmp_instruction_size + 6; // Sauter par-dessus l'instruction MOV suivante
+    program.add_instruction(Instruction::create_jump(current_address, jmp_target));
+
+    // Cette instruction ne doit PAS être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+
+    // Cette instruction doit être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x01)); // R10 = 1 (succès JMP)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 3: TEST JmpIfEqual (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 3: TEST JmpIfEqual ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmpifequal_target_1 = current_address + jmp_instruction_size + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x02)); // R11 = 2 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R1 (10 == 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x03)); // R12 = 3 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x04)); // R13 = 4
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 4: TEST JmpIfNotEqual (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 4: TEST JmpIfNotEqual ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x05)); // R14 = 5 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R2 (10 != 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x06)); // R15 = 6 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x07)); // R5 = 7
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 5: TEST JmpIfGreater (ZF = 0 ET SF = 0)
+    // ============================================================================
+    println!("=== SECTION 5: TEST JmpIfGreater ===");
+
+    // Test 1: R1 > R0 (20 > 10) → ZF = 0, SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x08)); // R6 = 8 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R3 > R0 (5 > 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x09)); // R7 = 9 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x0A)); // R8 = 10
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 6: TEST JmpIfLess (SF = 1)
+    // ============================================================================
+    println!("=== SECTION 6: TEST JmpIfLess ===");
+
+    // Test 1: R3 < R0 (5 < 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x0B)); // R9 = 11 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R1 < R0 (20 < 10) → SF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x0C)); // R10 = 12 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x0D)); // R11 = 13
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 7: TEST JmpIfGreaterEqual (SF = 0 ou ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 7: TEST JmpIfGreaterEqual ===");
+
+    // Test 1: R1 >= R0 (20 >= 10) → SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x0E)); // R12 = 14 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 >= R2 (10 >= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x0F)); // R13 = 15 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R3 >= R0 (5 >= 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x10)); // R14 = 16 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x11)); // R15 = 17
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 8: TEST JmpIfLessEqual (SF = 1 OU ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 8: TEST JmpIfLessEqual ===");
+
+    // Test 1: R3 <= R0 (5 <= 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x12)); // R5 = 18 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 <= R2 (10 <= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x13)); // R6 = 19 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R1 <= R0 (20 <= 10) → SF = 0, ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x14)); // R7 = 20 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x15)); // R8 = 21
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 9: TEST JmpIfZero (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 9: TEST JmpIfZero ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x16)); // R9 = 22 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R1 (10 != 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x17)); // R10 = 23 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x18)); // R11 = 24
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 10: TEST JmpIfNotZero (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 10: TEST JmpIfNotZero ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x19)); // R12 = 25 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R2 (10 == 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x1A)); // R13 = 26 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x1B)); // R14 = 27
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 11: TEST DE BOUCLE (Pattern pour le prédicteur)
+    // ============================================================================
+    println!("=== SECTION 11: TEST DE BOUCLE ===");
+
+    // Initialisation du compteur de boucle
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 3)); // R15 = 3 (compteur)
+
+    // Début de la boucle - cette étiquette sera utilisée pour le branchement arrière
+    let loop_start_instruction_index = program.code.len();
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Corps de la boucle
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1 (R4 = 0, donc R15 - 0, mais on veut R15-1)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Pour décrémenter correctement, on doit d'abord mettre 1 dans un registre
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 1)); // R4 = 1
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Comparer avec 0
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0)); // R4 = 0 pour comparaison
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 15, 4)); // Compare R15 avec 0
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Calculer l'offset pour retourner au début de la boucle
+    let current_instruction_index = program.code.len() + 1; // +1 car on ajoute l'instruction de branchement
+    let loop_body_size = current_instruction_index - loop_start_instruction_index;
+    let backward_offset = -(loop_body_size as i32 * 6 + 8); // chaque instruction fait ~6 bytes, +8 pour l'instruction de branchement
+    let  jmpifnotzero_loop =  current_address as i32 + backward_offset as i32 ;
+
+    // Branchement conditionnel vers le début de la boucle si R15 != 0
+    program.add_instruction(Instruction::create_jump_if_not_zero(0, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 12: TEST CALL/RET (Si implémenté)
+    // ============================================================================
+    println!("=== SECTION 12: TEST CALL/RET ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+    let call_target = current_address + 8 + 6 ;
+    // Sauter par-dessus la fonction pour aller au call
+    program.add_instruction(Instruction::create_jump(current_address, call_target)); // Sauter la fonction
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // FONCTION: simple_function
+    // Fonction qui met 0xFF dans R5 et retourne
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0xFF)); // R5 = 255
+    program.add_instruction(Instruction::create_no_args(Opcode::Ret)); // Retour
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Appel de la fonction (si CALL est implémenté)
+    current_address = Instruction::calculate_current_address(&program.code);
+    let function_offset = -12i32;// Retourner à la fonction
+    program.add_instruction(Instruction::create_call(function_offset as u32));
+
+    // ============================================================================
+    // SECTION 13: FINALISATION ET VÉRIFICATION
+    // ============================================================================
+    println!("=== SECTION 13: FINALISATION ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Marquer la fin des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 0xFE)); // R0 = 254 (marqueur de fin)
+
+
+
+    // ============================================================================
+    // SECTION 1: INITIALISATION DES REGISTRES
+    // ============================================================================
+    println!("=== SECTION 1: INITIALISATION ===");
+
+    // Registres pour les comparaisons
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 10)); // R0 = 10
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 20)); // R1 = 20
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 10)); // R2 = 10 (égal à R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 5));  // R3 = 5 (plus petit que R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0));  // R4 = 0 (pour tests de zéro)
+
+    // Registres pour stocker les résultats des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0));  // R8 = compteur de tests réussis
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0));  // R9 = compteur de tests échoués
+
+    // ============================================================================
+    // SECTION 2: TEST JMP (SAUT INCONDITIONNEL)
+    // ============================================================================
+    println!("=== SECTION 2: TEST JMP INCONDITIONNEL ===");
+
+    let mut current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmp_target = current_address + jmp_instruction_size + 6; // Sauter par-dessus l'instruction MOV suivante
+    program.add_instruction(Instruction::create_jump(current_address, jmp_target));
+
+    // Cette instruction ne doit PAS être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+
+    // Cette instruction doit être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x01)); // R10 = 1 (succès JMP)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 3: TEST JmpIfEqual (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 3: TEST JmpIfEqual ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmpifequal_target_1 = current_address + jmp_instruction_size + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x02)); // R11 = 2 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R1 (10 == 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x03)); // R12 = 3 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x04)); // R13 = 4
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 4: TEST JmpIfNotEqual (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 4: TEST JmpIfNotEqual ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x05)); // R14 = 5 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R2 (10 != 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x06)); // R15 = 6 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x07)); // R5 = 7
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 5: TEST JmpIfGreater (ZF = 0 ET SF = 0)
+    // ============================================================================
+    println!("=== SECTION 5: TEST JmpIfGreater ===");
+
+    // Test 1: R1 > R0 (20 > 10) → ZF = 0, SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x08)); // R6 = 8 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R3 > R0 (5 > 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x09)); // R7 = 9 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x0A)); // R8 = 10
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 6: TEST JmpIfLess (SF = 1)
+    // ============================================================================
+    println!("=== SECTION 6: TEST JmpIfLess ===");
+
+    // Test 1: R3 < R0 (5 < 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x0B)); // R9 = 11 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R1 < R0 (20 < 10) → SF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x0C)); // R10 = 12 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x0D)); // R11 = 13
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 7: TEST JmpIfGreaterEqual (SF = 0 ou ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 7: TEST JmpIfGreaterEqual ===");
+
+    // Test 1: R1 >= R0 (20 >= 10) → SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x0E)); // R12 = 14 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 >= R2 (10 >= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x0F)); // R13 = 15 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R3 >= R0 (5 >= 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x10)); // R14 = 16 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x11)); // R15 = 17
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 8: TEST JmpIfLessEqual (SF = 1 OU ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 8: TEST JmpIfLessEqual ===");
+
+    // Test 1: R3 <= R0 (5 <= 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x12)); // R5 = 18 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 <= R2 (10 <= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x13)); // R6 = 19 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R1 <= R0 (20 <= 10) → SF = 0, ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x14)); // R7 = 20 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x15)); // R8 = 21
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 9: TEST JmpIfZero (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 9: TEST JmpIfZero ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x16)); // R9 = 22 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R1 (10 != 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x17)); // R10 = 23 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x18)); // R11 = 24
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 10: TEST JmpIfNotZero (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 10: TEST JmpIfNotZero ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x19)); // R12 = 25 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R2 (10 == 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x1A)); // R13 = 26 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x1B)); // R14 = 27
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 11: TEST DE BOUCLE (Pattern pour le prédicteur)
+    // ============================================================================
+    println!("=== SECTION 11: TEST DE BOUCLE ===");
+
+    // Initialisation du compteur de boucle
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 3)); // R15 = 3 (compteur)
+
+    // Début de la boucle - cette étiquette sera utilisée pour le branchement arrière
+    let loop_start_instruction_index = program.code.len();
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Corps de la boucle
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1 (R4 = 0, donc R15 - 0, mais on veut R15-1)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Pour décrémenter correctement, on doit d'abord mettre 1 dans un registre
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 1)); // R4 = 1
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Comparer avec 0
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0)); // R4 = 0 pour comparaison
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 15, 4)); // Compare R15 avec 0
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Calculer l'offset pour retourner au début de la boucle
+    let current_instruction_index = program.code.len() + 1; // +1 car on ajoute l'instruction de branchement
+    let loop_body_size = current_instruction_index - loop_start_instruction_index;
+    let backward_offset = -(loop_body_size as i32 * 6 + 8); // chaque instruction fait ~6 bytes, +8 pour l'instruction de branchement
+    let  jmpifnotzero_loop =  current_address as i32 + backward_offset as i32 ;
+
+    // Branchement conditionnel vers le début de la boucle si R15 != 0
+    program.add_instruction(Instruction::create_jump_if_not_zero(0, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 12: TEST CALL/RET (Si implémenté)
+    // ============================================================================
+    println!("=== SECTION 12: TEST CALL/RET ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+    let call_target = current_address + 8 + 6 ;
+    // Sauter par-dessus la fonction pour aller au call
+    program.add_instruction(Instruction::create_jump(current_address, call_target)); // Sauter la fonction
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // FONCTION: simple_function
+    // Fonction qui met 0xFF dans R5 et retourne
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0xFF)); // R5 = 255
+    program.add_instruction(Instruction::create_no_args(Opcode::Ret)); // Retour
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Appel de la fonction (si CALL est implémenté)
+    current_address = Instruction::calculate_current_address(&program.code);
+    let function_offset = -12i32;// Retourner à la fonction
+    program.add_instruction(Instruction::create_call(function_offset as u32));
+
+    // ============================================================================
+    // SECTION 13: FINALISATION ET VÉRIFICATION
+    // ============================================================================
+    println!("=== SECTION 13: FINALISATION ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Marquer la fin des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 0xFE)); // R0 = 254 (marqueur de fin)
+
+
+
+    // ============================================================================
+    // SECTION 1: INITIALISATION DES REGISTRES
+    // ============================================================================
+    println!("=== SECTION 1: INITIALISATION ===");
+
+    // Registres pour les comparaisons
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 10)); // R0 = 10
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 20)); // R1 = 20
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 10)); // R2 = 10 (égal à R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 5));  // R3 = 5 (plus petit que R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0));  // R4 = 0 (pour tests de zéro)
+
+    // Registres pour stocker les résultats des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0));  // R8 = compteur de tests réussis
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0));  // R9 = compteur de tests échoués
+
+    // ============================================================================
+    // SECTION 2: TEST JMP (SAUT INCONDITIONNEL)
+    // ============================================================================
+    println!("=== SECTION 2: TEST JMP INCONDITIONNEL ===");
+
+    let mut current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmp_target = current_address + jmp_instruction_size + 6; // Sauter par-dessus l'instruction MOV suivante
+    program.add_instruction(Instruction::create_jump(current_address, jmp_target));
+
+    // Cette instruction ne doit PAS être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+
+    // Cette instruction doit être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x01)); // R10 = 1 (succès JMP)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 3: TEST JmpIfEqual (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 3: TEST JmpIfEqual ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmpifequal_target_1 = current_address + jmp_instruction_size + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x02)); // R11 = 2 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R1 (10 == 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x03)); // R12 = 3 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x04)); // R13 = 4
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 4: TEST JmpIfNotEqual (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 4: TEST JmpIfNotEqual ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x05)); // R14 = 5 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R2 (10 != 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x06)); // R15 = 6 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x07)); // R5 = 7
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 5: TEST JmpIfGreater (ZF = 0 ET SF = 0)
+    // ============================================================================
+    println!("=== SECTION 5: TEST JmpIfGreater ===");
+
+    // Test 1: R1 > R0 (20 > 10) → ZF = 0, SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x08)); // R6 = 8 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R3 > R0 (5 > 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x09)); // R7 = 9 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x0A)); // R8 = 10
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 6: TEST JmpIfLess (SF = 1)
+    // ============================================================================
+    println!("=== SECTION 6: TEST JmpIfLess ===");
+
+    // Test 1: R3 < R0 (5 < 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x0B)); // R9 = 11 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R1 < R0 (20 < 10) → SF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x0C)); // R10 = 12 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x0D)); // R11 = 13
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 7: TEST JmpIfGreaterEqual (SF = 0 ou ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 7: TEST JmpIfGreaterEqual ===");
+
+    // Test 1: R1 >= R0 (20 >= 10) → SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x0E)); // R12 = 14 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 >= R2 (10 >= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x0F)); // R13 = 15 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R3 >= R0 (5 >= 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x10)); // R14 = 16 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x11)); // R15 = 17
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 8: TEST JmpIfLessEqual (SF = 1 OU ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 8: TEST JmpIfLessEqual ===");
+
+    // Test 1: R3 <= R0 (5 <= 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x12)); // R5 = 18 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 <= R2 (10 <= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x13)); // R6 = 19 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R1 <= R0 (20 <= 10) → SF = 0, ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x14)); // R7 = 20 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x15)); // R8 = 21
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 9: TEST JmpIfZero (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 9: TEST JmpIfZero ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x16)); // R9 = 22 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R1 (10 != 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x17)); // R10 = 23 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x18)); // R11 = 24
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 10: TEST JmpIfNotZero (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 10: TEST JmpIfNotZero ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x19)); // R12 = 25 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R2 (10 == 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x1A)); // R13 = 26 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x1B)); // R14 = 27
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 11: TEST DE BOUCLE (Pattern pour le prédicteur)
+    // ============================================================================
+    println!("=== SECTION 11: TEST DE BOUCLE ===");
+
+    // Initialisation du compteur de boucle
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 3)); // R15 = 3 (compteur)
+
+    // Début de la boucle - cette étiquette sera utilisée pour le branchement arrière
+    let loop_start_instruction_index = program.code.len();
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Corps de la boucle
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1 (R4 = 0, donc R15 - 0, mais on veut R15-1)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Pour décrémenter correctement, on doit d'abord mettre 1 dans un registre
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 1)); // R4 = 1
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Comparer avec 0
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0)); // R4 = 0 pour comparaison
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 15, 4)); // Compare R15 avec 0
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Calculer l'offset pour retourner au début de la boucle
+    let current_instruction_index = program.code.len() + 1; // +1 car on ajoute l'instruction de branchement
+    let loop_body_size = current_instruction_index - loop_start_instruction_index;
+    let backward_offset = -(loop_body_size as i32 * 6 + 8); // chaque instruction fait ~6 bytes, +8 pour l'instruction de branchement
+    let  jmpifnotzero_loop =  current_address as i32 + backward_offset as i32 ;
+
+    // Branchement conditionnel vers le début de la boucle si R15 != 0
+    program.add_instruction(Instruction::create_jump_if_not_zero(0, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 12: TEST CALL/RET (Si implémenté)
+    // ============================================================================
+    println!("=== SECTION 12: TEST CALL/RET ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+    let call_target = current_address + 8 + 6 ;
+    // Sauter par-dessus la fonction pour aller au call
+    program.add_instruction(Instruction::create_jump(current_address, call_target)); // Sauter la fonction
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // FONCTION: simple_function
+    // Fonction qui met 0xFF dans R5 et retourne
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0xFF)); // R5 = 255
+    program.add_instruction(Instruction::create_no_args(Opcode::Ret)); // Retour
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Appel de la fonction (si CALL est implémenté)
+    current_address = Instruction::calculate_current_address(&program.code);
+    let function_offset = -12i32;// Retourner à la fonction
+    program.add_instruction(Instruction::create_call(function_offset as u32));
+
+    // ============================================================================
+    // SECTION 13: FINALISATION ET VÉRIFICATION
+    // ============================================================================
+    println!("=== SECTION 13: FINALISATION ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Marquer la fin des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 0xFE)); // R0 = 254 (marqueur de fin)
+
+    // ============================================================================
+    // SECTION 1: INITIALISATION DES REGISTRES
+    // ============================================================================
+    println!("=== SECTION 1: INITIALISATION ===");
+
+    // Registres pour les comparaisons
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 10)); // R0 = 10
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 20)); // R1 = 20
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 10)); // R2 = 10 (égal à R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 5));  // R3 = 5 (plus petit que R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0));  // R4 = 0 (pour tests de zéro)
+
+    // Registres pour stocker les résultats des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0));  // R8 = compteur de tests réussis
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0));  // R9 = compteur de tests échoués
+
+    // ============================================================================
+    // SECTION 2: TEST JMP (SAUT INCONDITIONNEL)
+    // ============================================================================
+    println!("=== SECTION 2: TEST JMP INCONDITIONNEL ===");
+
+    let mut current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmp_target = current_address + jmp_instruction_size + 6; // Sauter par-dessus l'instruction MOV suivante
+    program.add_instruction(Instruction::create_jump(current_address, jmp_target));
+
+    // Cette instruction ne doit PAS être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+
+    // Cette instruction doit être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x01)); // R10 = 1 (succès JMP)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 3: TEST JmpIfEqual (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 3: TEST JmpIfEqual ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmpifequal_target_1 = current_address + jmp_instruction_size + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x02)); // R11 = 2 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R1 (10 == 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x03)); // R12 = 3 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x04)); // R13 = 4
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 4: TEST JmpIfNotEqual (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 4: TEST JmpIfNotEqual ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x05)); // R14 = 5 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R2 (10 != 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x06)); // R15 = 6 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x07)); // R5 = 7
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 5: TEST JmpIfGreater (ZF = 0 ET SF = 0)
+    // ============================================================================
+    println!("=== SECTION 5: TEST JmpIfGreater ===");
+
+    // Test 1: R1 > R0 (20 > 10) → ZF = 0, SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x08)); // R6 = 8 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R3 > R0 (5 > 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x09)); // R7 = 9 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x0A)); // R8 = 10
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 6: TEST JmpIfLess (SF = 1)
+    // ============================================================================
+    println!("=== SECTION 6: TEST JmpIfLess ===");
+
+    // Test 1: R3 < R0 (5 < 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x0B)); // R9 = 11 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R1 < R0 (20 < 10) → SF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x0C)); // R10 = 12 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x0D)); // R11 = 13
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 7: TEST JmpIfGreaterEqual (SF = 0 ou ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 7: TEST JmpIfGreaterEqual ===");
+
+    // Test 1: R1 >= R0 (20 >= 10) → SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x0E)); // R12 = 14 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 >= R2 (10 >= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x0F)); // R13 = 15 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R3 >= R0 (5 >= 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x10)); // R14 = 16 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x11)); // R15 = 17
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 8: TEST JmpIfLessEqual (SF = 1 OU ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 8: TEST JmpIfLessEqual ===");
+
+    // Test 1: R3 <= R0 (5 <= 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x12)); // R5 = 18 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 <= R2 (10 <= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x13)); // R6 = 19 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R1 <= R0 (20 <= 10) → SF = 0, ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x14)); // R7 = 20 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x15)); // R8 = 21
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 9: TEST JmpIfZero (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 9: TEST JmpIfZero ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x16)); // R9 = 22 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R1 (10 != 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x17)); // R10 = 23 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x18)); // R11 = 24
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 10: TEST JmpIfNotZero (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 10: TEST JmpIfNotZero ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x19)); // R12 = 25 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R2 (10 == 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x1A)); // R13 = 26 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x1B)); // R14 = 27
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 11: TEST DE BOUCLE (Pattern pour le prédicteur)
+    // ============================================================================
+    println!("=== SECTION 11: TEST DE BOUCLE ===");
+
+    // Initialisation du compteur de boucle
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 3)); // R15 = 3 (compteur)
+
+    // Début de la boucle - cette étiquette sera utilisée pour le branchement arrière
+    let loop_start_instruction_index = program.code.len();
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Corps de la boucle
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1 (R4 = 0, donc R15 - 0, mais on veut R15-1)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Pour décrémenter correctement, on doit d'abord mettre 1 dans un registre
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 1)); // R4 = 1
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Comparer avec 0
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0)); // R4 = 0 pour comparaison
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 15, 4)); // Compare R15 avec 0
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Calculer l'offset pour retourner au début de la boucle
+    let current_instruction_index = program.code.len() + 1; // +1 car on ajoute l'instruction de branchement
+    let loop_body_size = current_instruction_index - loop_start_instruction_index;
+    let backward_offset = -(loop_body_size as i32 * 6 + 8); // chaque instruction fait ~6 bytes, +8 pour l'instruction de branchement
+    let  jmpifnotzero_loop =  current_address as i32 + backward_offset as i32 ;
+
+    // Branchement conditionnel vers le début de la boucle si R15 != 0
+    program.add_instruction(Instruction::create_jump_if_not_zero(0, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 12: TEST CALL/RET (Si implémenté)
+    // ============================================================================
+    println!("=== SECTION 12: TEST CALL/RET ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+    let call_target = current_address + 8 + 6 ;
+    // Sauter par-dessus la fonction pour aller au call
+    program.add_instruction(Instruction::create_jump(current_address, call_target)); // Sauter la fonction
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // FONCTION: simple_function
+    // Fonction qui met 0xFF dans R5 et retourne
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0xFF)); // R5 = 255
+    program.add_instruction(Instruction::create_no_args(Opcode::Ret)); // Retour
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Appel de la fonction (si CALL est implémenté)
+    current_address = Instruction::calculate_current_address(&program.code);
+    let function_offset = -12i32;// Retourner à la fonction
+    program.add_instruction(Instruction::create_call(function_offset as u32));
+
+    // ============================================================================
+    // SECTION 13: FINALISATION ET VÉRIFICATION
+    // ============================================================================
+    println!("=== SECTION 13: FINALISATION ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Marquer la fin des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 0xFE)); // R0 = 254 (marqueur de fin)
+
+
+
+    // ============================================================================
+    // SECTION 1: INITIALISATION DES REGISTRES
+    // ============================================================================
+    println!("=== SECTION 1: INITIALISATION ===");
+
+    // Registres pour les comparaisons
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 10)); // R0 = 10
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 20)); // R1 = 20
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 10)); // R2 = 10 (égal à R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 5));  // R3 = 5 (plus petit que R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0));  // R4 = 0 (pour tests de zéro)
+
+    // Registres pour stocker les résultats des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0));  // R8 = compteur de tests réussis
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0));  // R9 = compteur de tests échoués
+
+    // ============================================================================
+    // SECTION 2: TEST JMP (SAUT INCONDITIONNEL)
+    // ============================================================================
+    println!("=== SECTION 2: TEST JMP INCONDITIONNEL ===");
+
+    let mut current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmp_target = current_address + jmp_instruction_size + 6; // Sauter par-dessus l'instruction MOV suivante
+    program.add_instruction(Instruction::create_jump(current_address, jmp_target));
+
+    // Cette instruction ne doit PAS être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+
+    // Cette instruction doit être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x01)); // R10 = 1 (succès JMP)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 3: TEST JmpIfEqual (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 3: TEST JmpIfEqual ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmpifequal_target_1 = current_address + jmp_instruction_size + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x02)); // R11 = 2 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R1 (10 == 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x03)); // R12 = 3 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x04)); // R13 = 4
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 4: TEST JmpIfNotEqual (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 4: TEST JmpIfNotEqual ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x05)); // R14 = 5 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R2 (10 != 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x06)); // R15 = 6 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x07)); // R5 = 7
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 5: TEST JmpIfGreater (ZF = 0 ET SF = 0)
+    // ============================================================================
+    println!("=== SECTION 5: TEST JmpIfGreater ===");
+
+    // Test 1: R1 > R0 (20 > 10) → ZF = 0, SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x08)); // R6 = 8 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R3 > R0 (5 > 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x09)); // R7 = 9 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x0A)); // R8 = 10
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 6: TEST JmpIfLess (SF = 1)
+    // ============================================================================
+    println!("=== SECTION 6: TEST JmpIfLess ===");
+
+    // Test 1: R3 < R0 (5 < 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x0B)); // R9 = 11 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R1 < R0 (20 < 10) → SF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x0C)); // R10 = 12 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x0D)); // R11 = 13
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 7: TEST JmpIfGreaterEqual (SF = 0 ou ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 7: TEST JmpIfGreaterEqual ===");
+
+    // Test 1: R1 >= R0 (20 >= 10) → SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x0E)); // R12 = 14 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 >= R2 (10 >= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x0F)); // R13 = 15 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R3 >= R0 (5 >= 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x10)); // R14 = 16 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x11)); // R15 = 17
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 8: TEST JmpIfLessEqual (SF = 1 OU ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 8: TEST JmpIfLessEqual ===");
+
+    // Test 1: R3 <= R0 (5 <= 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x12)); // R5 = 18 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 <= R2 (10 <= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x13)); // R6 = 19 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R1 <= R0 (20 <= 10) → SF = 0, ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x14)); // R7 = 20 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x15)); // R8 = 21
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 9: TEST JmpIfZero (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 9: TEST JmpIfZero ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x16)); // R9 = 22 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R1 (10 != 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x17)); // R10 = 23 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x18)); // R11 = 24
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 10: TEST JmpIfNotZero (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 10: TEST JmpIfNotZero ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x19)); // R12 = 25 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R2 (10 == 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x1A)); // R13 = 26 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x1B)); // R14 = 27
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 11: TEST DE BOUCLE (Pattern pour le prédicteur)
+    // ============================================================================
+    println!("=== SECTION 11: TEST DE BOUCLE ===");
+
+    // Initialisation du compteur de boucle
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 3)); // R15 = 3 (compteur)
+
+    // Début de la boucle - cette étiquette sera utilisée pour le branchement arrière
+    let loop_start_instruction_index = program.code.len();
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Corps de la boucle
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1 (R4 = 0, donc R15 - 0, mais on veut R15-1)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Pour décrémenter correctement, on doit d'abord mettre 1 dans un registre
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 1)); // R4 = 1
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Comparer avec 0
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0)); // R4 = 0 pour comparaison
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 15, 4)); // Compare R15 avec 0
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Calculer l'offset pour retourner au début de la boucle
+    let current_instruction_index = program.code.len() + 1; // +1 car on ajoute l'instruction de branchement
+    let loop_body_size = current_instruction_index - loop_start_instruction_index;
+    let backward_offset = -(loop_body_size as i32 * 6 + 8); // chaque instruction fait ~6 bytes, +8 pour l'instruction de branchement
+    let  jmpifnotzero_loop =  current_address as i32 + backward_offset as i32 ;
+
+    // Branchement conditionnel vers le début de la boucle si R15 != 0
+    program.add_instruction(Instruction::create_jump_if_not_zero(0, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 12: TEST CALL/RET (Si implémenté)
+    // ============================================================================
+    println!("=== SECTION 12: TEST CALL/RET ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+    let call_target = current_address + 8 + 6 ;
+    // Sauter par-dessus la fonction pour aller au call
+    program.add_instruction(Instruction::create_jump(current_address, call_target)); // Sauter la fonction
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // FONCTION: simple_function
+    // Fonction qui met 0xFF dans R5 et retourne
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0xFF)); // R5 = 255
+    program.add_instruction(Instruction::create_no_args(Opcode::Ret)); // Retour
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Appel de la fonction (si CALL est implémenté)
+    current_address = Instruction::calculate_current_address(&program.code);
+    let function_offset = -12i32;// Retourner à la fonction
+    program.add_instruction(Instruction::create_call(function_offset as u32));
+
+    // ============================================================================
+    // SECTION 13: FINALISATION ET VÉRIFICATION
+    // ============================================================================
+    println!("=== SECTION 13: FINALISATION ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Marquer la fin des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 0xFE)); // R0 = 254 (marqueur de fin)
+
+
+
+
+    // ============================================================================
+    // SECTION 1: INITIALISATION DES REGISTRES
+    // ============================================================================
+    println!("=== SECTION 1: INITIALISATION ===");
+
+    // Registres pour les comparaisons
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 10)); // R0 = 10
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 20)); // R1 = 20
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 10)); // R2 = 10 (égal à R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 5));  // R3 = 5 (plus petit que R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0));  // R4 = 0 (pour tests de zéro)
+
+    // Registres pour stocker les résultats des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0));  // R8 = compteur de tests réussis
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0));  // R9 = compteur de tests échoués
+
+    // ============================================================================
+    // SECTION 2: TEST JMP (SAUT INCONDITIONNEL)
+    // ============================================================================
+    println!("=== SECTION 2: TEST JMP INCONDITIONNEL ===");
+
+    let mut current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmp_target = current_address + jmp_instruction_size + 6; // Sauter par-dessus l'instruction MOV suivante
+    program.add_instruction(Instruction::create_jump(current_address, jmp_target));
+
+    // Cette instruction ne doit PAS être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+
+    // Cette instruction doit être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x01)); // R10 = 1 (succès JMP)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 3: TEST JmpIfEqual (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 3: TEST JmpIfEqual ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmpifequal_target_1 = current_address + jmp_instruction_size + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x02)); // R11 = 2 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R1 (10 == 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x03)); // R12 = 3 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x04)); // R13 = 4
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 4: TEST JmpIfNotEqual (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 4: TEST JmpIfNotEqual ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x05)); // R14 = 5 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R2 (10 != 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x06)); // R15 = 6 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x07)); // R5 = 7
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 5: TEST JmpIfGreater (ZF = 0 ET SF = 0)
+    // ============================================================================
+    println!("=== SECTION 5: TEST JmpIfGreater ===");
+
+    // Test 1: R1 > R0 (20 > 10) → ZF = 0, SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x08)); // R6 = 8 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R3 > R0 (5 > 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x09)); // R7 = 9 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x0A)); // R8 = 10
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 6: TEST JmpIfLess (SF = 1)
+    // ============================================================================
+    println!("=== SECTION 6: TEST JmpIfLess ===");
+
+    // Test 1: R3 < R0 (5 < 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x0B)); // R9 = 11 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R1 < R0 (20 < 10) → SF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x0C)); // R10 = 12 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x0D)); // R11 = 13
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 7: TEST JmpIfGreaterEqual (SF = 0 ou ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 7: TEST JmpIfGreaterEqual ===");
+
+    // Test 1: R1 >= R0 (20 >= 10) → SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x0E)); // R12 = 14 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 >= R2 (10 >= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x0F)); // R13 = 15 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R3 >= R0 (5 >= 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x10)); // R14 = 16 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x11)); // R15 = 17
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 8: TEST JmpIfLessEqual (SF = 1 OU ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 8: TEST JmpIfLessEqual ===");
+
+    // Test 1: R3 <= R0 (5 <= 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x12)); // R5 = 18 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 <= R2 (10 <= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x13)); // R6 = 19 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R1 <= R0 (20 <= 10) → SF = 0, ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x14)); // R7 = 20 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x15)); // R8 = 21
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 9: TEST JmpIfZero (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 9: TEST JmpIfZero ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x16)); // R9 = 22 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R1 (10 != 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x17)); // R10 = 23 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x18)); // R11 = 24
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 10: TEST JmpIfNotZero (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 10: TEST JmpIfNotZero ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x19)); // R12 = 25 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R2 (10 == 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x1A)); // R13 = 26 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x1B)); // R14 = 27
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 11: TEST DE BOUCLE (Pattern pour le prédicteur)
+    // ============================================================================
+    println!("=== SECTION 11: TEST DE BOUCLE ===");
+
+    // Initialisation du compteur de boucle
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 3)); // R15 = 3 (compteur)
+
+    // Début de la boucle - cette étiquette sera utilisée pour le branchement arrière
+    let loop_start_instruction_index = program.code.len();
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Corps de la boucle
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1 (R4 = 0, donc R15 - 0, mais on veut R15-1)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Pour décrémenter correctement, on doit d'abord mettre 1 dans un registre
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 1)); // R4 = 1
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Comparer avec 0
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0)); // R4 = 0 pour comparaison
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 15, 4)); // Compare R15 avec 0
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Calculer l'offset pour retourner au début de la boucle
+    let current_instruction_index = program.code.len() + 1; // +1 car on ajoute l'instruction de branchement
+    let loop_body_size = current_instruction_index - loop_start_instruction_index;
+    let backward_offset = -(loop_body_size as i32 * 6 + 8); // chaque instruction fait ~6 bytes, +8 pour l'instruction de branchement
+    let  jmpifnotzero_loop =  current_address as i32 + backward_offset as i32 ;
+
+    // Branchement conditionnel vers le début de la boucle si R15 != 0
+    program.add_instruction(Instruction::create_jump_if_not_zero(0, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 12: TEST CALL/RET (Si implémenté)
+    // ============================================================================
+    println!("=== SECTION 12: TEST CALL/RET ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+    let call_target = current_address + 8 + 6 ;
+    // Sauter par-dessus la fonction pour aller au call
+    program.add_instruction(Instruction::create_jump(current_address, call_target)); // Sauter la fonction
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // FONCTION: simple_function
+    // Fonction qui met 0xFF dans R5 et retourne
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0xFF)); // R5 = 255
+    program.add_instruction(Instruction::create_no_args(Opcode::Ret)); // Retour
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Appel de la fonction (si CALL est implémenté)
+    current_address = Instruction::calculate_current_address(&program.code);
+    let function_offset = -12i32;// Retourner à la fonction
+    program.add_instruction(Instruction::create_call(function_offset as u32));
+
+    // ============================================================================
+    // SECTION 13: FINALISATION ET VÉRIFICATION
+    // ============================================================================
+    println!("=== SECTION 13: FINALISATION ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Marquer la fin des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 0xFE)); // R0 = 254 (marqueur de fin)
+
+
+
+
+    // Fin du programme
     program.add_instruction(Instruction::create_no_args(Opcode::Halt));
 
-    // Calcul de la taille totale du code
-    let total_size: u32 = program
+    // ============================================================================
+    // CONFIGURATION DES SEGMENTS
+    // ============================================================================
+    let total_code_size: u32 = program
         .code
         .iter()
         .map(|instr| instr.total_size() as u32)
         .sum();
-    program.segments = vec![SegmentMetadata::new(SegmentType::Code, 0, total_size, 0)];
+    program.segments = vec![SegmentMetadata::new(SegmentType::Code, 0, total_code_size, 0)];
 
-    // Ajout d'un segment de données vide
-    let data_size = 256;
+    let data_size = 512; // Taille augmentée pour plus de données
     let data_segment = SegmentMetadata::new(SegmentType::Data, 0, data_size, 0x1000);
     program.segments.push(data_segment);
     program.data = vec![0; data_size as usize];
 
-    println!("\n--- Carte des instructions du programme de test des branchements ---");
-    let mut addr = 0;
+    // ============================================================================
+    // AFFICHAGE DE LA CARTE DES INSTRUCTIONS
+    // ============================================================================
+    println!("\n=== CARTE COMPLÈTE DES INSTRUCTIONS ===");
+    let mut addr = 0u32;
+    let mut section_counters = HashMap::new();
+
     for (idx, instr) in program.code.iter().enumerate() {
         let size = instr.total_size();
+
+        // Déterminer la section basée sur l'index d'instruction
+        let section = match idx {
+            0..=6 => "INIT",
+            7..=9 => "JMP",
+            10..=15 => "JmpIfEqual",
+            16..=21 => "JmpIfNotEqual",
+            22..=27 => "JmpIfGreater",
+            28..=33 => "JmpIfLess",
+            34..=42 => "JmpIfGreaterEqual",
+            43..=51 => "JmpIfLessEqual",
+            52..=57 => "JmpIfZero",
+            58..=63 => "JmpIfNotZero",
+            64..=70 => "LOOP",
+            71..=75 => "CALL/RET",
+            _ => "FINAL",
+        };
+
+        *section_counters.entry(section).or_insert(0) += 1;
+
         println!(
-            "Instruction {}: Adresse 0x{:04X}-0x{:04X} (taille {}): {:?}",
+            "Instruction {:2}: [{}] Adresse 0x{:04X}-0x{:04X} (taille {:2}): {:?}",
             idx,
+            section,
             addr,
-            addr + size - 1,
+            addr + size as u32 - 1,
             size,
             instr.opcode
         );
 
-
+        // Affichage spécial pour les branchements
         if instr.opcode.is_branch() {
             if let Ok(ArgValue::RelativeAddr(offset)) = instr.get_arg2_value() {
-                let target = (addr as u32 + size as u32) as i64 + offset as i64;
-                println!("      -> Branchement relatif: offset={:+}, target=0x{:04X}", offset, target);
+                let target = (addr + size as u32) as i64 + offset as i64;
+                println!(
+                    "      -> Branchement relatif: offset={:+}, target=0x{:04X}",
+                    offset, target
+                );
             }
         }
-        addr += size;
+
+        addr += size as u32;
     }
-    println!("--- Fin de la carte des instructions ---");
 
-
-    program
-}
-
-
-
-
-pub fn create_reg_reg_reg_test_program() -> BytecodeFile {
-    let mut program = BytecodeFile::new();
-    // Version du programme
-    program.version = BytecodeVersion::new(0, 1, 0, 0);
-    // Métadonnées (optionnel)
-    program.add_metadata("name", "Test reg_reg_reg");
-    program.add_metadata(
-        "description",
-        "Programme testant les instructions à trois registres.",
+    println!("\n=== RÉSUMÉ DES SECTIONS ===");
+    for (section, count) in section_counters {
+        println!("{}: {} instructions", section, count);
+    }
+    println!(
+        "TOTAL: {} instructions, {} bytes",
+        program.code.len(),
+        addr
     );
 
-    // Initialiser R0 et R1 avec des valeurs immédiates via MOV (instructions immédiates)
-    // Ici, on utilise create_reg_imm8 (qui utilise un format MOV avec immediate) pour initialiser les registres
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 5)); // R0 = 5
-    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 10)); // R1 = 10
-
-    // Opérations à trois registres
-    // R2 = R0 + R1  --> 5 + 10 = 15
-    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 2, 0, 1));
-    // R3 = R2 - R0  --> 15 - 5 = 10
-    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Sub, 3, 2, 0));
-    // R4 = R3 * R1  --> 10 * 10 = 100
-    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Mul, 4, 3, 1));
-    // R5 = R4 / R0  --> 100 / 5 = 20
-    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Div, 5, 4, 0));
-    // R6 = R2 + R4  --> 15 + 100 = 115
-    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 6, 2, 4));
-    // R7 = R6 - R5  --> 115 - 20 = 95
-    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Sub, 7, 6, 5));
-    // R8 = R7 + R2  --> 95 + 15 = 110
-    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 8, 7, 2));
-
-    // Fin du programme : HALT
-    program.add_instruction(Instruction::create_no_args(Opcode::Halt));
-
-    // Calculer la taille totale du code et créer le segment de code
-    let total_size: u32 = program
-        .code
-        .iter()
-        .map(|instr| instr.total_size() as u32)
-        .sum();
-    program.segments = vec![SegmentMetadata::new(SegmentType::Code, 0, total_size, 0)];
-
-    // Ajout d'un segment de données vide
-    let data_size = 256;
-    let data_segment = SegmentMetadata::new(SegmentType::Data, 0, data_size, 0x1000);
-    program.segments.push(data_segment);
-    program.data = vec![0; data_size as usize];
-
-    println!("\n--- Carte des instructions du programme de test des branchements ---");
-    let mut addr = 0;
-    for (idx, instr) in program.code.iter().enumerate() {
-        let size = instr.total_size();
-        println!(
-            "Instruction {}: Adresse 0x{:04X}-0x{:04X} (taille {}): {:?}",
-            idx,
-            addr,
-            addr + size - 1,
-            size,
-            instr.opcode
-        );
-
-
-        if instr.opcode.is_branch() {
-            if let Ok(ArgValue::RelativeAddr(offset)) = instr.get_arg2_value() {
-                let target = (addr as u32 + size as u32) as i64 + offset as i64;
-                println!("      -> Branchement relatif: offset={:+}, target=0x{:04X}", offset, target);
-            }
-        }
-        addr += size;
-    }
-    println!("--- Fin de la carte des instructions ---");
-
+    println!("\n=== TESTS ATTENDUS ===");
+    println!("Après exécution, les registres suivants devraient contenir:");
+    println!("R0  = 254 (0xFE) - Marqueur de fin");
+    println!("R10 = 1   (0x01) - Test JMP réussi");
+    println!("R11 = 2   (0x02) - Test JmpIfEqual réussi");
+    println!("R12 = 3   (0x03) - Test JmpIfEqual (non pris) réussi");
+    println!("R14 = 5   (0x05) - Test JmpIfNotEqual réussi");
+    println!("R15 = 6   (0x06) - Test JmpIfNotEqual (non pris) réussi");
+    println!("Et ainsi de suite...");
+    println!("Aucun registre ne devrait contenir 0xFF (échec)");
 
     program
-
-
 }
+
+
+
+
