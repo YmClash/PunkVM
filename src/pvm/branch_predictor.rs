@@ -1,6 +1,7 @@
 // src/pvm/branch_prediction.rs
 
 use std::collections::HashMap;
+use crate::pipeline::ras::ReturnAddressStack;
 use crate::pvm::branch_perceptor::Perceptron;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -164,6 +165,8 @@ pub struct HybridPredictor {
     local_history_bits: usize,
     global_history_bits: usize,
     gshare_table_size: usize,
+    return_address_stack: ReturnAddressStack  ,      // 16 entrées pour la RAS
+    btb: BranchTargetBuffer, // 512 entrées pour la BTB
 }
 
 
@@ -270,6 +273,8 @@ impl HybridPredictor {
             local_history_bits,
             global_history_bits,
             gshare_table_size,
+            return_address_stack: ReturnAddressStack::new(16), // 16 entries for RAS
+            btb: BranchTargetBuffer::new(512), // 512 entries BTB
         }
     }
     
