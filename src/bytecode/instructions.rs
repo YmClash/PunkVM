@@ -3,7 +3,7 @@
 use crate::bytecode::decode_errors::DecodeError;
 use crate::bytecode::format::{ArgType, InstructionFormat};
 use crate::bytecode::opcodes::Opcode;
-
+// use PunkVM::bytecode::opcodes::Opcode;
 /// Represente le type de taille d'instruction
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SizeType {
@@ -311,6 +311,20 @@ impl Instruction {
                     Err(DecodeError::InvalidArgumentOffset)
                 }
             }
+            // ArgType::ImmediateF8 => {
+            //     if offset < self.args.len() {
+            //         let value = f32::from_bits(u32::from_le_bytes([
+            //             self.args[offset],
+            //             self.args[offset + 1],
+            //             self.args[offset + 2],
+            //             self.args[offset + 3],
+            //         ]));
+            //         Ok(ArgValue::Immediate(value as u64))
+            //     } else {
+            //         Err(DecodeError::InvalidArgumentOffset)
+            //     }
+            // }
+
         }
     }
 
@@ -889,7 +903,6 @@ impl Instruction {
             offset.to_le_bytes().to_vec(),
         )
     }
-
     // methode pour cree  un saut relative
     // Dans bytecode/instruction.rs
     // Ajouter une méthode utilitaire pour créer facilement des sauts relatifs
@@ -1002,6 +1015,28 @@ impl Instruction {
     pub fn create_pop_immediate8(reg:u8,imm8:u8) -> Self {
         let fmt = InstructionFormat::pop_immediate8();
         Self::new(Opcode::Pop, fmt, vec![reg, imm8])
+    }
+
+    /// Instruction Pou SIMD instruction
+
+    pub fn create_simd_vector_128(opcode: Opcode,reg:u8,reg1:u8,reg2:u8) -> Self {
+        let fmt = InstructionFormat::simd_reg_reg();
+        let args = vec![reg & 0x0F, reg1 & 0x0F, reg2 & 0x0F];
+        Self::new(opcode, fmt, args)
+
+    }
+
+    pub fn create_load_simd_vector_128(opcode: Opcode,reg_dest: u8, reg_base: u8, offset: i8) -> Self {
+        let fmt = InstructionFormat::simd_load_offset(); // (Register, RegisterOffset, None)?
+        let args = vec![reg_dest & 0x0F, reg_base & 0x0F, offset as u8];
+        // Self::new(Opcode::LoadSimd, fmt, args)
+        Self::new(opcode, fmt, args)
+    }
+
+    pub fn create_store_simd_vector_128(opcode: Opcode, reg_src: u8, reg_base: u8, offset: i8) -> Self {
+        let fmt = InstructionFormat::simd_store_offset(); // (Register, RegisterOffset, None)?
+        let args = vec![reg_src & 0x0F, reg_base & 0x0F, offset as u8];
+        Self::new(opcode, fmt, args)
     }
 }
 
