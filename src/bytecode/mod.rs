@@ -5,7 +5,7 @@ pub mod files;
 pub mod format;
 pub mod instructions;
 pub mod opcodes;
-
+pub mod simds;
 // Dans bytecode/mod.rs
 // pub fn calculate_branch_offset(from_addr: u32, to_addr: u32, instr_size: u32) -> i32 {
 //     // Pour un saut relatif, l'offset est calculé à partir de l'adresse
