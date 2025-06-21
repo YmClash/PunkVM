@@ -20,6 +20,7 @@ pub struct VMConfig {
     pub memory_size: usize,            // Taille de la mémoire
     pub num_registers: usize,          // Nombre de registres
     pub l1_cache_size: usize,          // Taille du cache L1
+    pub l2_cache_size: usize,          // Taille du cache L2
     pub store_buffer_size: usize,      // Taille du buffer de stockage
     pub stack_size: usize,             // Taille de la pile
     pub stack_base: u32,               // Base de la pile
@@ -38,7 +39,8 @@ impl Default for VMConfig {
         Self {
             memory_size: 1024 * 1024, // 1MB
             num_registers: 19, // 16 general + SP(16) + BP(17) + RA(18)
-            l1_cache_size: 4 * 1024, // 4KB
+            l1_cache_size: 64 * 1024, // 64KB
+            l2_cache_size: 256 * 1024, // 256KB
             store_buffer_size: 8,
             stack_size: 64 * 1024, // 64KB
             stack_base: 0xFF000000,
@@ -76,8 +78,17 @@ pub struct VMStats {
     pub store_load_forwards: u64,    // Nombre de Store-Load forwards effectués
     pub store_load_attempts: u64,    // Nombre de tentatives de Store-Load forwarding
     
-    pub memory_hits: u64,            // Nombre de hits dans le cache mémoire
-    pub memory_misses: u64,          // Nombre de misses dans le cache mémoire
+    // Statistiques hiérarchie de cache
+    pub l1_data_hits: u64,          // Nombre de hits dans le cache L1 data
+    pub l1_data_misses: u64,        // Nombre de misses dans le cache L1 data
+    pub l1_inst_hits: u64,          // Nombre de hits dans le cache L1 instruction
+    pub l1_inst_misses: u64,        // Nombre de misses dans le cache L1 instruction
+    pub l2_hits: u64,               // Nombre de hits dans le cache L2
+    pub l2_misses: u64,             // Nombre de misses dans le cache L2
+    pub l2_writebacks: u64,         // Nombre de write-backs L2
+    pub l2_prefetch_hits: u64,      // Nombre de hits de prefetch
+    pub memory_accesses: u64,       // Nombre d'accès à la mémoire principale
+    pub average_memory_latency: f64, // Latence moyenne mémoire
     pub branch_flush: u64,           // Nombre de flushes de branchements
     pub branch_predictor: u64,       // Nombre de prédictions de branchements
     pub branch_prediction_rate: f64, // Taux de prédiction de branchements
@@ -129,6 +140,7 @@ impl PunkVM {
         let memory_config = MemoryConfig {
             size: config.memory_size,
             l1_cache_size: config.l1_cache_size,
+            l2_cache_size: config.l2_cache_size,
             store_buffer_size: config.store_buffer_size,
         };
 
@@ -354,8 +366,16 @@ impl PunkVM {
             store_load_forwards: self.pipeline.stats().store_load_forwards,
             store_load_attempts: self.pipeline.stats().store_load_attempts,
             
-            memory_hits: self.memory.stats().hits,
-            memory_misses: self.memory.stats().misses,
+            l1_data_hits: self.memory.stats().l1_hits,
+            l1_data_misses: self.memory.stats().l1_misses,
+            l1_inst_hits: 0, // Pour l'instant, on track seulement data
+            l1_inst_misses: 0,
+            l2_hits: self.memory.stats().l2_hits,
+            l2_misses: self.memory.stats().l2_misses,
+            l2_writebacks: 0, // À implémenter plus tard
+            l2_prefetch_hits: 0, // À implémenter plus tard
+            memory_accesses: self.memory.stats().l1_misses + self.memory.stats().l2_misses,
+            average_memory_latency: 0.0, // À calculer plus tard
             branch_flush: self.pipeline.stats().branch_flush,
             branch_predictor: self.pipeline.stats().branch_predictions,
             branch_prediction_rate: self.pipeline.stats().branch_predictor_rate,
