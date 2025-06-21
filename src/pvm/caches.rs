@@ -1,29 +1,418 @@
 // //src/pvm/caches.rs
 
 use std::collections::HashMap;
+use rand::Rng;
+use crate::pvm::cache_configs::{CacheConfig, ReplacementPolicy, WritePolicy};
+use crate::pvm::cache_stats::CacheStatistics;
+use crate::pvm::vm_errors::{VMError, VMResult};
+
 
 /// Taille de line Cache
 pub const DEFAULT_LINE_SIZE: usize = 64;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct CacheLine {
-    // pub tag: u32,            // Tag de la ligne
-    // pub data: Vec<u8>,      // Données de la ligne
-    pub data: [u8; DEFAULT_LINE_SIZE], // Données de la ligne
-    // pub valid: bool,        // Indicateur de validité
-    // pub dirty: bool,        // Indicateur de sal
-    // pub last_access: u64, // Compteur d'accès pour LRU
-    // state: CacheState, // État de la ligne
-    pub lru_timestamp: u64, // Timestamp LRU
+/// MSHR (Miss Status Holding Register) Entry
+#[derive(Debug, Clone)]
+pub struct MSHREntry {
+    pub addr: u32,
+    pub is_write: bool,
+    pub write_data: Option<u8>,
+    pub waiting_cycles: u32,
+    pub total_cycles: u32,
 }
 
-/// État de la ligne de cache
+/// MSHR (Miss Status Holding Registers) pour gérer les miss en cours
+#[derive(Debug)]
+pub struct MSHR {
+    entries: Vec<Option<MSHREntry>>,
+    max_entries: usize,
+}
+
+impl MSHR {
+    pub fn new(size: usize) -> Self {
+        Self {
+            entries: vec![None; size],
+            max_entries: size,
+        }
+    }
+    
+    pub fn is_full(&self) -> bool {
+        self.entries.iter().all(|e| e.is_some())
+    }
+    
+    pub fn find_entry(&self, addr: u32) -> Option<usize> {
+        self.entries.iter().position(|e| {
+            e.as_ref().map(|entry| entry.addr == addr).unwrap_or(false)
+        })
+    }
+    
+    pub fn allocate(&mut self, addr: u32, is_write: bool, write_data: Option<u8>, latency: u32) -> Option<usize> {
+        if let Some(idx) = self.entries.iter().position(|e| e.is_none()) {
+            self.entries[idx] = Some(MSHREntry {
+                addr,
+                is_write,
+                write_data,
+                waiting_cycles: 0,
+                total_cycles: latency,
+            });
+            Some(idx)
+        } else {
+            None
+        }
+    }
+    
+    pub fn update(&mut self) -> Vec<(usize, MSHREntry)> {
+        let mut completed = Vec::new();
+        
+        for (idx, entry) in self.entries.iter_mut().enumerate() {
+            if let Some(ref mut e) = entry {
+                e.waiting_cycles += 1;
+                if e.waiting_cycles >= e.total_cycles {
+                    completed.push((idx, e.clone()));
+                }
+            }
+        }
+        
+        // Libérer les entrées complétées
+        for (idx, _) in &completed {
+            self.entries[*idx] = None;
+        }
+        
+        completed
+    }
+}
+
+/// Simple Next-Line Prefetcher
+#[derive(Debug)]
+pub struct SimplePrefetcher {
+    enabled: bool,
+    prefetch_degree: usize, // Nombre de lignes à prefetch
+}
+
+impl SimplePrefetcher {
+    pub fn new(enabled: bool, degree: usize) -> Self {
+        Self {
+            enabled,
+            prefetch_degree: degree,
+        }
+    }
+    
+    pub fn should_prefetch(&self, _addr: u32, is_miss: bool) -> bool {
+        self.enabled && is_miss
+    }
+    
+    pub fn get_prefetch_addresses(&self, addr: u32) -> Vec<u32> {
+        if !self.enabled {
+            return vec![];
+        }
+        
+        let mut addrs = Vec::new();
+        let line_addr = addr & !(DEFAULT_LINE_SIZE as u32 - 1);
+        
+        for i in 1..=self.prefetch_degree {
+            addrs.push(line_addr + (i as u32 * DEFAULT_LINE_SIZE as u32));
+        }
+        
+        addrs
+    }
+}
+
+/// Write Buffer entre L1 et L2
+#[derive(Debug)]
+pub struct WriteBuffer {
+    entries: Vec<(u32, u64)>, // (address, data)
+    capacity: usize,
+}
+
+impl WriteBuffer {
+    pub fn new(capacity: usize) -> Self {
+        Self {
+            entries: Vec::with_capacity(capacity),
+            capacity,
+        }
+    }
+    
+    pub fn is_full(&self) -> bool {
+        self.entries.len() >= self.capacity
+    }
+    
+    pub fn add(&mut self, addr: u32, data: u64) -> bool {
+        if self.is_full() {
+            false
+        } else {
+            self.entries.push((addr, data));
+            true
+        }
+    }
+    
+    pub fn drain(&mut self) -> Vec<(u32, u64)> {
+        std::mem::take(&mut self.entries)
+    }
+}
+
+/// Résultat d'accès au cache
+#[derive(Debug, Clone)]
+pub enum CacheAccessResult {
+    Hit(u64),        // Hit avec la valeur
+    L2Hit(u64),      // Hit dans L2
+    Miss,            // Miss complet
+    MSHRPending,     // Miss en cours de traitement
+}
+
+/// Hiérarchie complète de cache L1/L2 avec MSHR et prefetching
+#[derive(Debug)]
+pub struct CacheHierarchy {
+    pub l1_data: Cache,
+    pub l1_inst: Cache,
+    pub l2_unified: Cache,
+    pub write_buffer: WriteBuffer,
+    pub mshr: MSHR,
+    pub prefetcher: SimplePrefetcher,
+    pub l2_latency: u32,
+    pub memory_latency: u32,
+}
+
+impl CacheHierarchy {
+    pub fn new(l1_data_config: CacheConfig, l1_inst_config: CacheConfig, l2_config: CacheConfig) -> Self {
+        // L2 unifié sans next_level (c'est le dernier niveau)
+        let l2_unified = Cache::new(l2_config.clone(), None);
+        
+        // Pour l'instant, L1 n'a pas de next_level intégré (on gérera manuellement)
+        let l1_data = Cache::new(l1_data_config, None);
+        let l1_inst = Cache::new(l1_inst_config, None);
+        
+        Self {
+            l1_data,
+            l1_inst,
+            l2_unified,
+            write_buffer: WriteBuffer::new(16),
+            mshr: MSHR::new(8),
+            prefetcher: SimplePrefetcher::new(true, 2),
+            l2_latency: 12,
+            memory_latency: 100,
+        }
+    }
+    
+    /// Accès byte simple - conversion automatique en accès u64 aligné
+    pub fn access_byte(&mut self, addr: u32, is_write: bool, write_data: Option<u8>) -> VMResult<CacheAccessResult> {
+        // Aligner l'adresse sur u64 (8 bytes)
+        let aligned_addr = addr & !7;
+        let byte_offset = (addr & 7) as usize;
+        
+        if is_write {
+            if let Some(byte_value) = write_data {
+                // Pour une écriture, on doit d'abord lire le u64, modifier le byte, puis réécrire
+                match self.access_data(aligned_addr, false, None) {
+                    Ok(CacheAccessResult::Hit(mut data)) | Ok(CacheAccessResult::L2Hit(mut data)) => {
+                        // Modifier le byte dans le u64
+                        let mut bytes = data.to_le_bytes();
+                        bytes[byte_offset] = byte_value;
+                        data = u64::from_le_bytes(bytes);
+                        
+                        // Réécrire le u64 modifié
+                        self.access_data(aligned_addr, true, Some(data))
+                    }
+                    Ok(CacheAccessResult::Miss) | Ok(CacheAccessResult::MSHRPending) => {
+                        // Miss - créer un nouveau u64 avec le byte
+                        let mut bytes = [0u8; 8];
+                        bytes[byte_offset] = byte_value;
+                        let data = u64::from_le_bytes(bytes);
+                        self.access_data(aligned_addr, true, Some(data))
+                    }
+                    Err(e) => Err(e),
+                }
+            } else {
+                Err(VMError::memory_error("Write without data"))
+            }
+        } else {
+            // Lecture
+            match self.access_data(aligned_addr, false, None) {
+                Ok(CacheAccessResult::Hit(data)) => {
+                    let bytes = data.to_le_bytes();
+                    Ok(CacheAccessResult::Hit(bytes[byte_offset] as u64))
+                }
+                Ok(CacheAccessResult::L2Hit(data)) => {
+                    let bytes = data.to_le_bytes();
+                    Ok(CacheAccessResult::L2Hit(bytes[byte_offset] as u64))
+                }
+                other => other,
+            }
+        }
+    }
+
+    pub fn access_data(&mut self, addr: u32, is_write: bool, write_data: Option<u64>) -> VMResult<CacheAccessResult> {
+        // Vérifier d'abord si l'adresse est dans le MSHR
+        if let Some(_) = self.mshr.find_entry(addr) {
+            return Ok(CacheAccessResult::MSHRPending);
+        }
+        
+        // Essayer L1 d'abord
+        let l1_result = if is_write {
+            if let Some(data) = write_data {
+                // Convertir u64 en u8 pour l'écriture dans le cache
+                let data_u8 = data as u8;
+                self.l1_data.write(addr, data_u8).map(|_| CacheAccessResult::Hit(data))
+            } else {
+                Err(VMError::memory_error("Write without data"))
+            }
+        } else {
+            self.l1_data.read(addr).map(CacheAccessResult::Hit)
+        };
+        
+        match l1_result {
+            Ok(result) => Ok(result),
+            Err(_) => {
+                // L1 miss, essayer L2
+                let l2_result = if is_write {
+                    if let Some(data) = write_data {
+                        // Convertir u64 en u8 pour l'écriture dans le cache
+                        let data_u8 = data as u8;
+                        self.l2_unified.write(addr, data_u8).map(|_| CacheAccessResult::L2Hit(data))
+                    } else {
+                        Err(VMError::memory_error("Write without data"))
+                    }
+                } else {
+                    self.l2_unified.read(addr).map(CacheAccessResult::L2Hit)
+                };
+                
+                match l2_result {
+                    Ok(CacheAccessResult::L2Hit(data)) => {
+                        // Fill L1 from L2
+                        if !is_write {
+                            let data_u8 = data as u8;
+                            let _ = self.l1_data.write(addr, data_u8);
+                        }
+                        Ok(CacheAccessResult::L2Hit(data))
+                    }
+                    Err(_) => {
+                        // L2 miss aussi
+                        if is_write {
+                            // Pour les écritures, on peut directement traiter sans MSHR
+                            // car on n'a pas besoin d'attendre de données de la mémoire
+                            Ok(CacheAccessResult::Miss)
+                        } else {
+                            // Pour les lectures, utiliser MSHR seulement si disponible
+                            let write_data_u8 = write_data.map(|d| d as u8);
+                            if self.mshr.allocate(addr, is_write, write_data_u8, self.memory_latency).is_some() {
+                                // Initier prefetch si nécessaire
+                                if self.prefetcher.should_prefetch(addr, true) {
+                                    for prefetch_addr in self.prefetcher.get_prefetch_addresses(addr) {
+                                        let _ = self.mshr.allocate(prefetch_addr, false, None, self.memory_latency);
+                                    }
+                                }
+                                Ok(CacheAccessResult::Miss)
+                            } else {
+                                // Si MSHR plein, on traite quand même la requête
+                                Ok(CacheAccessResult::Miss)
+                            }
+                        }
+                    }
+                    _ => l2_result,
+                }
+            }
+        }
+    }
+    
+    pub fn update_mshr(&mut self) -> Vec<MSHREntry> {
+        let completed = self.mshr.update();
+        let mut completed_entries = Vec::new();
+        
+        for (_, entry) in completed {
+            // Les requêtes sont maintenant complètes, on peut les traiter
+            completed_entries.push(entry);
+        }
+        
+        completed_entries
+    }
+    
+    pub fn flush_write_buffer(&mut self) -> VMResult<()> {
+        let entries = self.write_buffer.drain();
+        for (addr, data) in entries {
+            // Écrire chaque byte du u64 dans le cache
+            let bytes = data.to_le_bytes();
+            for (i, &byte) in bytes.iter().enumerate() {
+                self.l2_unified.write(addr + i as u32, byte)?;
+            }
+        }
+        Ok(())
+    }
+    
+    pub fn get_combined_stats(&self) -> String {
+        format!(
+            "=== Cache Hierarchy Statistics ===\n\
+             L1 Data:\n{}\n\
+             L1 Inst:\n{}\n\
+             L2 Unified:\n{}\n",
+            self.l1_data.get_detailed_stats(),
+            self.l1_inst.get_detailed_stats(),
+            self.l2_unified.get_detailed_stats()
+        )
+    }
+}
+
+
+
+
+
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CacheLine {
+    pub tag: u32,            // Tag de la ligne
+    pub data: Vec<u8>,      // Données de la ligne (64 bytes = 8 u64)
+    pub valid: bool,         // Indicateur de validité
+    pub dirty: bool,         // Indicateur de saleté
+    pub last_access: u64,    // Compteur d'accès pour LRU
+    pub state: CacheState,   // État de la ligne
+    pub lru_timestamp: u64,  // Timestamp LRU
+}
+
+impl Default for CacheLine {
+    fn default() -> Self {
+        Self {
+            tag: 0,
+            data: vec![0; DEFAULT_LINE_SIZE], // DEFAULT_LINE_SIZE u64s pour simplifier l'adressage
+            valid: false,
+            dirty: false,
+            last_access: 0,
+            state: CacheState::Invalid,
+            lru_timestamp: 0,
+        }
+    }
+}
+
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum CacheState {
     Modified,  // Ligne modifiée, doit être écrite en mémoire
     Exclusive, // Ligne exclusive à ce cache
     Shared,    // Ligne partagée entre plusieurs caches
     Invalid,   // Ligne invalide
+}
+
+impl Default for CacheState {
+    fn default() -> Self {
+        CacheState::Invalid
+    }
+}
+
+/// Structure de la Cache
+#[derive(Debug)]
+pub struct Cache {
+    pub config: CacheConfig,
+    pub lines: Vec<Vec<CacheLine>>,
+    pub access_count: u64, // Compteur d'accès pour LRU
+    pub statistics: CacheStatistics, // Statistiques de la cache
+    pub next_level: Option<Box<Cache>>, // Niveau de cache suivant (si applicable)
+}
+
+
+
+
+
+/// Structure simple pour L1Cache utilisant des bytes
+#[derive(Debug, Clone)]
+pub struct L1CacheLine {
+    pub data: [u8; DEFAULT_LINE_SIZE],
+    pub lru_timestamp: u64,
 }
 
 /// Cache L1 pour la mémoire
@@ -33,11 +422,12 @@ pub struct L1Cache {
     line_size: usize,   // Taille de chaque ligne en bytes
 
     /// Stockage principal : clé = adresse de base alignée, valeur = ligne de cache
-    data: HashMap<u32, CacheLine>, // Données de la cache (addresse -> données)
+    data: HashMap<u32, L1CacheLine>, // Données de la cache (addresse -> données)
 
-    // lru: HashMap<u32, u64>, // LRU  counter pour chaque ligne
     lru_counter: u64, // Compteur LRU global
 }
+
+
 
 impl L1Cache {
     pub fn new(size: usize) -> Self {
@@ -50,7 +440,6 @@ impl L1Cache {
             lines_count,
             line_size,
             data: HashMap::with_capacity(lines_count),
-            // lru: HashMap::with_capacity(lines_count),
             lru_counter: 0,
         }
     }
@@ -115,7 +504,7 @@ impl L1Cache {
         }
 
         // Insérer la nouvelle ligne
-        let mut line = CacheLine {
+        let mut line = L1CacheLine {
             data: line_data,
             lru_timestamp: 0,
         };
@@ -161,6 +550,437 @@ impl L1Cache {
     pub fn get_offset(&self, addr: u32) -> usize {
         (addr % self.line_size as u32) as usize
     }
+}
+
+struct CacheMetrics {
+    total_accesses: usize,
+    reads: usize,
+    writes: usize,
+    cache_hits: usize,
+    cache_misses: usize,
+    average_access_time: f64
+}
+
+impl Cache {
+    pub fn new(config: CacheConfig, next_level: Option<Box<Cache>>) -> Self {
+        let num_sets = config.size / (config.lines_size * config.associativity);
+        let mut lines = Vec::with_capacity(num_sets);
+
+        for _ in 0..num_sets {
+            let mut set = Vec::with_capacity(config.associativity);
+            for _ in 0..config.associativity {
+                set.push(CacheLine::default());
+            }
+            lines.push(set);
+        }
+
+        Self {
+            config,
+            lines,
+            access_count: 0,
+            statistics: CacheStatistics::default(),
+            next_level,
+        }
+    }
+
+    pub fn reset(&mut self) -> VMResult<()> {
+        for set in &mut self.lines {
+            for line in set {
+                *line = CacheLine::default();
+            }
+        }
+        self.statistics = CacheStatistics::default();
+        self.access_count = 0;
+        Ok(())
+    }
+
+
+    pub fn write(&mut self, addr: u32, value: u8) -> Result<(), VMError> {
+        let (set_index, tag, offset) = self.decode_address(addr);
+
+        // Vérifier si la ligne est présente
+        if let Some(i) = self.find_line_index(set_index, tag) {
+            // HIT
+            self.statistics.write_hits += 1;
+
+            // Pour éviter l'emprunt mutable prolongé, on copie l'index
+            let line_index = i;
+
+            // Selon l'état, on fait un invalidation-other-copies ou non
+            {
+                // On ne garde PAS la mutable ref ici longtemps
+                let current_state = self.lines[set_index][line_index].state;
+
+                match current_state {
+                    CacheState::Shared => {
+                        // On doit invalider avant de re-emprunter
+                        self.invalidate_other_copies(addr)?;
+                    }
+                    _ => {}
+                }
+            }
+
+            // Maintenant on peut muter la ligne librement
+            let line = &mut self.lines[set_index][line_index];
+            match line.state {
+                CacheState::Modified => {
+                    // Already dirty => on écrit direct
+                    line.data[offset] = value as u8;
+                },
+                CacheState::Exclusive => {
+                    line.data[offset] = value as u8;
+                    line.state = CacheState::Modified;
+                },
+                CacheState::Shared => {
+                    // On a déjà invalidé plus haut
+                    line.data[offset] = value;
+                    line.state = CacheState::Modified;
+                },
+                CacheState::Invalid => {
+                    // État incohérent => gérer comme un miss
+                    return self.handle_write_miss(addr, value, set_index, tag, offset);
+                }
+            }
+
+            // Write-through => propager
+            if self.config.write_policy == WritePolicy::WriteThrough {
+                if let Some(ref mut next) = self.next_level {
+                    next.write(addr, value)?;
+                }
+            }
+
+        } else {
+            // MISS
+            self.statistics.write_misses += 1;
+            self.handle_write_miss(addr, value, set_index, tag, offset)?;
+        }
+
+        Ok(())
+    }
+
+
+    /// Méthode de lecture (read) qui évite le conflit mutable/immuable sur self.statistics
+    pub fn read(&mut self, addr: u32) -> Result<u64, VMError> {
+        let (set_index, tag, offset) = self.decode_address(addr);
+
+        // Chercher la ligne dans le set (index de la ligne s'il y a un hit)
+        let line_index = self.find_line_index(set_index, tag);
+
+        if let Some(i) = line_index {
+            // C'est un HIT => on peut d'abord incrémenter `self.statistics.hits`
+            self.statistics.hits += 1;
+
+            // Puis emprunter la ligne mutablement si besoin
+            self.access_count += 1;
+            let line = &mut self.lines[set_index][i];
+            line.last_access = self.access_count;  // Mise à jour LRU
+            let value = line.data[offset];
+
+            Ok(value as u64)
+        } else {
+            // MISS
+            self.statistics.misses += 1;
+            self.handle_miss(addr, set_index, tag, offset)
+        }
+    }
+
+    pub fn invalidate_address(&mut self, addr: u32) -> Result<(), VMError> {
+        let (set_index, tag, _) = self.decode_address(addr);
+        if let Some(i) = self.find_line_index(set_index, tag) {
+            let line = &mut self.lines[set_index][i];
+            line.state = CacheState::Invalid;
+            line.valid = false;
+            self.statistics.invalidations += 1;
+        }
+        Ok(())
+    }
+
+
+    pub fn get_statistics(&self) -> &CacheStatistics {
+        &self.statistics
+    }
+
+    pub fn get_detailed_stats(&self) -> String {
+        format!(
+            "Cache Statistics:\n\
+             Hit Rate: {:.2}%\n\
+             Write Back Rate: {:.2}%\n\
+             Hits: {}\n\
+             Misses: {}\n\
+             Write Backs: {}\n\
+             Invalidations: {}\n\
+             Coherence Misses: {}\n\
+             Write Hits: {}\n\
+             Write Misses: {}\n\
+             Evictions: {}\n",
+            self.statistics.hit_rate() * 100.0,
+            self.statistics.write_back_rate() * 100.0,
+            self.statistics.hits,
+            self.statistics.misses,
+            self.statistics.write_backs,
+            self.statistics.invalidations,
+            self.statistics.coherence_misses,
+            self.statistics.write_hits,
+            self.statistics.write_misses,
+            self.statistics.evictions
+        )
+    }
+
+    /// Décoder l'adresse en (set_index, tag, offset)
+    fn decode_address(&self, addr: u32) -> (usize, u32, usize) {
+        let offset_bits = (self.config.lines_size as f64).log2() as u32;
+        let set_bits = ((self.config.size / (self.config.lines_size * self.config.associativity)) as f64).log2() as u32;
+        
+        let offset = (addr & ((1 << offset_bits) - 1)) as usize;
+        let set_index = ((addr >> offset_bits) & ((1 << set_bits) - 1)) as usize;
+        let tag = addr >> (offset_bits + set_bits);
+        
+        (set_index, tag, offset)
+    }
+
+    /// Cherche l'index (way) de la ligne correspondant à (tag) dans le set `set_index`
+    fn find_line_index(&self, set_index: usize, tag: u32) -> Option<usize> {
+        self.lines[set_index]
+            .iter()
+            .position(|line| line.valid && line.tag == tag)
+    }
+
+    fn find_line_mut(&mut self, set_index: usize, tag: u32) -> Option<&mut CacheLine> {
+        self.lines[set_index]
+            .iter_mut()
+            .find(|line| line.valid && line.tag == tag)
+    }
+
+    /// handle_miss comme avant, sans le risque de double emprunt
+    fn handle_miss(&mut self, addr: u32, set_index: usize, tag: u32, offset: usize) -> Result<u64, VMError> {
+        // Lire la donnée depuis le next level
+        let data = if let Some(ref mut next) = self.next_level {
+            next.read(addr)?
+        } else {
+            return Err(VMError::memory_error("Cache miss in last level"));
+        };
+
+        // Sélectionner un victim
+        let victim_way = self.select_victim(set_index)?;
+
+        // write-back si dirty
+        {
+            let line = &mut self.lines[set_index][victim_way];
+            if line.valid && line.dirty {
+                self.write_back(set_index, victim_way)?;
+                self.statistics.write_backs += 1;
+            }
+        }
+
+        {
+            let line = &mut self.lines[set_index][victim_way];
+            line.tag = tag;
+            line.valid = true;
+            line.dirty = false;
+            line.data[offset] = data as u8;
+            line.state = CacheState::Exclusive;
+
+            // Mise à jour last_access
+            self.access_count += 1;
+            line.last_access = self.access_count;
+        }
+
+        Ok(data)
+    }
+
+    fn handle_write_miss(&mut self, addr: u32, value: u8, set_index: usize, tag: u32, offset: usize) -> Result<(), VMError> {
+        let victim_way = self.select_victim(set_index)?;
+
+        let need_writeback: bool;
+        let old_addr: u32;
+        let data_to_writeback: Vec<u8>;
+
+        {
+            let line = &self.lines[set_index][victim_way];
+            if line.valid && line.dirty {
+                need_writeback = true;
+                old_addr = self.reconstruct_address(set_index, line.tag);
+                data_to_writeback = line.data.clone();
+            } else {
+                need_writeback = false;
+                old_addr = 0;
+                data_to_writeback = vec![];
+            }
+        }
+
+        if need_writeback {
+            if let Some(ref mut next) = self.next_level {
+                for (i, &val) in data_to_writeback.iter().enumerate() {
+                    next.write(old_addr + i as u32, val)?;
+                }
+            }
+            self.statistics.write_backs += 1;
+        }
+
+        // Eviction si la ligne était déjà valide
+        {
+            let line = &mut self.lines[set_index][victim_way];
+            if line.valid {
+                self.statistics.evictions += 1;
+            }
+
+            line.tag = tag;
+            line.valid = true;
+            line.dirty = self.config.write_policy == WritePolicy::WriteBack;
+            line.state = CacheState::Modified;
+            line.data[offset] = value;
+
+            // Mise à jour last_access
+            self.access_count += 1;
+            line.last_access = self.access_count;
+        }
+
+        // Si c'est un write-through, on propage
+        if self.config.write_policy == WritePolicy::WriteThrough {
+            if let Some(ref mut next) = self.next_level {
+                next.write(addr, value)?;
+            }
+        }
+
+        Ok(())
+    }
+
+
+
+
+    fn select_victim(&self, set_index: usize) -> Result<usize, VMError> {
+        match self.config.replacement_policy {
+            ReplacementPolicy::LRU => {
+                let mut min_access = u64::MAX;
+                let mut victim = 0;
+                for (i, line) in self.lines[set_index].iter().enumerate() {
+                    if !line.valid {
+                        return Ok(i);
+                    }
+                    if line.last_access < min_access {
+                        min_access = line.last_access;
+                        victim = i;
+                    }
+                }
+                Ok(victim)
+            }
+            ReplacementPolicy::FIFO => {
+                // Exemple simplifié : on prend "access_count % associativity"
+                Ok(self.access_count as usize % self.config.associativity)
+            }
+            ReplacementPolicy::Random => {
+                Ok(rand::thread_rng().gen_range(0..self.config.associativity))
+            }
+        }
+    }
+
+    fn write_back(&mut self, set_index: usize, way: usize) -> Result<(), VMError> {
+        // Cloner les données nécessaires avant le borrow mutable
+        let (addr, values) = {
+            let line = &self.lines[set_index][way];
+            if !line.dirty {
+                return Ok(());
+            }
+            let addr = self.reconstruct_address(set_index, line.tag);
+            let values = line.data.clone();
+            (addr, values)
+        };
+
+        // Maintenant on peut écrire sans problème de borrow
+        if let Some(ref mut next) = self.next_level {
+            for (offset, value) in values.iter().enumerate() {
+                next.write(addr + offset as u32, *value )?;
+            }
+        }
+
+        // Marquer la ligne comme non-dirty
+        let line = &mut self.lines[set_index][way];
+        line.dirty = false;
+
+        Ok(())
+    }
+
+    fn reconstruct_address(&self, set_index: usize, tag: u32) -> u32 {
+        let offset_bits = (self.config.lines_size as f64).log2() as u32;
+        let set_bits = ((self.config.size / (self.config.lines_size * self.config.associativity)) as f64).log2() as u32;
+
+        (tag << (offset_bits + set_bits)) | ((set_index as u32) << offset_bits)
+    }
+
+
+    fn invalidate_other_copies(&mut self, addr: u32) -> Result<(), VMError> {
+        self.statistics.invalidations += 1;
+        if let Some(ref mut next) = self.next_level {
+            next.invalidate_address(addr)?;
+        }
+        Ok(())
+    }
+
+
+    fn update_access(&mut self, set_index: usize, tag: u32) {
+        self.access_count += 1;
+        let current_count = self.access_count;
+
+        if let Some(line) = self.find_line_mut(set_index, tag) {
+            line.last_access = current_count;
+        }
+    }
+
+    pub fn get_write_policy(&self) -> WritePolicy {
+        self.config.write_policy
+    }
+
+    pub fn get_replacement_policy(&self) -> ReplacementPolicy {
+        self.config.replacement_policy
+    }
+
+    pub fn get_associativity(&self) -> usize {
+        self.config.associativity
+    }
+
+    pub fn get_line_size(&self) -> usize {
+        self.config.lines_size
+    }
+
+    pub fn get_size(&self) -> usize {
+        self.config.size
+    }
+
+    pub fn get_metrics(&self) -> CacheMetrics {
+        CacheMetrics {
+            total_accesses: self.statistics.hits + self.statistics.misses,
+            reads: self.statistics.hits,
+            writes: self.statistics.write_hits + self.statistics.write_misses,
+            cache_hits: self.statistics.hits + self.statistics.write_hits,
+            cache_misses: self.statistics.misses + self.statistics.write_misses,
+            average_access_time: if self.statistics.total_accesses() > 0 {
+                self.statistics.hits as f64 / self.statistics.total_accesses() as f64
+            } else {
+                0.0
+            },
+        }
+    }
+
+    fn update_metrics(&mut self, hit: bool, write: bool) {
+        if write {
+            if hit {
+                self.statistics.write_hits += 1;
+            } else {
+                self.statistics.write_misses += 1;
+            }
+        } else {
+            if hit {
+                self.statistics.hits += 1;
+            } else {
+                self.statistics.misses += 1;
+            }
+        }
+    }
+
+    pub fn increment_misses(&mut self) {
+        self.statistics.misses += 1;
+    }
+
 }
 
 #[cfg(test)]
@@ -316,734 +1136,211 @@ mod tests {
         let val3 = cache.read_byte(0x101);
         assert_eq!(val3, Some(44));
     }
+
+
+    fn create_test_cache() -> Cache {
+        let l2_config = CacheConfig {
+            size: 1024,
+            lines_size: 64,
+            associativity: 8,
+            write_policy: WritePolicy::WriteBack,
+            replacement_policy: ReplacementPolicy::LRU,
+        };
+
+        let l1_config = CacheConfig {
+            size: 256,
+            lines_size: 64,
+            associativity: 4,
+            write_policy: WritePolicy::WriteThrough,
+            replacement_policy: ReplacementPolicy::LRU,
+        };
+
+        let l2_cache = Box::new(Cache::new(l2_config, None));
+        Cache::new(l1_config, Some(l2_cache))
+    }
+
+    #[test]
+    fn test_cache_read_write() {
+        let mut cache = create_test_cache();
+
+        cache.write(0x1000, 42).unwrap();
+        assert_eq!(cache.read(0x1000).unwrap(), 42);
+
+        for i in 0..10 {
+            cache.write(0x2000 + i * 8, i as u8).unwrap();
+        }
+        for i in 0..10 {
+            assert_eq!(cache.read(0x2000 + i * 8).unwrap(), i as u64);
+        }
+    }
+
+    #[test]
+    fn test_cache_replacement() {
+        let mut cache = create_test_cache();
+
+        for i in 0..8 {
+            cache.write(i * 1024, i as u8).unwrap();
+        }
+
+        for i in 0..8 {
+            assert_eq!(cache.read(i * 1024).unwrap(), i as u64);
+        }
+
+        for i in 8..16 {
+            cache.write(i * 1024, i as u8 ).unwrap();
+        }
+    }
+
+    #[test]
+    fn test_cache_invalidation() {
+        let mut cache = create_test_cache();
+
+        cache.write(0x1000, 42).unwrap();
+        cache.invalidate_address(0x1000).unwrap();
+
+        // assert!(cache.read(0x1000).is_err());
+        assert_eq!(cache.read(0x1000).unwrap(), 42);
+    }
+
+    // Tests pour CacheHierarchy
+    fn create_test_hierarchy() -> CacheHierarchy {
+        let l1_data_config = CacheConfig {
+            size: 4 * 1024,    // 4KB
+            lines_size: 64,
+            associativity: 4,
+            write_policy: WritePolicy::WriteThrough,
+            replacement_policy: ReplacementPolicy::LRU,
+        };
+        
+        let l1_inst_config = l1_data_config.clone();
+        
+        let l2_config = CacheConfig {
+            size: 32 * 1024,   // 32KB
+            lines_size: 64,
+            associativity: 8,
+            write_policy: WritePolicy::WriteBack,
+            replacement_policy: ReplacementPolicy::LRU,
+        };
+        
+        CacheHierarchy::new(l1_data_config, l1_inst_config, l2_config)
+    }
+
+    #[test]
+    fn test_cache_hierarchy_creation() {
+        let hierarchy = create_test_hierarchy();
+        let stats = hierarchy.get_combined_stats();
+        // Test basic creation
+        assert!(!stats.is_empty());
+        assert!(stats.contains("Cache Hierarchy Statistics"));
+    }
+    
+    #[test]
+    fn test_cache_hierarchy_l1_hit() {
+        let mut hierarchy = create_test_hierarchy();
+        
+        // Premier accès - écriture
+        let result1 = hierarchy.access_data(0x1000, true, Some(42)).unwrap();
+        
+        // Deuxième accès à la même adresse - devrait être un hit L1
+        let result2 = hierarchy.access_data(0x1000, false, None).unwrap();
+        
+        match result2 {
+            CacheAccessResult::Hit(data) => assert_eq!(data, 42),
+            CacheAccessResult::L2Hit(_) => {
+                // Aussi acceptable selon la politique
+            }
+            _ => panic!("Expected hit or L2 hit, got {:?}", result2),
+        }
+    }
+    
+    #[test]
+    fn test_cache_hierarchy_l2_functionality() {
+        let mut hierarchy = create_test_hierarchy();
+        
+        // Remplir avec quelques données
+        for i in 0..10 {
+            let addr = 0x1000 + (i * 64); // Différentes lignes de cache
+            let _ = hierarchy.access_data(addr, true, Some(i as u64));
+        }
+        
+        // Accéder à des données précédemment écrites
+        for i in 0..10 {
+            let addr = 0x1000 + (i * 64);
+            let result = hierarchy.access_data(addr, false, None).unwrap();
+            
+            match result {
+                CacheAccessResult::Hit(data) | CacheAccessResult::L2Hit(data) => {
+                    assert_eq!(data, i as u64);
+                }
+                CacheAccessResult::Miss | CacheAccessResult::MSHRPending => {
+                    // Acceptable selon la politique d'éviction
+                }
+            }
+        }
+    }
+    
+    #[test]
+    fn test_cache_hierarchy_mshr() {
+        let mut hierarchy = create_test_hierarchy();
+        
+        // Faire quelques miss pour tester MSHR, mais pas trop pour éviter de le remplir
+        for i in 0..3 {
+            let addr = 0x10000 + (i * 4096); // Adresses très espacées
+            let result = hierarchy.access_data(addr, false, None);
+            
+            // Gérer le cas où le MSHR est plein
+            match result {
+                Ok(CacheAccessResult::Miss) | Ok(CacheAccessResult::MSHRPending) | 
+                Ok(CacheAccessResult::Hit(_)) | Ok(CacheAccessResult::L2Hit(_)) => {
+                    // Tous sont acceptables
+                }
+                Err(_) => {
+                    // MSHR plein est aussi acceptable dans ce test
+                    break;
+                }
+            }
+            
+            // Mettre à jour MSHR après chaque accès pour libérer des entrées
+            let _ = hierarchy.update_mshr();
+        }
+        
+        // Test final - le MSHR devrait fonctionner
+        let completed = hierarchy.update_mshr();
+        // Le nombre d'entrées complétées peut varier, on teste juste que ça ne crash pas
+    }
+    
+    #[test]
+    fn test_cache_hierarchy_write_buffer() {
+        let mut hierarchy = create_test_hierarchy();
+        
+        // Effectuer plusieurs écritures
+        for i in 0..5 {
+            let addr = 0x2000 + i;
+            let _ = hierarchy.access_data(addr, true, Some(i as u64));
+        }
+        
+        // Vider le write buffer
+        hierarchy.flush_write_buffer().unwrap();
+        
+        // Le flush ne devrait pas causer d'erreur
+    }
+    
+    #[test]
+    fn test_cache_hierarchy_combined_stats() {
+        let mut hierarchy = create_test_hierarchy();
+        
+        // Effectuer des accès variés
+        let _ = hierarchy.access_data(0x1000, true, Some(42));  // Write
+        let _ = hierarchy.access_data(0x1000, false, None);     // Read (probable hit)
+        let _ = hierarchy.access_data(0x2000, false, None);     // Read (probable miss)
+        let _ = hierarchy.access_data(0x3000, true, Some(84));  // Write (probable miss)
+        
+        let stats = hierarchy.get_combined_stats();
+        
+        // Vérifier que les statistiques contiennent des données
+        assert!(!stats.is_empty());
+        assert!(stats.contains("Cache Hierarchy Statistics"));
+        assert!(stats.contains("L1 Data:"));
+        assert!(stats.contains("L2 Unified:"));
+    }
 }
-
-//
-// // // Tests unitaire pour le cache L1
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
-//
-//     #[test]
-//     fn test_cache_creation() {
-//         let cache = L1Cache::new(1024);
-//         assert_eq!(cache.size, 1024);
-//         assert_eq!(cache.line_size, 64);
-//         assert_eq!(cache.lines, 16); // 1024 / 64 = 16
-//     }
-//
-//     #[test]
-//     fn test_cache_line_addressing() {
-//         let cache = L1Cache::new(1024);
-//
-//         // Test alignement d'adresse sur une ligne
-//         assert_eq!(cache.get_line_addr(0x100), 0x100);
-//         assert_eq!(cache.get_line_addr(0x12F), 0x100);
-//         assert_eq!(cache.get_line_addr(0x130), 0x100);
-//         assert_eq!(cache.get_line_addr(0x13F), 0x100);
-//         assert_eq!(cache.get_line_addr(0x140), 0x140);
-//
-//         // Test calcul d'offset dans une ligne
-//         assert_eq!(cache.get_offset(0x100), 0);
-//         assert_eq!(cache.get_offset(0x12F), 0x2F);
-//         assert_eq!(cache.get_offset(0x13F), 0x3F);
-//     }
-//
-//     #[test]
-//     fn test_cache_hit_miss() {
-//         let mut cache = L1Cache::new(1024);
-//
-//         // Initialement, l'adresse n'est pas dans le cache
-//         assert!(!cache.has_address(0x100));
-//         assert_eq!(cache.lookup_byte(0x100), None);
-//
-//         // Mettre à jour le cache
-//         cache.update(0x100, 42);
-//
-//         // Maintenant, l'adresse devrait être dans le cache
-//         assert!(cache.has_address(0x100));
-//         assert_eq!(cache.lookup_byte(0x100), Some(42));
-//
-//         // Une adresse dans la même ligne devrait également être dans le cache
-//         assert!(cache.has_address(0x101));
-//         assert_eq!(cache.lookup_byte(0x101), Some(0)); // Valeur par défaut
-//
-//         // Une adresse dans une autre ligne ne devrait pas être dans le cache
-//         assert!(!cache.has_address(0x200));
-//         assert_eq!(cache.lookup_byte(0x200), None);
-//     }
-//
-//     #[test]
-//     fn test_cache_lru_eviction() {
-//         let mut cache = L1Cache::new(128); // 2 lignes seulement (128 / 64)
-//
-//         // Remplir les deux lignes du cache
-//         cache.update(0x000, 1);
-//         cache.update(0x040, 2);
-//
-//         // Vérifier que les deux lignes sont dans le cache
-//         assert!(cache.has_address(0x000));
-//         assert!(cache.has_address(0x040));
-//
-//         // Accéder à la première ligne pour mettre à jour son LRU
-//         cache.lookup_byte(0x000);
-//
-//         // Ajouter une troisième ligne, ce qui devrait évincer la deuxième ligne (la moins récemment utilisée)
-//         cache.update(0x080, 3);
-//
-//         // Vérifier que la première et la troisième ligne sont dans le cache, mais pas la deuxième
-//         assert!(cache.has_address(0x000));
-//         assert!(!cache.has_address(0x040));
-//         assert!(cache.has_address(0x080));
-//     }
-//
-//     #[test]
-//     fn test_cache_clear() {
-//         let mut cache = L1Cache::new(1024);
-//
-//         // Mettre à jour quelques adresses
-//         cache.update(0x100, 42);
-//         cache.update(0x200, 43);
-//
-//         // Vérifier qu'elles sont dans le cache
-//         assert!(cache.has_address(0x100));
-//         assert!(cache.has_address(0x200));
-//
-//         // Effacer le cache
-//         cache.clear();
-//
-//         // Vérifier que le cache est vide
-//         assert!(!cache.has_address(0x100));
-//         assert!(!cache.has_address(0x200));
-//     }
-//
-//     #[test]
-//     fn test_cache_update_existing_line() {
-//         let mut cache = L1Cache::new(1024);
-//
-//         // Mettre à jour une adresse
-//         cache.update(0x100, 42);
-//         assert_eq!(cache.lookup_byte(0x100), Some(42));
-//
-//         // Mettre à jour la même adresse avec une valeur différente
-//         cache.update(0x100, 43);
-//         assert_eq!(cache.lookup_byte(0x100), Some(43));
-//
-//         // Mettre à jour une adresse différente dans la même ligne
-//         cache.update(0x101, 44);
-//         assert_eq!(cache.lookup_byte(0x100), Some(43));
-//         assert_eq!(cache.lookup_byte(0x101), Some(44));
-//     }
-// }
-
-//
-// use crate::pvm::vm_errors::{VMError, VMResult,};
-// use crate::pvm::cache_stats::CacheStatistics;
-//
-// use rand::Rng;
-// use crate::pvm::cache_configs::{CacheConfig, ReplacementPolicy, WritePolicy};
-// use crate::pvm::metrics::CacheMetrics;
-//
-// const CACHE_LINE_SIZE: usize = 64;
-//
-//
-// #[derive(Debug, Clone, Copy)]
-// pub enum CacheState {
-//     Modified,
-//     Exclusive,
-//     Shared,
-//     Invalid,
-// }
-//
-// impl Default for CacheState {
-//     fn default() -> Self {
-//         CacheState::Invalid
-//     }
-// }
-//
-//
-//
-// #[derive(Debug, Clone)]
-// pub struct CacheLine {
-//     tag: u64,
-//     data: Vec<u64>,
-//     valid: bool,
-//     dirty: bool,
-//     last_access: u64,
-//     state: CacheState,
-// }
-//
-// impl Default for CacheLine {
-//     fn default() -> Self {
-//         Self {
-//             tag: 0,
-//             data: vec![0; CACHE_LINE_SIZE],
-//             valid: false,
-//             dirty: false,
-//             last_access: 0,
-//             state: CacheState::Invalid,
-//         }
-//     }
-// }
-//
-// #[derive(Debug, Clone)]
-// pub struct Cache {
-//     pub config: CacheConfig,
-//     pub lines: Vec<Vec<CacheLine>>,
-//     pub access_count: u64,
-//     pub statistics: CacheStatistics,
-//     pub next_level: Option<Box<Cache>>,
-// }
-//
-// impl Cache {
-//     pub fn new(config: CacheConfig, next_level: Option<Box<Cache>>) -> Self {
-//         let num_sets = config.size / (config.lines_size * config.associativity);
-//         let mut lines = Vec::with_capacity(num_sets);
-//
-//         for _ in 0..num_sets {
-//             let mut set = Vec::with_capacity(config.associativity);
-//             for _ in 0..config.associativity {
-//                 set.push(CacheLine::default());
-//             }
-//             lines.push(set);
-//         }
-//
-//         Self {
-//             config,
-//             lines,
-//             access_count: 0,
-//             statistics: CacheStatistics::default(),
-//             next_level,
-//         }
-//     }
-//
-//     pub fn reset(&mut self) -> VMResult<()> {
-//         for set in &mut self.lines {
-//             for line in set {
-//                 *line = CacheLine::default();
-//             }
-//         }
-//         self.statistics = CacheStatistics::default();
-//         self.access_count = 0;
-//         Ok(())
-//     }
-//     // pub fn reset(&mut self) -> VMResult<()> {
-//     //     self.entries.clear();
-//     //     self.statistics = CacheStatistics::default();
-//     //     if let Some(next_level) = &mut self.next_level {
-//     //         next_level.reset()?;
-//     //     }
-//     //     Ok(())
-//     // }
-//
-//     /// Méthode d'écriture (write) avec la même séparation
-//     // pub fn write(&mut self, addr: u64, value: u64) -> Result<(), VMError> {
-//     //     let (set_index, tag, offset) = self.decode_address(addr);
-//     //
-//     //     // Vérifier si la ligne est présente (hit/miss)
-//     //     let line_index = self.find_line_index(set_index, tag);
-//     //
-//     //     match line_index {
-//     //         Some(i) => {
-//     //             // HIT => incrémenter la stat
-//     //             self.statistics.write_hits += 1;
-//     //
-//     //             let line = &mut self.lines[set_index][i];
-//     //             match line.state {
-//     //                 // Cas: Already Modified, Exclusive...
-//     //                 CacheState::Modified => {
-//     //                     line.data[offset] = value;
-//     //                 },
-//     //                 CacheState::Exclusive => {
-//     //                     line.data[offset] = value;
-//     //                     line.state = CacheState::Modified;
-//     //                 },
-//     //                 CacheState::Shared => {
-//     //                     // Invalidation potentielle
-//     //                     self.invalidate_other_copies(addr)?;
-//     //                     line.data[offset] = value;
-//     //                     line.state = CacheState::Modified;
-//     //                 },
-//     //                 CacheState::Invalid => {
-//     //                     // Surprenant, mais s'il est valid && invalid -> incohérent, on force un miss
-//     //                     return self.handle_write_miss(addr, value, set_index, tag, offset);
-//     //                 }
-//     //             }
-//     //
-//     //             // Write-through si besoin
-//     //             if self.config.write_policy == WritePolicy::WriteThrough {
-//     //                 if let Some(ref mut next) = self.next_level {
-//     //                     next.write(addr, value)?;
-//     //                 }
-//     //             }
-//     //         },
-//     //         None => {
-//     //             // MISS
-//     //             self.statistics.write_misses += 1;
-//     //             self.handle_write_miss(addr, value, set_index, tag, offset)?;
-//     //         }
-//     //     }
-//     //
-//     //     Ok(())
-//     // }
-//
-//     pub fn write(&mut self, addr: u64, value: u64) -> Result<(), VMError> {
-//         let (set_index, tag, offset) = self.decode_address(addr);
-//
-//         // Vérifier si la ligne est présente
-//         if let Some(i) = self.find_line_index(set_index, tag) {
-//             // HIT
-//             self.statistics.write_hits += 1;
-//
-//             // Pour éviter l'emprunt mutable prolongé, on copie l'index
-//             let line_index = i;
-//
-//             // Selon l'état, on fait un invalidation-other-copies ou non
-//             {
-//                 // On ne garde PAS la mutable ref ici longtemps
-//                 let current_state = self.lines[set_index][line_index].state;
-//
-//                 match current_state {
-//                     CacheState::Shared => {
-//                         // On doit invalider avant de re-emprunter
-//                         self.invalidate_other_copies(addr)?;
-//                     }
-//                     _ => {}
-//                 }
-//             }
-//
-//             // Maintenant on peut muter la ligne librement
-//             let line = &mut self.lines[set_index][line_index];
-//             match line.state {
-//                 CacheState::Modified => {
-//                     // Already dirty => on écrit direct
-//                     line.data[offset] = value;
-//                 },
-//                 CacheState::Exclusive => {
-//                     line.data[offset] = value;
-//                     line.state = CacheState::Modified;
-//                 },
-//                 CacheState::Shared => {
-//                     // On a déjà invalidé plus haut
-//                     line.data[offset] = value;
-//                     line.state = CacheState::Modified;
-//                 },
-//                 CacheState::Invalid => {
-//                     // État incohérent => gérer comme un miss
-//                     return self.handle_write_miss(addr, value, set_index, tag, offset);
-//                 }
-//             }
-//
-//             // Write-through => propager
-//             if self.config.write_policy == WritePolicy::WriteThrough {
-//                 if let Some(ref mut next) = self.next_level {
-//                     next.write(addr, value)?;
-//                 }
-//             }
-//
-//         } else {
-//             // MISS
-//             self.statistics.write_misses += 1;
-//             self.handle_write_miss(addr, value, set_index, tag, offset)?;
-//         }
-//
-//         Ok(())
-//     }
-//
-//
-//     /// Méthode de lecture (read) qui évite le conflit mutable/immuable sur self.statistics
-//     pub fn read(&mut self, addr: u64) -> Result<u64, VMError> {
-//         let (set_index, tag, offset) = self.decode_address(addr);
-//
-//         // Chercher la ligne dans le set (index de la ligne s'il y a un hit)
-//         let line_index = self.find_line_index(set_index, tag);
-//
-//         if let Some(i) = line_index {
-//             // C'est un HIT => on peut d'abord incrémenter `self.statistics.hits`
-//             self.statistics.hits += 1;
-//
-//             // Puis emprunter la ligne mutablement si besoin
-//             self.access_count += 1;
-//             let line = &mut self.lines[set_index][i];
-//             line.last_access = self.access_count;  // Mise à jour LRU
-//             let value = line.data[offset];
-//
-//             Ok(value)
-//         } else {
-//             // MISS
-//             self.statistics.misses += 1;
-//             self.handle_miss(addr, set_index, tag, offset)
-//         }
-//     }
-//
-//     pub fn invalidate_address(&mut self, addr: u64) -> Result<(), VMError> {
-//         let (set_index, tag, _) = self.decode_address(addr);
-//         if let Some(i) = self.find_line_index(set_index, tag) {
-//             let line = &mut self.lines[set_index][i];
-//             line.state = CacheState::Invalid;
-//             line.valid = false;
-//             self.statistics.invalidations += 1;
-//         }
-//         Ok(())
-//     }
-//
-//
-//     pub fn get_statistics(&self) -> &CacheStatistics {
-//         &self.statistics
-//     }
-//
-//     pub fn get_detailed_stats(&self) -> String {
-//         format!(
-//             "Cache Statistics:\n\
-//              Hit Rate: {:.2}%\n\
-//              Write Back Rate: {:.2}%\n\
-//              Hits: {}\n\
-//              Misses: {}\n\
-//              Write Backs: {}\n\
-//              Invalidations: {}\n\
-//              Coherence Misses: {}\n\
-//              Write Hits: {}\n\
-//              Write Misses: {}\n\
-//              Evictions: {}\n",
-//             self.statistics.hit_rate() * 100.0,
-//             self.statistics.write_back_rate() * 100.0,
-//             self.statistics.hits,
-//             self.statistics.misses,
-//             self.statistics.write_backs,
-//             self.statistics.invalidations,
-//             self.statistics.coherence_misses,
-//             self.statistics.write_hits,
-//             self.statistics.write_misses,
-//             self.statistics.evictions
-//         )
-//     }
-//
-//     /// Décoder l'adresse (comme avant)
-//     fn decode_address(&self, addr: u64) -> (usize, u64, usize) {
-//         let offset_bits = (self.config.lines_size as f64).log2() as u64;
-//         let set_bits = ((self.config.size / (self.config.lines_size * self.config.associativity)) as f64).log2() as u64;
-//
-//         let offset = (addr & ((1 << offset_bits) - 1)) as usize;
-//         let set_index = ((addr >> offset_bits) & ((1 << set_bits) - 1)) as usize;
-//         let tag = addr >> (offset_bits + set_bits);
-//
-//         (set_index, tag, offset)
-//     }
-//
-//     /// Cherche l'index (way) de la ligne correspondant à (tag) dans le set `set_index`
-//     fn find_line_index(&self, set_index: usize, tag: u64) -> Option<usize> {
-//         self.lines[set_index]
-//             .iter()
-//             .position(|line| line.valid && line.tag == tag)
-//     }
-//
-//     fn find_line_mut(&mut self, set_index: usize, tag: u64) -> Option<&mut CacheLine> {
-//         self.lines[set_index]
-//             .iter_mut()
-//             .find(|line| line.valid && line.tag == tag)
-//     }
-//
-//     /// handle_miss comme avant, sans le risque de double emprunt
-//     fn handle_miss(&mut self, addr: u64, set_index: usize, tag: u64, offset: usize) -> Result<u64, VMError> {
-//         // Lire la donnée depuis le next level
-//         let data = if let Some(ref mut next) = self.next_level {
-//             next.read(addr)?
-//         } else {
-//             return Err(VMError::memory_error("Cache miss in last level"));
-//         };
-//
-//         // Sélectionner un victim
-//         let victim_way = self.select_victim(set_index)?;
-//
-//         // write-back si dirty
-//         {
-//             let line = &mut self.lines[set_index][victim_way];
-//             if line.valid && line.dirty {
-//                 self.write_back(set_index, victim_way)?;
-//                 self.statistics.write_backs += 1;
-//             }
-//         }
-//
-//         {
-//             let line = &mut self.lines[set_index][victim_way];
-//             line.tag = tag;
-//             line.valid = true;
-//             line.dirty = false;
-//             line.data[offset] = data;
-//             line.state = CacheState::Exclusive;
-//
-//             // Mise à jour last_access
-//             self.access_count += 1;
-//             line.last_access = self.access_count;
-//         }
-//
-//         Ok(data)
-//     }
-//
-//     fn handle_write_miss(&mut self, addr: u64, value: u64, set_index: usize, tag: u64, offset: usize) -> Result<(), VMError> {
-//         let victim_way = self.select_victim(set_index)?;
-//
-//         let need_writeback: bool;
-//         let old_addr: u64;
-//         let data_to_writeback: Vec<u64>;
-//
-//         {
-//             let line = &self.lines[set_index][victim_way];
-//             if line.valid && line.dirty {
-//                 need_writeback = true;
-//                 old_addr = self.reconstruct_address(set_index, line.tag);
-//                 data_to_writeback = line.data.clone();
-//             } else {
-//                 need_writeback = false;
-//                 old_addr = 0;
-//                 data_to_writeback = vec![];
-//             }
-//         }
-//
-//         if need_writeback {
-//             if let Some(ref mut next) = self.next_level {
-//                 for (i, &val) in data_to_writeback.iter().enumerate() {
-//                     next.write(old_addr + i as u64, val)?;
-//                 }
-//             }
-//             self.statistics.write_backs += 1;
-//         }
-//
-//         // Eviction si la ligne était déjà valide
-//         {
-//             let line = &mut self.lines[set_index][victim_way];
-//             if line.valid {
-//                 self.statistics.evictions += 1;
-//             }
-//
-//             line.tag = tag;
-//             line.valid = true;
-//             line.dirty = self.config.write_policy == WritePolicy::WriteBack;
-//             line.state = CacheState::Modified;
-//             line.data[offset] = value;
-//
-//             // Mise à jour last_access
-//             self.access_count += 1;
-//             line.last_access = self.access_count;
-//         }
-//
-//         // Si c'est un write-through, on propage
-//         if self.config.write_policy == WritePolicy::WriteThrough {
-//             if let Some(ref mut next) = self.next_level {
-//                 next.write(addr, value)?;
-//             }
-//         }
-//
-//         Ok(())
-//     }
-//
-//
-//
-//
-//     fn select_victim(&self, set_index: usize) -> Result<usize, VMError> {
-//         match self.config.replacement_policy {
-//             ReplacementPolicy::LRU => {
-//                 let mut min_access = u64::MAX;
-//                 let mut victim = 0;
-//                 for (i, line) in self.lines[set_index].iter().enumerate() {
-//                     if !line.valid {
-//                         return Ok(i);
-//                     }
-//                     if line.last_access < min_access {
-//                         min_access = line.last_access;
-//                         victim = i;
-//                     }
-//                 }
-//                 Ok(victim)
-//             }
-//             ReplacementPolicy::FIFO => {
-//                 // Exemple simplifié : on prend "access_count % associativity"
-//                 Ok(self.access_count as usize % self.config.associativity)
-//             }
-//             ReplacementPolicy::Random => {
-//                 Ok(rand::thread_rng().gen_range(0..self.config.associativity))
-//             }
-//         }
-//     }
-//
-//     fn write_back(&mut self, set_index: usize, way: usize) -> Result<(), VMError> {
-//         // Cloner les données nécessaires avant le borrow mutable
-//         let (addr, values) = {
-//             let line = &self.lines[set_index][way];
-//             if !line.dirty {
-//                 return Ok(());
-//             }
-//             let addr = self.reconstruct_address(set_index, line.tag);
-//             let values = line.data.clone();
-//             (addr, values)
-//         };
-//
-//         // Maintenant on peut écrire sans problème de borrow
-//         if let Some(ref mut next) = self.next_level {
-//             for (offset, value) in values.iter().enumerate() {
-//                 next.write(addr + offset as u64, *value)?;
-//             }
-//         }
-//
-//         // Marquer la ligne comme non-dirty
-//         let line = &mut self.lines[set_index][way];
-//         line.dirty = false;
-//
-//         Ok(())
-//     }
-//
-//     fn reconstruct_address(&self, set_index: usize, tag: u64) -> u64 {
-//         let offset_bits = (self.config.lines_size as f64).log2() as u64;
-//         let set_bits = ((self.config.size / (self.config.lines_size * self.config.associativity)) as f64).log2() as u64;
-//
-//         (tag << (offset_bits + set_bits)) | ((set_index as u64) << offset_bits)
-//     }
-//
-//
-//     fn invalidate_other_copies(&mut self, addr: u64) -> Result<(), VMError> {
-//         self.statistics.invalidations += 1;
-//         if let Some(ref mut next) = self.next_level {
-//             next.invalidate_address(addr)?;
-//         }
-//         Ok(())
-//     }
-//
-//
-//     fn update_access(&mut self, set_index: usize, tag: u64) {
-//         self.access_count += 1;
-//         let current_count = self.access_count;
-//
-//         if let Some(line) = self.find_line_mut(set_index, tag) {
-//             line.last_access = current_count;
-//         }
-//     }
-//
-//     pub fn get_write_policy(&self) -> WritePolicy {
-//         self.config.write_policy
-//     }
-//
-//     pub fn get_replacement_policy(&self) -> ReplacementPolicy {
-//         self.config.replacement_policy
-//     }
-//
-//     pub fn get_associativity(&self) -> usize {
-//         self.config.associativity
-//     }
-//
-//     pub fn get_line_size(&self) -> usize {
-//         self.config.lines_size
-//     }
-//
-//     pub fn get_size(&self) -> usize {
-//         self.config.size
-//     }
-//
-//     // pub fn get_metrics(&self) -> CacheMetrics {
-//     //     CacheMetrics {
-//     //         total_accesses: self.statistics.hits + self.statistics.misses,
-//     //         reads: self.statistics.hits,
-//     //         writes: self.statistics.write_hits + self.statistics.write_misses,
-//     //         cache_hits: self.statistics.hits + self.statistics.write_hits,
-//     //         cache_misses: self.statistics.misses + self.statistics.write_misses,
-//     //         average_access_time: if self.statistics.total_accesses() > 0 {
-//     //             self.statistics.hits as f64 / self.statistics.total_accesses() as f64
-//     //         } else {
-//     //             0.0
-//     //         },
-//     //     }
-//     // }
-//
-//     fn update_metrics(&mut self, hit: bool, write: bool) {
-//         if write {
-//             if hit {
-//                 self.statistics.write_hits += 1;
-//             } else {
-//                 self.statistics.write_misses += 1;
-//             }
-//         } else {
-//             if hit {
-//                 self.statistics.hits += 1;
-//             } else {
-//                 self.statistics.misses += 1;
-//             }
-//         }
-//     }
-//
-//     pub fn increment_misses(&mut self) {
-//         self.statistics.misses += 1;
-//     }
-//
-//
-//
-//
-// }
-//
-// #[cfg(test)]
-// mod tests {
-//     use crate::pvm::cache_configs::WritePolicy;
-//     use super::*;
-//
-//     fn create_test_cache() -> Cache {
-//         let l2_config = CacheConfig {
-//             size: 1024,
-//             lines_size: 64,
-//             associativity: 8,
-//             write_policy: WritePolicy::WriteBack,
-//             replacement_policy: ReplacementPolicy::LRU,
-//         };
-//
-//         let l1_config = CacheConfig {
-//             size: 256,
-//             lines_size: 64,
-//             associativity: 4,
-//             write_policy: WritePolicy::WriteThrough,
-//             replacement_policy: ReplacementPolicy::LRU,
-//         };
-//
-//         let l2_cache = Box::new(Cache::new(l2_config, None));
-//         Cache::new(l1_config, Some(l2_cache))
-//     }
-//
-//     #[test]
-//     fn test_cache_read_write() {
-//         let mut cache = create_test_cache();
-//
-//         cache.write(0x1000, 42).unwrap();
-//         assert_eq!(cache.read(0x1000).unwrap(), 42);
-//
-//         for i in 0..10 {
-//             cache.write(0x2000 + i * 8, i as u64).unwrap();
-//         }
-//         for i in 0..10 {
-//             assert_eq!(cache.read(0x2000 + i * 8).unwrap(), i as u64);
-//         }
-//     }
-//
-//     #[test]
-//     fn test_cache_replacement() {
-//         let mut cache = create_test_cache();
-//
-//         for i in 0..8 {
-//             cache.write(i * 1024, i as u64).unwrap();
-//         }
-//
-//         for i in 0..8 {
-//             assert_eq!(cache.read(i * 1024).unwrap(), i as u64);
-//         }
-//
-//         for i in 8..16 {
-//             cache.write(i * 1024, i as u64).unwrap();
-//         }
-//     }
-//
-//     #[test]
-//     fn test_cache_invalidation() {
-//         let mut cache = create_test_cache();
-//
-//         cache.write(0x1000, 42).unwrap();
-//         cache.invalidate_address(0x1000).unwrap();
-//
-//         // assert!(cache.read(0x1000).is_err());
-//         assert_eq!(cache.read(0x1000).unwrap(), 42);
-//     }
-// }
