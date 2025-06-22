@@ -571,5 +571,15 @@ impl Pipeline {
         )
     }
 
+    /// Retourne une référence à l'étage Execute pour accéder aux composants internes
+    pub fn get_execute_stage(&self) -> &execute::ExecuteStage {
+        &self.execute
+    }
+
+    /// Retourne une référence mutable à l'étage Execute
+    pub fn get_execute_stage_mut(&mut self) -> &mut execute::ExecuteStage {
+        &mut self.execute
+    }
+
 }
 
