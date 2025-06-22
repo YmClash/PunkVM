@@ -3,7 +3,7 @@
 use std::io;
 
 use crate::pvm::buffers::StoreBuffer;
-use crate::pvm::caches::{CacheHierarchy, CacheAccessResult, DEFAULT_LINE_SIZE};
+use crate::pvm::caches::{CacheHierarchy, CacheAccessResult,};
 use crate::pvm::cache_configs::CacheConfig;
 
 /// Configuration du systeme memoire
@@ -263,6 +263,89 @@ impl Memory {
         Ok(())
     }
 
+    /// Lit un bloc de données depuis l'adresse spécifiée
+    pub fn read_block(&mut self, addr: u32, size: usize) -> io::Result<Vec<u8>> {
+        let end = addr + (size as u32) - 1;
+        self.check_address(end)?;
+
+        let mut data = Vec::with_capacity(size);
+        for i in 0..size {
+            data.push(self.read_byte(addr + i as u32)?);
+        }
+        println!("read_block: addr = 0x{:08X}, size = {}, data = {:?}", addr, size, data);
+        Ok(data)
+    }
+
+    /// Écrit un vecteur SIMD 128-bit (16 bytes) à l'adresse spécifiée
+    pub fn write_vector128(&mut self, addr: u32, vector: &crate::bytecode::simds::Vector128) -> io::Result<()> {
+        // Vérifier l'alignement sur 16 bytes pour les vecteurs SIMD
+        if addr % 16 != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("Adresse non alignée pour vecteur 128-bit: 0x{:08X} (doit être aligné sur 16 bytes)", addr)
+            ));
+        }
+        
+        let bytes = unsafe { vector.as_bytes() };
+        self.write_block(addr, bytes)?;
+        println!("write_vector128: addr = 0x{:08X}, vector written", addr);
+        Ok(())
+    }
+
+    /// Lit un vecteur SIMD 128-bit (16 bytes) depuis l'adresse spécifiée
+    pub fn read_vector128(&mut self, addr: u32) -> io::Result<crate::bytecode::simds::Vector128> {
+        // Vérifier l'alignement sur 16 bytes pour les vecteurs SIMD
+        if addr % 16 != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("Adresse non alignée pour vecteur 128-bit: 0x{:08X} (doit être aligné sur 16 bytes)", addr)
+            ));
+        }
+        
+        let data = self.read_block(addr, 16)?;
+        let mut bytes = [0u8; 16];
+        bytes.copy_from_slice(&data);
+        
+        let vector = crate::bytecode::simds::Vector128::from_bytes(bytes);
+        println!("read_vector128: addr = 0x{:08X}, vector loaded", addr);
+        Ok(vector)
+    }
+
+    /// Écrit un vecteur SIMD 256-bit (32 bytes) à l'adresse spécifiée
+    pub fn write_vector256(&mut self, addr: u32, vector: &crate::bytecode::simds::Vector256) -> io::Result<()> {
+        // Vérifier l'alignement sur 32 bytes pour les vecteurs SIMD 256-bit
+        if addr % 32 != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("Adresse non alignée pour vecteur 256-bit: 0x{:08X} (doit être aligné sur 32 bytes)", addr)
+            ));
+        }
+        
+        let bytes = unsafe { vector.as_bytes() };
+        self.write_block(addr, bytes)?;
+        println!("write_vector256: addr = 0x{:08X}, vector written", addr);
+        Ok(())
+    }
+
+    /// Lit un vecteur SIMD 256-bit (32 bytes) depuis l'adresse spécifiée
+    pub fn read_vector256(&mut self, addr: u32) -> io::Result<crate::bytecode::simds::Vector256> {
+        // Vérifier l'alignement sur 32 bytes pour les vecteurs SIMD 256-bit
+        if addr % 32 != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("Adresse non alignée pour vecteur 256-bit: 0x{:08X} (doit être aligné sur 32 bytes)", addr)
+            ));
+        }
+        
+        let data = self.read_block(addr, 32)?;
+        let mut bytes = [0u8; 32];
+        bytes.copy_from_slice(&data);
+        
+        let vector = crate::bytecode::simds::Vector256::from_bytes(bytes);
+        println!("read_vector256: addr = 0x{:08X}, vector loaded", addr);
+        Ok(vector)
+    }
+
     /// Vide le store buffer en écrivant toutes les données en mémoire
     pub fn flush_store_buffer(&mut self) -> io::Result<()> {
         self.store_buffer.flush(&mut self.memory);
@@ -501,6 +584,120 @@ mod tests {
         // Écriture hors-limites
         let w = mem.write_byte(1024, 42);
         assert!(w.is_err());
+    }
+
+    #[test]
+    fn test_memory_simd_vector128_operations() {
+        use crate::bytecode::simds::Vector128;
+        
+        let config = MemoryConfig::default();
+        let mut mem = Memory::new(config);
+
+        // Créer un vecteur de test i32x4
+        let test_vector = Vector128::from_i32x4([1, 2, 3, 4]);
+        
+        // Adresse alignée sur 16 bytes
+        let addr = 0x1000;
+        
+        // Écrire le vecteur
+        mem.write_vector128(addr, &test_vector).unwrap();
+        
+        // Lire le vecteur
+        let read_vector = mem.read_vector128(addr).unwrap();
+        
+        // Vérifier que les données sont identiques
+        unsafe {
+            assert_eq!(read_vector.i32x4, [1, 2, 3, 4]);
+        }
+    }
+
+    #[test]
+    fn test_memory_simd_vector256_operations() {
+        use crate::bytecode::simds::Vector256;
+        
+        let config = MemoryConfig::default();
+        let mut mem = Memory::new(config);
+
+        // Créer un vecteur de test i32x8
+        let test_vector = Vector256::from_i32x8([1, 2, 3, 4, 5, 6, 7, 8]);
+        
+        // Adresse alignée sur 32 bytes
+        let addr = 0x2000;
+        
+        // Écrire le vecteur
+        mem.write_vector256(addr, &test_vector).unwrap();
+        
+        // Lire le vecteur
+        let read_vector = mem.read_vector256(addr).unwrap();
+        
+        // Vérifier que les données sont identiques
+        unsafe {
+            assert_eq!(read_vector.i32x8, [1, 2, 3, 4, 5, 6, 7, 8]);
+        }
+    }
+
+    #[test]
+    fn test_memory_simd_alignment_errors() {
+        use crate::bytecode::simds::{Vector128, Vector256};
+        
+        let config = MemoryConfig::default();
+        let mut mem = Memory::new(config);
+
+        let test_vector128 = Vector128::from_i32x4([1, 2, 3, 4]);
+        let test_vector256 = Vector256::from_i32x8([1, 2, 3, 4, 5, 6, 7, 8]);
+        
+        // Test alignement incorrect pour 128-bit (doit être multiple de 16)
+        let misaligned_addr = 0x1001; // Non aligné
+        assert!(mem.write_vector128(misaligned_addr, &test_vector128).is_err());
+        assert!(mem.read_vector128(misaligned_addr).is_err());
+        
+        // Test alignement incorrect pour 256-bit (doit être multiple de 32)
+        let misaligned_addr = 0x2010; // Multiple de 16 mais pas de 32
+        assert!(mem.write_vector256(misaligned_addr, &test_vector256).is_err());
+        assert!(mem.read_vector256(misaligned_addr).is_err());
+        
+        // Test alignements corrects
+        assert!(mem.write_vector128(0x1000, &test_vector128).is_ok());
+        assert!(mem.write_vector256(0x2000, &test_vector256).is_ok());
+    }
+
+    #[test]
+    fn test_memory_simd_different_vector_types() {
+        use crate::bytecode::simds::{Vector128, Vector256};
+        
+        let config = MemoryConfig::default();
+        let mut mem = Memory::new(config);
+
+        // Test différents types de vecteurs 128-bit
+        let vec_i16x8 = Vector128::from_i16x8([1, 2, 3, 4, 5, 6, 7, 8]);
+        let vec_i64x2 = Vector128::from_i64x2([0x1234567890ABCDEF, 0x7EDCBA0987654321]);
+        let vec_f32x4 = Vector128::from_f32x4([1.0, 2.0, 3.0, 4.0]);
+        let vec_f64x2 = Vector128::from_f64x2([3.14159265359, 2.71828182846]);
+
+        // Adresses alignées
+        let addr1 = 0x1000;
+        let addr2 = 0x1010; 
+        let addr3 = 0x1020;
+        let addr4 = 0x1030;
+
+        // Écrire tous les vecteurs
+        mem.write_vector128(addr1, &vec_i16x8).unwrap();
+        mem.write_vector128(addr2, &vec_i64x2).unwrap();
+        mem.write_vector128(addr3, &vec_f32x4).unwrap();
+        mem.write_vector128(addr4, &vec_f64x2).unwrap();
+
+        // Lire et vérifier tous les vecteurs
+        let read_i16x8 = mem.read_vector128(addr1).unwrap();
+        let read_i64x2 = mem.read_vector128(addr2).unwrap();
+        let read_f32x4 = mem.read_vector128(addr3).unwrap();
+        let read_f64x2 = mem.read_vector128(addr4).unwrap();
+
+        unsafe {
+            assert_eq!(read_i16x8.i16x8, [1, 2, 3, 4, 5, 6, 7, 8]);
+            assert_eq!(read_i64x2.i64x2, [0x1234567890ABCDEF, 0x7EDCBA0987654321]);
+            assert_eq!(read_f32x4.f32x4, [1.0, 2.0, 3.0, 4.0]);
+            assert_eq!(read_f64x2.f64x2, [3.14159265359, 2.71828182846]);
+        }
     }
 
     // #[test]
