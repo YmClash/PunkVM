@@ -239,6 +239,8 @@ impl Opcode {
             0xAD => Some(Self::Simd128Max),
             0xAE => Some(Self::Simd128Sqrt),
             0xAF => Some(Self::Simd128Shuffle),
+            0xB0 => Some(Self::Simd128Const),
+            0xB1 => Some(Self::Simd128ConstF32),
 
             // SIMD 256-bit opcodes
             0xC0 => Some(Self::Simd256Add),
@@ -257,6 +259,8 @@ impl Opcode {
             0xCD => Some(Self::Simd256Max),
             0xCE => Some(Self::Simd256Sqrt),
             0xCF => Some(Self::Simd256Shuffle),
+            0xD0 => Some(Self::Simd256Const), // Constante vectorielle 256-bit
+            0xD1 => Some(Self::Simd256ConstF32), // Constante vectorielle 256-bit (32 bits flottants)
 
             // FPU opcodes
             0xE0 => Some(Self::FpuAdd),
