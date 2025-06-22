@@ -56,7 +56,9 @@ fn main() -> VMResult<()> {
     // let program = forwarding_efficiency_test(); // Tests d'efficacité forwarding
     // let program = punk_program_3(); // Tests de branchement
     // let program= punk_program_5(); // Tests multiples branchements conditionnels et inconditionnels
-    let program = simd_instruction_test();
+    // let program = simd_instruction_test(); // Test SIMD de base
+    let program = simd_advanced_test(); // Test SIMD avancé (Min, Max, Sqrt, Cmp, Shuffle)
+    // let program = simd_cache_validation_test(); // Test validation cache SIMD
 
 
     // let program = create_stack_test_program(); // Tests de stack machine complet avec CALL/RET
@@ -88,7 +90,6 @@ fn main() -> VMResult<()> {
 
     // Afficher les statistiques d'exécution
     print_stats(&vm);
-
 
 
     // // let mut vm_summary = vm.tracer.unwrap().generate_summary();
@@ -297,6 +298,38 @@ fn print_stats(vm: &VM) {
     };
     println!("Efficacité Store-Load forwarding: {:.2}% ({}/{})", 
             store_load_efficiency, stats.store_load_forwards, stats.store_load_attempts);
+
+    // Statistiques SIMD
+    println!("\n===== STATISTIQUES SIMD =====");
+    println!("Opérations SIMD 128-bit: {}", stats.simd128_ops);
+    println!("Opérations SIMD 256-bit: {}", stats.simd256_ops);
+    let total_simd_ops = stats.simd128_ops + stats.simd256_ops;
+    println!("Total opérations SIMD: {}", total_simd_ops);
+    
+    if total_simd_ops > 0 {
+        println!("Cycles SIMD totaux: {}", stats.simd_total_cycles);
+        println!("Opérations SIMD/cycle: {:.2}", stats.simd_ops_per_cycle);
+        println!("Opérations parallélisées: {}", stats.simd_parallel_ops);
+        
+        println!("\n--- Cache d'Opérations SIMD ---");
+        println!("Cache hits: {}", stats.simd_cache_hits);
+        println!("Cache misses: {}", stats.simd_cache_misses);
+        println!("Taux de réussite du cache: {:.2}%", stats.simd_cache_hit_rate);
+        
+        let total_cache_accesses = stats.simd_cache_hits + stats.simd_cache_misses;
+        if total_cache_accesses > 0 {
+            let cache_efficiency = (stats.simd_cache_hits as f64 / total_cache_accesses as f64) * 100.0;
+            println!("Efficacité globale du cache SIMD: {:.1}%", cache_efficiency);
+        }
+        
+        // Analyse de performance
+        if stats.simd_parallel_ops > 0 {
+            let parallelization_rate = (stats.simd_parallel_ops as f64 / total_simd_ops as f64) * 100.0;
+            println!("Taux de parallélisation SIMD: {:.1}%", parallelization_rate);
+        }
+    } else {
+        println!("Aucune opération SIMD détectée");
+    }
 
     println!("\n===== TEST TERMINÉ =====");
     println!("=====PunkVM=By=YmC======\n");
@@ -1337,7 +1370,7 @@ fn store_load_forwarding_test_32() -> BytecodeFile {
     program.version = BytecodeVersion::new(0, 1, 0, 0);
     program.add_metadata("name", "Store-Load Forwarding Test");
     program.add_metadata("description", "Test spécifique pour le forwarding Store-Load");
-    program.add_metadata("author", "PunkVM Team");
+    program.add_metadata("author", "PunkVM #YmC");
 
     println!("=== CRÉATION DU TEST STORE-LOAD FORWARDING ===");
 
@@ -1474,7 +1507,7 @@ fn cache_stress_test() -> BytecodeFile {
     program.version = BytecodeVersion::new(0, 1, 0, 0);
     program.add_metadata("name", "PunkVM Cache Stress Test");
     program.add_metadata("description", "Test de stress pour la hiérarchie de cache L1/L2");
-    program.add_metadata("author", "PunkVM Team");
+    program.add_metadata("author", "PunkVM @YmC");
     
     println!("\n=== CACHE STRESS TEST ===");
     
@@ -1756,6 +1789,217 @@ fn simd_instruction_test() -> BytecodeFile {
 
     println!("\n=== RÉSULTATS ATTENDUS SIMD ===");
 
+    program
+}
+
+/// Test spécialisé pour les opérations SIMD avancées (Min, Max, Sqrt, Cmp, Shuffle)
+fn simd_advanced_test() -> BytecodeFile {
+    let mut program = BytecodeFile::new();
+    
+    println!("=== CRÉATION DU TEST SIMD AVANCÉ ===");
+    
+    // Configuration des métadonnées
+    program.version = BytecodeVersion::new(0, 1, 0, 0);
+    program.add_metadata("name", "PunkVM SIMD Advanced");
+    program.add_metadata("description", "Test complet des instructions SIMD Advanced ");
+    program.add_metadata("author", "PunkVM @YmC");
+    
+    // 1. Initialisation de vecteurs pour les tests
+    println!("1. Initialisation des vecteurs pour tests avancés");
+    
+    // V0 = [1, 2, 3, 4] - Vecteur de base
+    program.add_instruction(Instruction::create_simd128_const_i32x4(0, [1, 2, 3, 4]));
+    
+    // V1 = [4, 1, 5, 2] - Vecteur pour comparaisons Min/Max
+    program.add_instruction(Instruction::create_simd128_const_i32x4(1, [4, 1, 5, 2]));
+    
+    // V2 = [1.0, 4.0, 9.0, 16.0] - Vecteur pour Sqrt
+    program.add_instruction(Instruction::create_simd128_const_f32x4(2, [1.0, 4.0, 9.0, 16.0]));
+    
+    // V3 = [1, 2, 3, 4] - Vecteur pour comparaison (identique à V0)
+    program.add_instruction(Instruction::create_simd128_const_i32x4(3, [1, 2, 3, 4]));
+    
+    // V4 = masque pour shuffle (réorganisation byte-level)
+    program.add_instruction(Instruction::create_simd128_const_i32x4(4, [0x03020100, 0x07060504, 0x0B0A0908, 0x0F0E0D0C]));
+    
+    // 2. Opérations Min/Max
+    println!("2. Test des opérations Min/Max");
+    
+    // V5 = min(V0, V1) => [1, 1, 3, 2]
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Simd128Min, 5, 0, 1));
+    
+    // V6 = max(V0, V1) => [4, 2, 5, 4]
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Simd128Max, 6, 0, 1));
+    
+    // 3. Opération Sqrt (racine carrée)
+    println!("3. Test de l'opération Sqrt");
+    
+    // V7 = sqrt(V2) => [1.0, 2.0, 3.0, 4.0]
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Simd128Sqrt, 7, 2));
+    
+    // 4. Opération de comparaison
+    println!("4. Test de l'opération Cmp");
+    
+    // V8 = cmp(V0, V3) => [-1, -1, -1, -1] (tous égaux)
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Simd128Cmp, 8, 0, 3));
+    
+    // 5. Opération Shuffle
+    println!("5. Test de l'opération Shuffle");
+    
+    // V9 = shuffle(V0, V4) => réorganise selon le masque
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Simd128Shuffle, 9, 0, 4));
+    
+    // 6. Tests 256-bit
+    println!("6. Tests d'opérations 256-bit avancées");
+    
+    // Y0 = [1, 2, 3, 4, 5, 6, 7, 8]
+    program.add_instruction(Instruction::create_simd256_const_i32x8(0, [1, 2, 3, 4, 5, 6, 7, 8]));
+    
+    // Y1 = [8, 1, 6, 3, 4, 7, 2, 9]
+    program.add_instruction(Instruction::create_simd256_const_i32x8(1, [8, 1, 6, 3, 4, 7, 2, 9]));
+    
+    // Y2 = min(Y0, Y1) => [1, 1, 3, 3, 4, 6, 2, 8]
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Simd256Min, 2, 0, 1));
+    
+    // Y3 = max(Y0, Y1) => [8, 2, 6, 4, 5, 7, 7, 9]
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Simd256Max, 3, 0, 1));
+    
+    // Y4 = cmp(Y0, Y1) => masque de comparaison
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Simd256Cmp, 4, 0, 1));
+    
+    // 7. Tests avec vecteurs flottants 256-bit
+    println!("7. Tests sqrt 256-bit");
+    
+    // Y5 = [1.0, 4.0, 9.0, 16.0, 25.0, 36.0, 49.0, 64.0]
+    program.add_instruction(Instruction::create_simd256_const_f32x8(5, [1.0, 4.0, 9.0, 16.0, 25.0, 36.0, 49.0, 64.0]));
+    
+    // Y6 = sqrt(Y5) => [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Simd256Sqrt, 6, 5));
+    
+    // Fin du programme
+    program.add_instruction(Instruction::create_no_args(Opcode::Halt));
+    
+    // Configuration des segments
+    let total_code_size: u32 = program.code.iter()
+        .map(|instr| instr.total_size() as u32)
+        .sum();
+    program.segments = vec![SegmentMetadata::new(SegmentType::Code, 0, total_code_size, 0)];
+    
+    println!("\n=== RÉSULTATS ATTENDUS SIMD AVANCÉ ===");
+    println!("V5 (min 128): [1, 1, 3, 2]");
+    println!("V6 (max 128): [4, 2, 5, 4]");
+    println!("V7 (sqrt 128): [1.0, 2.0, 3.0, 4.0]");
+    println!("V8 (cmp 128): [-1, -1, -1, -1] (tous égaux)");
+    println!("V9 (shuffle 128): réorganisé selon masque");
+    println!("Y2 (min 256): [1, 1, 3, 3, 4, 6, 2, 8]");
+    println!("Y3 (max 256): [8, 2, 6, 4, 5, 7, 7, 9]");
+    println!("Y4 (cmp 256): masque de comparaison");
+    println!("Y6 (sqrt 256): [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]");
+    
+    program
+}
+
+/// Test de validation du cache SIMD avec opérations répétées
+fn simd_cache_validation_test() -> BytecodeFile {
+    let mut program = BytecodeFile::new();
+    
+    println!("=== CRÉATION DU TEST DE VALIDATION CACHE SIMD ===");
+    
+    // Métadonnées du programme
+    program.version = BytecodeVersion::new(0, 1, 0, 0);
+    program.add_metadata("name", "PunkVM SIMD Cache Validation");
+    program.add_metadata("description", "Test validation cache SIMD avec opérations répétées");
+    program.add_metadata("author", "PunkVM @YmC");
+    
+    // Initialiser les vecteurs de test
+    program.add_instruction(Instruction::create_simd128_const_i32x4(0, [100, 200, 300, 400]));
+    program.add_instruction(Instruction::create_simd128_const_i32x4(1, [10, 20, 30, 40]));
+    program.add_instruction(Instruction::create_simd128_const_i32x4(2, [1, 2, 3, 4]));
+    
+    println!("1. Initialisation: V0=[100,200,300,400], V1=[10,20,30,40], V2=[1,2,3,4]");
+    
+    // ============================================================================
+    // PHASE 1: Opérations répétées identiques (pour tester le cache)
+    // ============================================================================
+    println!("\n2. Test cache - 10 opérations Add identiques (V0 + V1)");
+    for i in 3..13 {
+        program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Simd128Add, i, 0, 1));
+    }
+    
+    println!("3. Test cache - 10 opérations Mul identiques (V0 * V2)");
+    for i in 13..23 {
+        program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Simd128Mul, i, 0, 2));
+    }
+    
+    // ============================================================================
+    // PHASE 2: Séquence d'opérations variées pour tester la gestion du cache
+    // ============================================================================
+    println!("\n4. Test cache - Séquence d'opérations variées");
+    
+    // Répéter la même séquence 3 fois pour valider le cache
+    for cycle in 0..3 {
+        let base_reg = 23 + cycle * 6;
+        
+        // V(base) = V0 + V1 (devrait être en cache après le premier cycle)
+        program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Simd128Add, base_reg, 0, 1));
+        
+        // V(base+1) = V0 * V2 (devrait être en cache après le premier cycle)
+        program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Simd128Mul, base_reg + 1, 0, 2));
+        
+        // V(base+2) = V1 - V2 (nouvelle opération)
+        program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Simd128Sub, base_reg + 2, 1, 2));
+        
+        // V(base+3) = V0 & V1 (opération logique)
+        program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Simd128And, base_reg + 3, 0, 1));
+        
+        // V(base+4) = V1 | V2 (opération logique)
+        program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Simd128Or, base_reg + 4, 1, 2));
+        
+        // V(base+5) = V0 ^ V2 (opération logique)
+        program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Simd128Xor, base_reg + 5, 0, 2));
+    }
+    
+    // ============================================================================
+    // PHASE 3: Test des opérations avancées avec cache
+    // ============================================================================
+    println!("\n5. Test cache - Opérations avancées répétées");
+    
+    // Vecteurs pour opérations flottantes
+    program.add_instruction(Instruction::create_simd128_const_f32x4(41, [4.0, 9.0, 16.0, 25.0]));
+    program.add_instruction(Instruction::create_simd128_const_f32x4(42, [2.0, 3.0, 4.0, 5.0]));
+    
+    // Répéter Sqrt 5 fois (opération coûteuse)
+    for i in 43..48 {
+        program.add_instruction(Instruction::create_reg_reg(Opcode::Simd128Sqrt, i, 41));
+    }
+    
+    // Répéter Min 5 fois
+    for i in 48..53 {
+        program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Simd128Min, i, 41, 42));
+    }
+    
+    // Répéter Max 5 fois
+    for i in 53..58 {
+        program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Simd128Max, i, 41, 42));
+    }
+    
+    println!("\n6. Instructions générées: ~70 instructions SIMD avec répétitions");
+    
+    // Fin du programme
+    program.add_instruction(Instruction::create_no_args(Opcode::Halt));
+    
+    // Configuration des segments
+    let total_code_size: u32 = program.code.iter()
+        .map(|instr| instr.total_size() as u32)
+        .sum();
+    program.segments = vec![SegmentMetadata::new(SegmentType::Code, 0, total_code_size, 0)];
+    
+    println!("\n=== VALIDATION ATTENDUE ===");
+    println!("- Premières opérations: cache misses");
+    println!("- Opérations répétées: cache hits élevés");
+    println!("- Taux de hit attendu: >70% après initialisation");
+    println!("- Performance améliorée sur opérations répétitives");
+    
     program
 }
 
