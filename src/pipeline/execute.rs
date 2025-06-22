@@ -411,9 +411,9 @@ impl ExecuteStage {
             // Instructions SIMD 128-bit
             Opcode::Simd128Add | Opcode::Simd128Sub | Opcode::Simd128Mul | Opcode::Simd128Div |
             Opcode::Simd128And | Opcode::Simd128Or | Opcode::Simd128Xor | Opcode::Simd128Not |
-            Opcode::Simd128Load | Opcode::Simd128Store | Opcode::Simd128Mov |
+            Opcode::Simd128Mov |
             Opcode::Simd128Cmp | Opcode::Simd128Min | Opcode::Simd128Max |
-            Opcode::Simd128Sqrt | Opcode::Simd128Shuffle => {
+            Opcode::Simd128Sqrt | Opcode::Simd128Shuffle  | Opcode::Simd128Const|Opcode::Simd128ConstF32 => {
                 self.execute_simd_128(&ex_reg.instruction.opcode, ex_reg)?;
                 // Pour les instructions SIMD, on retourne 0 car le résultat est dans les registres vectoriels
                 alu_result = 0;
@@ -423,9 +423,9 @@ impl ExecuteStage {
             // Instructions SIMD 256-bit
             Opcode::Simd256Add | Opcode::Simd256Sub | Opcode::Simd256Mul | Opcode::Simd256Div |
             Opcode::Simd256And | Opcode::Simd256Or | Opcode::Simd256Xor | Opcode::Simd256Not |
-            Opcode::Simd256Load | Opcode::Simd256Store | Opcode::Simd256Mov |
+             Opcode::Simd256Mov |
             Opcode::Simd256Cmp | Opcode::Simd256Min | Opcode::Simd256Max |
-            Opcode::Simd256Sqrt | Opcode::Simd256Shuffle => {
+            Opcode::Simd256Sqrt | Opcode::Simd256Shuffle | Opcode::Simd256Const |Opcode::Simd256ConstF32 => {
                 self.execute_simd_256(&ex_reg.instruction.opcode, ex_reg)?;
                 // Pour les instructions SIMD, on retourne 0 car le résultat est dans les registres vectoriels
                 alu_result = 0;
@@ -578,6 +578,14 @@ impl ExecuteStage {
             Opcode::Simd128Sqrt => VectorOperation::Sqrt,
             Opcode::Simd128Cmp => VectorOperation::Cmp,
             Opcode::Simd128Shuffle => VectorOperation::Shuffle,
+            Opcode::Simd128Load => {
+                // Chargement d'un vecteur 128-bit
+                let vector = self.vector_alu.read_v128(src1_reg)
+                    .map_err(|e| format!("Erreur lecture registre V128: {}", e))?;
+                self.vector_alu.write_v128(dst_reg, vector)
+                    .map_err(|e| format!("Erreur écriture registre V128: {}", e))?;
+                return Ok(());
+            }
             Opcode::Simd128Mov => {
                 // Mov vectoriel simple
                 let src_vector = self.vector_alu.read_v128(src1_reg)
