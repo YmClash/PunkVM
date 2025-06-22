@@ -96,6 +96,9 @@ pub enum Opcode {
     Simd128Sqrt = 0xAE,       // Racine carrée vectorielle 128-bit
     Simd128Shuffle = 0xAF,    // Mélange vectoriel 128-bit
     //0xB0 - 0xBF : Réservé pour autres instructions SIMD 128-bit
+    Simd128Const = 0xB0, // Constante vectorielle 128-bit
+    Simd128ConstF32 = 0xB1, // Constante vectorielle 128-bit (32 bits flottants)
+
 
     // Instructions SIMD 256-bit (0xC0 - 0xDF)  
     Simd256Add = 0xC0,        // Addition vectorielle 256-bit
@@ -115,6 +118,8 @@ pub enum Opcode {
     Simd256Sqrt = 0xCE,       // Racine carrée vectorielle 256-bit
     Simd256Shuffle = 0xCF,    // Mélange vectoriel 256-bit
     //0xD0 - 0xDF : Réservé pour autres instructions SIMD 256-bit
+    Simd256Const = 0xD0, // Constante vectorielle 256-bit
+    Simd256ConstF32 = 0xD1, // Constante vectorielle 256-bit (32 bits flottants)
 
     // Instructions FPU (0xE0 - 0xEF)
     FpuAdd = 0xE0,           // Addition flottante
