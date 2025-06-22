@@ -1189,6 +1189,120 @@ impl Instruction {
         
         Self::new(Opcode::Simd256ConstF32, fmt, args)
     }
+
+    /// Crée une instruction SIMD 128-bit const pour un vecteur i16x8 (8 x 16-bit integers)
+    pub fn create_simd128_const_i16x8(dst: u8, values: [i16; 8]) -> Self {
+        let fmt = InstructionFormat::new(ArgType::RegisterExt, ArgType::Immediate64, ArgType::Immediate64);
+        
+        // Encoder 8 x i16 en 2 x u64 (16 bytes total)
+        let mut bytes = [0u8; 16];
+        for (i, &val) in values.iter().enumerate() {
+            let val_bytes = val.to_le_bytes();
+            bytes[i * 2] = val_bytes[0];
+            bytes[i * 2 + 1] = val_bytes[1];
+        }
+        
+        // Diviser en deux u64
+        let low_bytes = &bytes[0..8];
+        let high_bytes = &bytes[8..16];
+        let imm1 = u64::from_le_bytes([
+            low_bytes[0], low_bytes[1], low_bytes[2], low_bytes[3],
+            low_bytes[4], low_bytes[5], low_bytes[6], low_bytes[7]
+        ]);
+        let imm2 = u64::from_le_bytes([
+            high_bytes[0], high_bytes[1], high_bytes[2], high_bytes[3],
+            high_bytes[4], high_bytes[5], high_bytes[6], high_bytes[7]
+        ]);
+        
+        let mut args = Vec::new();
+        args.push(dst); // Registre destination
+        args.extend_from_slice(&imm1.to_le_bytes()); // Première moitié (64 bits)
+        args.extend_from_slice(&imm2.to_le_bytes()); // Deuxième moitié (64 bits)
+        
+        Self::new(Opcode::Simd128ConstI16x8, fmt, args)
+    }
+
+    /// Crée une instruction SIMD 128-bit const pour un vecteur i64x2 (2 x 64-bit integers)
+    pub fn create_simd128_const_i64x2(dst: u8, values: [i64; 2]) -> Self {
+        let fmt = InstructionFormat::new(ArgType::RegisterExt, ArgType::Immediate64, ArgType::Immediate64);
+        
+        let mut args = Vec::new();
+        args.push(dst); // Registre destination
+        args.extend_from_slice(&(values[0] as u64).to_le_bytes()); // Premier i64
+        args.extend_from_slice(&(values[1] as u64).to_le_bytes()); // Deuxième i64
+        
+        Self::new(Opcode::Simd128ConstI64x2, fmt, args)
+    }
+
+    /// Crée une instruction SIMD 128-bit const pour un vecteur f64x2 (2 x 64-bit floats)
+    pub fn create_simd128_const_f64x2(dst: u8, values: [f64; 2]) -> Self {
+        let fmt = InstructionFormat::new(ArgType::RegisterExt, ArgType::Immediate64, ArgType::Immediate64);
+        
+        let mut args = Vec::new();
+        args.push(dst); // Registre destination
+        args.extend_from_slice(&values[0].to_bits().to_le_bytes()); // Premier f64
+        args.extend_from_slice(&values[1].to_bits().to_le_bytes()); // Deuxième f64
+        
+        Self::new(Opcode::Simd128ConstF64x2, fmt, args)
+    }
+
+    /// Crée une instruction SIMD 256-bit const pour un vecteur i16x16 (16 x 16-bit integers)
+    pub fn create_simd256_const_i16x16(dst: u8, values: [i16; 16]) -> Self {
+        let fmt = InstructionFormat::new(ArgType::RegisterExt, ArgType::Immediate64, ArgType::Immediate64);
+        
+        // Encoder 16 x i16 en 2 x u64 (utiliser seulement les 8 premiers pour la compatibilité)
+        let mut bytes = [0u8; 16];
+        for (i, &val) in values[0..8].iter().enumerate() {
+            let val_bytes = val.to_le_bytes();
+            bytes[i * 2] = val_bytes[0];
+            bytes[i * 2 + 1] = val_bytes[1];
+        }
+        
+        // Diviser en deux u64 (duplication comme pour les autres types 256-bit)
+        let low_bytes = &bytes[0..8];
+        let high_bytes = &bytes[8..16];
+        let imm1 = u64::from_le_bytes([
+            low_bytes[0], low_bytes[1], low_bytes[2], low_bytes[3],
+            low_bytes[4], low_bytes[5], low_bytes[6], low_bytes[7]
+        ]);
+        let imm2 = u64::from_le_bytes([
+            high_bytes[0], high_bytes[1], high_bytes[2], high_bytes[3],
+            high_bytes[4], high_bytes[5], high_bytes[6], high_bytes[7]
+        ]);
+        
+        let mut args = Vec::new();
+        args.push(dst); // Registre destination
+        args.extend_from_slice(&imm1.to_le_bytes()); // Première moitié
+        args.extend_from_slice(&imm2.to_le_bytes()); // Deuxième moitié
+        
+        Self::new(Opcode::Simd256ConstI16x16, fmt, args)
+    }
+
+    /// Crée une instruction SIMD 256-bit const pour un vecteur i64x4 (4 x 64-bit integers)
+    pub fn create_simd256_const_i64x4(dst: u8, values: [i64; 4]) -> Self {
+        let fmt = InstructionFormat::new(ArgType::RegisterExt, ArgType::Immediate64, ArgType::Immediate64);
+        
+        // Utiliser seulement les 2 premiers i64 (duplication comme pour les autres types 256-bit)
+        let mut args = Vec::new();
+        args.push(dst); // Registre destination
+        args.extend_from_slice(&(values[0] as u64).to_le_bytes()); // Premier i64
+        args.extend_from_slice(&(values[1] as u64).to_le_bytes()); // Deuxième i64
+        
+        Self::new(Opcode::Simd256ConstI64x4, fmt, args)
+    }
+
+    /// Crée une instruction SIMD 256-bit const pour un vecteur f64x4 (4 x 64-bit floats)
+    pub fn create_simd256_const_f64x4(dst: u8, values: [f64; 4]) -> Self {
+        let fmt = InstructionFormat::new(ArgType::RegisterExt, ArgType::Immediate64, ArgType::Immediate64);
+        
+        // Utiliser seulement les 2 premiers f64 (duplication comme pour les autres types 256-bit)
+        let mut args = Vec::new();
+        args.push(dst); // Registre destination
+        args.extend_from_slice(&values[0].to_bits().to_le_bytes()); // Premier f64
+        args.extend_from_slice(&values[1].to_bits().to_le_bytes()); // Deuxième f64
+        
+        Self::new(Opcode::Simd256ConstF64x4, fmt, args)
+    }
     
     /// Helper pour initialiser un vecteur en mémoire (pour usage avec les tests)
     /// Cette fonction retourne les instructions nécessaires pour stocker des valeurs
