@@ -116,6 +116,11 @@ impl Vector128 {
         Vector128 { f32x4: values }
     }
 
+    /// Cree un vecteur a partir de 2 valeurs i64
+    pub fn from_i64x2(values: [i64; 2]) -> Self {
+        Vector128 { i64x2: values }
+    }
+
     /// Cree un vecteur a partir de 2 valeurs f64
     pub fn from_f64x2(values: [f64; 2]) -> Self {
         Vector128 { f64x2: values }
@@ -250,6 +255,21 @@ impl Vector256 {
     /// Cree un vecteur a partir de 8 valeurs f32
     pub fn from_f32x8(values: [f32; 8]) -> Self {
         Vector256 { f32x8: values }
+    }
+
+    /// Cree un vecteur a partir de 16 valeurs i16
+    pub fn from_i16x16(values: [i16; 16]) -> Self {
+        Vector256 { i16x16: values }
+    }
+
+    /// Cree un vecteur a partir de 4 valeurs i64
+    pub fn from_i64x4(values: [i64; 4]) -> Self {
+        Vector256 { i64x4: values }
+    }
+
+    /// Cree un vecteur a partir de 4 valeurs f64
+    pub fn from_f64x4(values: [f64; 4]) -> Self {
+        Vector256 { f64x4: values }
     }
 
     /// Retourne la representation en bytes
