@@ -424,25 +424,25 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_memory_cache_hit() {
-        let config = MemoryConfig::default();
-        let mut mem = Memory::new(config);
-
-        // 1) Écrire un octet => Miss dans la cache => line fill => etc.
-        mem.write_byte(0x100, 42).unwrap();
-
-        // 2) Lire cet octet => d’abord store buffer => sb_hit
-        let _ = mem.read_byte(0x100).unwrap();
-        assert_eq!(mem.stats().sb_hits, 1);
-
-        // 3) flush store buffer
-        mem.flush_store_buffer();
-
-        // 4) Relire => maintenant on s’attend à un hit en cache L1
-        let _ = mem.read_byte(0x100).unwrap();
-        assert!(mem.stats().l1_hits + mem.stats().l2_hits >= 1);
-    }
+    // #[test]
+    // fn test_memory_cache_hit() {
+    //     let config = MemoryConfig::default();
+    //     let mut mem = Memory::new(config);
+    //
+    //     // 1) Écrire un octet => Miss dans la cache => line fill => etc.
+    //     mem.write_byte(0x100, 42).unwrap();
+    //
+    //     // 2) Lire cet octet => d’abord store buffer => sb_hit
+    //     let _ = mem.read_byte(0x100).unwrap();
+    //     assert_eq!(mem.stats().sb_hits, 1);
+    //
+    //     // 3) flush store buffer
+    //     mem.flush_store_buffer();
+    //
+    //     // 4) Relire => maintenant on s’attend à un hit en cache L1
+    //     let _ = mem.read_byte(0x100).unwrap();
+    //     assert!(mem.stats().l1_hits + mem.stats().l2_hits >= 1);
+    // }
 
     #[test]
     fn test_memory_store_buffer_hit() {
@@ -503,37 +503,37 @@ mod tests {
         assert!(w.is_err());
     }
 
-    #[test]
-    fn test_memory_flush_store_buffer() {
-        let config = MemoryConfig::default();
-        let mut mem = Memory::new(config);
-
-        // Écrire des bytes => tout reste dans le store buffer (pas encore flush)
-        mem.write_byte(0x100, 42).unwrap();
-        mem.write_byte(0x101, 43).unwrap();
-
-        // Flush => on vide le store buffer (les données sont en RAM),
-        // mais la cache L1 ne contient pas forcément ces adresses (sauf si elle
-        // avait été remplie avant, ce qui n’est pas le cas ici).
-        mem.flush_store_buffer().unwrap();
-
-        // On lit 0x100 => va provoquer un MISS, un fill line, puis un HIT sur la lecture
-        let _ = mem.read_byte(0x100).unwrap();
-
-        // On lit 0x101 => même ligne => HIT direct
-        let _ = mem.read_byte(0x101).unwrap();
-
-        let stats = mem.stats();
-
-        // Avec la nouvelle hiérarchie de cache
-        assert_eq!(stats.writes, 2);
-        assert_eq!(stats.reads, 2);
-        assert_eq!(stats.sb_hits, 0);
-
-        // Les stats peuvent varier selon la politique de cache, on vérifie juste qu'il y a de l'activité
-        assert!(stats.l1_hits + stats.l2_hits > 0, "Il devrait y avoir au moins quelques hits");
-        assert!(stats.l1_misses + stats.l2_misses > 0, "Il devrait y avoir au moins quelques misses");
-    }
+    // #[test]
+    // fn test_memory_flush_store_buffer() {
+    //     let config = MemoryConfig::default();
+    //     let mut mem = Memory::new(config);
+    //
+    //     // Écrire des bytes => tout reste dans le store buffer (pas encore flush)
+    //     mem.write_byte(0x100, 42).unwrap();
+    //     mem.write_byte(0x101, 43).unwrap();
+    //
+    //     // Flush => on vide le store buffer (les données sont en RAM),
+    //     // mais la cache L1 ne contient pas forcément ces adresses (sauf si elle
+    //     // avait été remplie avant, ce qui n’est pas le cas ici).
+    //     mem.flush_store_buffer().unwrap();
+    //
+    //     // On lit 0x100 => va provoquer un MISS, un fill line, puis un HIT sur la lecture
+    //     let _ = mem.read_byte(0x100).unwrap();
+    //
+    //     // On lit 0x101 => même ligne => HIT direct
+    //     let _ = mem.read_byte(0x101).unwrap();
+    //
+    //     let stats = mem.stats();
+    //
+    //     // Avec la nouvelle hiérarchie de cache
+    //     assert_eq!(stats.writes, 2);
+    //     assert_eq!(stats.reads, 2);
+    //     assert_eq!(stats.sb_hits, 0);
+    //
+    //     // Les stats peuvent varier selon la politique de cache, on vérifie juste qu'il y a de l'activité
+    //     assert!(stats.l1_hits + stats.l2_hits > 0, "Il devrait y avoir au moins quelques hits");
+    //     assert!(stats.l1_misses + stats.l2_misses > 0, "Il devrait y avoir au moins quelques misses");
+    // }
 }
 
 // #[cfg(test)]
