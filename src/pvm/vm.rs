@@ -110,6 +110,18 @@ pub struct VMStats {
     pub stack_current_depth: usize,  // Profondeur actuelle de la pile
     pub stack_max_depth: usize,      // Profondeur maximale de la pile
 
+    // Statistiques SIMD
+    pub simd128_ops: u64,            // Nombre d'opérations SIMD 128-bit
+    pub simd256_ops: u64,            // Nombre d'opérations SIMD 256-bit
+    pub simd_total_cycles: u64,      // Total de cycles SIMD
+    pub simd_ops_per_cycle: f64,     // Opérations SIMD par cycle
+    pub simd_parallel_ops: u64,      // Opérations SIMD parallélisées
+    
+    // Cache d'opérations SIMD
+    pub simd_cache_hits: u64,        // Hits dans le cache d'opérations SIMD
+    pub simd_cache_misses: u64,      // Misses dans le cache d'opérations SIMD
+    pub simd_cache_hit_rate: f64,    // Taux de réussite du cache SIMD
+
 }
 
 /// Machine virtuelle PunkVM
@@ -387,16 +399,6 @@ impl PunkVM {
             btb_correct_targets,
             btb_incorrect_targets,
             btb_accuracy,
-            
-            // Statistiques de la pile Stack
-            // stack_pushes: self.get_ras_stats().pushes,
-            // stack_pops: self.get_ras_stats().pops,
-            // stack_hits: self.get_ras_stats().hits,
-            // stack_misses: self.get_ras_stats().misses,
-            // stack_accuracy: self.get_ras_stats().accuracy,
-            // stack_current_depth: self.get_ras_stats().current_depth,
-            // stack_max_depth: self.get_ras_stats().max_depth,
-
 
             stack_pushes: mem_pushes,
             stack_pops: mem_pops,
@@ -405,6 +407,18 @@ impl PunkVM {
             stack_accuracy: 0.0,
             stack_current_depth: self.stack_stats.current_depth,
             stack_max_depth: self.stack_stats.max_depth,
+
+            // Statistiques SIMD récupérées du VectorALU
+            simd128_ops: self.get_vector_alu().get_simd_stats().simd128_ops,
+            simd256_ops: self.get_vector_alu().get_simd_stats().simd256_ops,
+            simd_total_cycles: self.get_vector_alu().get_simd_stats().total_simd_cycles,
+            simd_ops_per_cycle: self.get_vector_alu().get_simd_stats().simd_ops_per_cycle,
+            simd_parallel_ops: self.get_vector_alu().get_simd_stats().parallel_ops,
+            
+            // Statistiques du cache d'opérations SIMD
+            simd_cache_hits: self.get_vector_alu().get_cache_stats().0,
+            simd_cache_misses: self.get_vector_alu().get_cache_stats().1,
+            simd_cache_hit_rate: self.get_vector_alu().get_cache_stats().2,
         }
     }
 
