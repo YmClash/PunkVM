@@ -1017,27 +1017,209 @@ impl Instruction {
         Self::new(Opcode::Pop, fmt, vec![reg, imm8])
     }
 
-    /// Instruction Pou SIMD instruction
+    /// Instructions SIMD améliorées avec support des types
 
-    pub fn create_simd_vector_128(opcode: Opcode,reg:u8,reg1:u8,reg2:u8) -> Self {
+    /// Crée une instruction SIMD arithmétique/logique entre 3 registres vectoriels
+    pub fn create_simd_vector_128(opcode: Opcode, reg_dst: u8, reg_src1: u8, reg_src2: u8) -> Self {
         let fmt = InstructionFormat::simd_reg_reg();
-        let args = vec![reg & 0x0F, reg1 & 0x0F, reg2 & 0x0F];
+        let args = vec![reg_dst & 0x0F, reg_src1 & 0x0F, reg_src2 & 0x0F];
         Self::new(opcode, fmt, args)
-
     }
 
-    pub fn create_load_simd_vector_128(opcode: Opcode,reg_dest: u8, reg_base: u8, offset: i8) -> Self {
-        let fmt = InstructionFormat::simd_load_offset(); // (Register, RegisterOffset, None)?
+    /// Charge un vecteur 128-bit depuis la mémoire
+    pub fn create_load_simd_vector_128(opcode: Opcode, reg_dest: u8, reg_base: u8, offset: i8) -> Self {
+        let fmt = InstructionFormat::simd_load_offset();  // (RegisterEx, RegisterOffset, None)?
         let args = vec![reg_dest & 0x0F, reg_base & 0x0F, offset as u8];
-        // Self::new(Opcode::LoadSimd, fmt, args)
         Self::new(opcode, fmt, args)
     }
 
+    /// Stocke un vecteur 128-bit en mémoire
     pub fn create_store_simd_vector_128(opcode: Opcode, reg_src: u8, reg_base: u8, offset: i8) -> Self {
-        let fmt = InstructionFormat::simd_store_offset(); // (Register, RegisterOffset, None)?
+        let fmt = InstructionFormat::simd_store_offset();
         let args = vec![reg_src & 0x0F, reg_base & 0x0F, offset as u8];
         Self::new(opcode, fmt, args)
     }
+
+    /// Helpers spécifiques pour chaque type d'opération SIMD
+
+    /// Addition vectorielle 128-bit (utilise Simd128Add)
+    pub fn create_simd128_add(dst: u8, src1: u8, src2: u8) -> Self {
+        Self::create_simd_vector_128(Opcode::Simd128Add, dst, src1, src2)
+    }
+
+    /// Soustraction vectorielle 128-bit
+    pub fn create_simd128_sub(dst: u8, src1: u8, src2: u8) -> Self {
+        Self::create_simd_vector_128(Opcode::Simd128Sub, dst, src1, src2)
+    }
+
+    /// Multiplication vectorielle 128-bit
+    pub fn create_simd128_mul(dst: u8, src1: u8, src2: u8) -> Self {
+        Self::create_simd_vector_128(Opcode::Simd128Mul, dst, src1, src2)
+    }
+
+    /// Division vectorielle 128-bit
+    pub fn create_simd128_div(dst: u8, src1: u8, src2: u8) -> Self {
+        Self::create_simd_vector_128(Opcode::Simd128Div, dst, src1, src2)
+    }
+
+    /// ET logique vectoriel 128-bit
+    pub fn create_simd128_and(dst: u8, src1: u8, src2: u8) -> Self {
+        Self::create_simd_vector_128(Opcode::Simd128And, dst, src1, src2)
+    }
+
+    /// OU logique vectoriel 128-bit
+    pub fn create_simd128_or(dst: u8, src1: u8, src2: u8) -> Self {
+        Self::create_simd_vector_128(Opcode::Simd128Or, dst, src1, src2)
+    }
+
+    /// XOR vectoriel 128-bit
+    pub fn create_simd128_xor(dst: u8, src1: u8, src2: u8) -> Self {
+        Self::create_simd_vector_128(Opcode::Simd128Xor, dst, src1, src2)
+    }
+
+    /// NOT vectoriel 128-bit (unaire)
+    pub fn create_simd128_not(dst: u8, src: u8) -> Self {
+        let fmt = InstructionFormat::new(ArgType::RegisterExt, ArgType::RegisterExt, ArgType::None);
+        let args = vec![dst & 0x0F, src & 0x0F];
+        Self::new(Opcode::Simd128Not, fmt, args)
+    }
+
+    /// Charge un vecteur depuis la mémoire
+    pub fn create_simd128_load(dst: u8, base: u8, offset: i8) -> Self {
+        Self::create_load_simd_vector_128(Opcode::Simd128Load, dst, base, offset)
+    }
+
+    /// Stocke un vecteur en mémoire
+    pub fn create_simd128_store(src: u8, base: u8, offset: i8) -> Self {
+        Self::create_store_simd_vector_128(Opcode::Simd128Store, src, base, offset)
+    }
+
+    /// Déplace un vecteur entre registres
+    pub fn create_simd128_mov(dst: u8, src: u8) -> Self {
+        let fmt = InstructionFormat::new(ArgType::RegisterExt, ArgType::RegisterExt, ArgType::None);
+        let args = vec![dst & 0x0F, src & 0x0F];
+        Self::new(Opcode::Simd128Mov, fmt, args)
+    }
+
+    /// Helpers pour vecteurs 256-bit
+
+    /// Addition vectorielle 256-bit
+    pub fn create_simd256_add(dst: u8, src1: u8, src2: u8) -> Self {
+        Self::create_simd_vector_128(Opcode::Simd256Add, dst, src1, src2)
+    }
+
+    /// Soustraction vectorielle 256-bit
+    pub fn create_simd256_sub(dst: u8, src1: u8, src2: u8) -> Self {
+        Self::create_simd_vector_128(Opcode::Simd256Sub, dst, src1, src2)
+    }
+
+    /// Multiplication vectorielle 256-bit
+    pub fn create_simd256_mul(dst: u8, src1: u8, src2: u8) -> Self {
+        Self::create_simd_vector_128(Opcode::Simd256Mul, dst, src1, src2)
+    }
+
+    /// ET logique vectoriel 256-bit
+    pub fn create_simd256_and(dst: u8, src1: u8, src2: u8) -> Self {
+        Self::create_simd_vector_128(Opcode::Simd256And, dst, src1, src2)
+    }
+
+    /// OU logique vectoriel 256-bit
+    pub fn create_simd256_or(dst: u8, src1: u8, src2: u8) -> Self {
+        Self::create_simd_vector_128(Opcode::Simd256Or, dst, src1, src2)
+    }
+
+    /// XOR vectoriel 256-bit
+    pub fn create_simd256_xor(dst: u8, src1: u8, src2: u8) -> Self {
+        Self::create_simd_vector_128(Opcode::Simd256Xor, dst, src1, src2)
+    }
+
+    /// Helpers pour initialisation de vecteurs avec constantes
+    
+    /// Crée une instruction pour charger une constante vectorielle 128-bit
+    pub fn create_simd128_const_i32x4(dst: u8, values: [i32; 4]) -> Self {
+        // Maintenant on utilise l'opcode Simd128Const implémenté
+        let fmt = InstructionFormat::new(ArgType::RegisterExt, ArgType::Immediate64, ArgType::Immediate64);
+        let mut args = vec![dst & 0x0F];
+        
+        // Encoder les 4 valeurs i32 dans 16 bytes
+        for val in values.iter() {
+            args.extend_from_slice(&val.to_le_bytes());
+        }
+        
+        Self::new(Opcode::Simd128Const, fmt, args)
+    }
+
+    /// Crée une instruction pour charger une constante vectorielle f32x4
+    pub fn create_simd128_const_f32x4(dst: u8, values: [f32; 4]) -> Self {
+        // Maintenant on utilise l'opcode Simd128ConstF32 implémenté
+        let fmt = InstructionFormat::new(ArgType::RegisterExt, ArgType::Immediate64, ArgType::Immediate64);
+        let mut args = vec![dst & 0x0F];
+        
+        // Encoder les 4 valeurs f32 dans 16 bytes
+        for val in values.iter() {
+            args.extend_from_slice(&val.to_le_bytes());
+        }
+        
+        Self::new(Opcode::Simd128ConstF32, fmt, args)
+    }
+
+    /// Crée une instruction pour charger une constante vectorielle 256-bit
+    pub fn create_simd256_const_i32x8(dst: u8, values: [i32; 8]) -> Self {
+        // Format avec plusieurs immediates pour encoder 32 bytes
+        let fmt = InstructionFormat::new(ArgType::RegisterExt, ArgType::Immediate64, ArgType::Immediate64);
+        let mut args = vec![dst & 0x0F];
+        
+        // Encoder les 8 valeurs i32 dans 32 bytes
+        for val in values.iter() {
+            args.extend_from_slice(&val.to_le_bytes());
+        }
+        
+        Self::new(Opcode::Simd256Const, fmt, args)
+    }
+
+    /// Crée une instruction pour charger une constante vectorielle f32x8
+    pub fn create_simd256_const_f32x8(dst: u8, values: [f32; 8]) -> Self {
+        let fmt = InstructionFormat::new(ArgType::RegisterExt, ArgType::Immediate64, ArgType::Immediate64);
+        let mut args = vec![dst & 0x0F];
+        
+        // Encoder les 8 valeurs f32 dans 32 bytes
+        for val in values.iter() {
+            args.extend_from_slice(&val.to_le_bytes());
+        }
+        
+        Self::new(Opcode::Simd256ConstF32, fmt, args)
+    }
+    
+    /// Helper pour initialiser un vecteur en mémoire (pour usage avec les tests)
+    /// Cette fonction retourne les instructions nécessaires pour stocker des valeurs
+    /// scalaires qui formeront un vecteur en mémoire
+    pub fn create_simd128_init_sequence(base_reg: u8, base_addr: u16, values: [i32; 4]) -> Vec<Self> {
+        let mut instructions = Vec::new();
+        
+        // Charger l'adresse de base
+        instructions.push(Self::create_reg_imm16(Opcode::Mov, base_reg, base_addr));
+        
+        // Pour chaque valeur, la stocker en mémoire
+        for (i, &val) in values.iter().enumerate() {
+            // Charger la valeur dans un registre temporaire (utilisons R15)
+            if val <= 255 {
+                instructions.push(Self::create_reg_imm8(Opcode::Mov, 15, val as u8));
+            } else if val <= 65535 {
+                instructions.push(Self::create_reg_imm16(Opcode::Mov, 15, val as u16));
+            } else {
+                instructions.push(Self::create_reg_imm32(Opcode::Mov, 15, val as u32));
+            }
+            
+            // Stocker à l'offset approprié (i * 4 pour des i32)
+            instructions.push(Self::create_store_reg_offset(Opcode::Store, 15, base_reg, (i * 4) as i8));
+        }
+        
+        instructions
+    }
+
+
+
+
 }
 
 pub fn calculate_branch_offset(from_addr:u32,to_addr:u32,instr_size:u32) -> i32{
