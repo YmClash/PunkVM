@@ -12,6 +12,81 @@ pub struct VectorALU {
     pub v256_registers: [Vector256; 16],
     /// Flags de status vectoriel
     pub flags: VectorFlags,
+    /// Cache pour optimiser les opérations répétitives
+    pub operation_cache: VectorOperationCache,
+    /// Statistiques de performance SIMD
+    pub simd_stats: SimdPerformanceStats,
+}
+
+/// Cache pour optimiser les opérations vectorielles répétitives
+#[derive(Debug, Clone)]
+pub struct VectorOperationCache {
+    /// Dernière opération 128-bit effectuée
+    pub last_128_op: Option<(VectorOperation, u8, u8, VectorDataType)>,
+    /// Résultat de la dernière opération 128-bit
+    pub last_128_result: Option<Vector128>,
+    /// Dernière opération 256-bit effectuée
+    pub last_256_op: Option<(VectorOperation, u8, u8, Vector256DataType)>,
+    /// Résultat de la dernière opération 256-bit
+    pub last_256_result: Option<Vector256>,
+    /// Compteur de hits du cache
+    pub cache_hits: u64,
+    /// Compteur de misses du cache
+    pub cache_misses: u64,
+}
+
+/// Statistiques de performance SIMD
+#[derive(Debug, Clone, Default)]
+pub struct SimdPerformanceStats {
+    /// Nombre total d'opérations SIMD 128-bit
+    pub simd128_ops: u64,
+    /// Nombre total d'opérations SIMD 256-bit
+    pub simd256_ops: u64,
+    /// Temps total d'exécution SIMD (en cycles simulés)
+    pub total_simd_cycles: u64,
+    /// Opérations par cycle SIMD moyen
+    pub simd_ops_per_cycle: f64,
+    /// Nombre d'opérations parallélisées
+    pub parallel_ops: u64,
+}
+
+impl VectorOperationCache {
+    pub fn new() -> Self {
+        Self {
+            last_128_op: None,
+            last_128_result: None,
+            last_256_op: None,
+            last_256_result: None,
+            cache_hits: 0,
+            cache_misses: 0,
+        }
+    }
+    
+    /// Vérifie si l'opération 128-bit est en cache
+    pub fn check_128_cache(&self, op: VectorOperation, src1: u8, src2: u8, data_type: VectorDataType) -> Option<Vector128> {
+        if let Some((cached_op, cached_src1, cached_src2, cached_type)) = &self.last_128_op {
+            if *cached_op == op && *cached_src1 == src1 && *cached_src2 == src2 && *cached_type == data_type {
+                return self.last_128_result;
+            }
+        }
+        None
+    }
+    
+    /// Met en cache le résultat d'une opération 128-bit
+    pub fn cache_128_result(&mut self, op: VectorOperation, src1: u8, src2: u8, data_type: VectorDataType, result: Vector128) {
+        self.last_128_op = Some((op, src1, src2, data_type));
+        self.last_128_result = Some(result);
+    }
+    
+    /// Statistiques du cache
+    pub fn cache_hit_rate(&self) -> f64 {
+        let total = self.cache_hits + self.cache_misses;
+        if total > 0 {
+            (self.cache_hits as f64 / total as f64) * 100.0
+        } else {
+            0.0
+        }
+    }
 }
 
 /// Flags de status pour operations vectorielles
@@ -70,6 +145,8 @@ impl VectorALU {
             v128_registers: [Vector128::zero(); 16],
             v256_registers: [Vector256::zero(); 16],
             flags: VectorFlags::default(),
+            operation_cache: VectorOperationCache::new(),
+            simd_stats: SimdPerformanceStats::default(),
         }
     }
 
@@ -127,6 +204,19 @@ impl VectorALU {
         src2: Option<u8>,
         data_type: VectorDataType,
     ) -> VMResult<()> {
+        // Optimisation SIMD : Vérifier le cache d'abord
+        let src2_reg = src2.unwrap_or(0);
+        if let Some(cached_result) = self.operation_cache.check_128_cache(op, src1, src2_reg, data_type) {
+            self.operation_cache.cache_hits += 1;
+            self.write_v128(dst, cached_result)?;
+            println!("SIMD Cache Hit: V{} = cached result", dst);
+            return Ok(());
+        }
+        
+        // Cache miss - exécuter l'opération normalement
+        self.operation_cache.cache_misses += 1;
+        self.simd_stats.simd128_ops += 1;
+        
         let vec1 = self.read_v128(src1)?;
         
         let result = match op {
@@ -179,6 +269,9 @@ impl VectorALU {
             }
         };
 
+        // Mettre en cache le résultat pour les futurs accès
+        self.operation_cache.cache_128_result(op, src1, src2_reg, data_type, result);
+        
         self.write_v128(dst, result)
     }
 
@@ -1180,6 +1273,49 @@ impl VectorALU {
     pub fn clear_flags(&mut self) {
         self.flags = VectorFlags::default();
     }
+
+    /// Retourne les statistiques de performance SIMD
+    pub fn get_simd_stats(&self) -> &SimdPerformanceStats {
+        &self.simd_stats
+    }
+    
+    /// Retourne les statistiques du cache d'opérations
+    pub fn get_cache_stats(&self) -> (u64, u64, f64) {
+        (
+            self.operation_cache.cache_hits,
+            self.operation_cache.cache_misses,
+            self.operation_cache.cache_hit_rate()
+        )
+    }
+    
+    /// Met à jour les statistiques de performance SIMD
+    pub fn update_simd_performance(&mut self, cycles: u64) {
+        self.simd_stats.total_simd_cycles += cycles;
+        let total_ops = self.simd_stats.simd128_ops + self.simd_stats.simd256_ops;
+        if total_ops > 0 {
+            self.simd_stats.simd_ops_per_cycle = total_ops as f64 / self.simd_stats.total_simd_cycles as f64;
+        }
+    }
+    
+    /// Affiche un rapport de performance SIMD détaillé
+    pub fn print_simd_performance_report(&self) {
+        println!("\n===== RAPPORT DE PERFORMANCE SIMD =====");
+        println!("Opérations SIMD 128-bit: {}", self.simd_stats.simd128_ops);
+        println!("Opérations SIMD 256-bit: {}", self.simd_stats.simd256_ops);
+        println!("Total cycles SIMD: {}", self.simd_stats.total_simd_cycles);
+        println!("Opérations/cycle SIMD: {:.2}", self.simd_stats.simd_ops_per_cycle);
+        println!("Opérations parallélisées: {}", self.simd_stats.parallel_ops);
+        
+        let (hits, misses, hit_rate) = self.get_cache_stats();
+        println!("\n--- Cache d'Opérations SIMD ---");
+        println!("Cache hits: {}", hits);
+        println!("Cache misses: {}", misses);
+        println!("Taux de réussite du cache: {:.2}%", hit_rate);
+        
+        if hits + misses > 0 {
+            println!("Efficacité du cache: {}%", ((hits as f64 / (hits + misses) as f64) * 100.0) as u32);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1218,6 +1354,12 @@ mod tests {
             assert_eq!(result.i32x8, [1, 2, 3, 4, 5, 6, 7, 8]);
         }
     }
+
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
 
     #[test]
     fn test_v128_addition() {
