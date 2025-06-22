@@ -4,7 +4,6 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, Read, Write};
 use std::path::Path;
-use crate::bytecode::simds::{SimdInstruction, Vector128};
 use super::instructions::Instruction;
 
 ///Signature d'un fichier de bytecode PunkVM (PunkVM en ASCII)
