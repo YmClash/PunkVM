@@ -413,7 +413,15 @@ impl PunkVM {
         self.get_ras_stats()
     }
 
+    /// Retourne une référence au VectorALU pour accéder aux registres vectoriels
+    pub fn get_vector_alu(&self) -> &crate::alu::v_alu::VectorALU {
+        self.pipeline.get_execute_stage().get_vector_alu()
+    }
 
+    /// Retourne une référence mutable au VectorALU
+    pub fn get_vector_alu_mut(&mut self) -> &mut crate::alu::v_alu::VectorALU {
+        self.pipeline.get_execute_stage_mut().get_vector_alu_mut()
+    }
 
     /// Retourne l'état actuel de la VM
     pub fn state(&self) -> &VMState {
