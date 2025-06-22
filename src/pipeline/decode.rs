@@ -234,6 +234,75 @@ impl DecodeStage {
                 }
             }
 
+            // Instructions SIMD 128-bit arithmétiques et logiques
+            Opcode::Simd128Add
+            | Opcode::Simd128Sub
+            | Opcode::Simd128Mul
+            | Opcode::Simd128Div
+            | Opcode::Simd128And
+            | Opcode::Simd128Or
+            | Opcode::Simd128Xor
+            | Opcode::Simd128Cmp
+            | Opcode::Simd128Min
+            | Opcode::Simd128Max
+            | Opcode::Simd256Add
+            | Opcode::Simd256Sub
+            | Opcode::Simd256Mul
+            | Opcode::Simd256Div
+            | Opcode::Simd256And
+            | Opcode::Simd256Or
+            | Opcode::Simd256Xor => {
+                // Format: rd, rs1, rs2 (3 registres)
+                if let Ok(ArgValue::Register(r)) = instruction.get_arg1_value() {
+                    rd = Some(r as usize);
+                }
+                if let Ok(ArgValue::Register(r)) = instruction.get_arg2_value() {
+                    rs1 = Some(r as usize);
+                }
+                if let Ok(ArgValue::Register(r)) = instruction.get_arg3_value() {
+                    rs2 = Some(r as usize);
+                }
+            }
+
+            // Instructions SIMD unaires
+            Opcode::Simd128Not
+            | Opcode::Simd128Sqrt
+            | Opcode::Simd128Shuffle
+            | Opcode::Simd256Not
+            | Opcode::Simd256Sqrt
+            | Opcode::Simd256Shuffle => {
+                // Format: rd, rs1 (2 registres)
+                if let Ok(ArgValue::Register(r)) = instruction.get_arg1_value() {
+                    rd = Some(r as usize);
+                }
+                if let Ok(ArgValue::Register(r)) = instruction.get_arg2_value() {
+                    rs1 = Some(r as usize);
+                }
+            }
+
+            // Instructions SIMD de mouvement
+            Opcode::Simd128Mov | Opcode::Simd256Mov => {
+                // Format: rd, rs1 (2 registres)
+                if let Ok(ArgValue::Register(r)) = instruction.get_arg1_value() {
+                    rd = Some(r as usize);
+                }
+                if let Ok(ArgValue::Register(r)) = instruction.get_arg2_value() {
+                    rs1 = Some(r as usize);
+                }
+            }
+
+            // Instructions SIMD de constantes
+            Opcode::Simd128Const
+            | Opcode::Simd128ConstF32
+            | Opcode::Simd256Const
+            | Opcode::Simd256ConstF32 => {
+                // Format: rd, imm1, imm2 (1 registre + constantes)
+                if let Ok(ArgValue::Register(r)) = instruction.get_arg1_value() {
+                    rd = Some(r as usize);
+                }
+                // Pas de registres sources pour les constantes
+            }
+
             // Instructions à un registre (destination = premier argument)
             Opcode::Inc | Opcode::Dec | Opcode::Neg | Opcode::Not => {
                 if let Ok(ArgValue::Register(r)) = instruction.get_arg1_value() {
