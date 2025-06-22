@@ -47,6 +47,7 @@ pub enum VectorOperation {
     Sqrt,
     Cmp,
     Shuffle,
+
 }
 
 /// Resultats d'operations vectorielles
@@ -1165,6 +1166,10 @@ impl VectorALU {
             self.flags.sign = (bytes[31] & 0x80) != 0; // Bit de signe du dernier byte
         }
     }
+
+    /// ALU vectorielle pour les operations SIMD
+
+
 
     /// Retourne les flags vectoriels actuels
     pub fn get_flags(&self) -> VectorFlags {
