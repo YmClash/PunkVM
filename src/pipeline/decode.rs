@@ -256,7 +256,8 @@ impl DecodeStage {
             }
 
             // Instructions de charge (load)
-            Opcode::Load | Opcode::LoadB | Opcode::LoadW | Opcode::LoadD => {
+            Opcode::Load | Opcode::LoadB | Opcode::LoadW | Opcode::LoadD |
+            Opcode::Simd128Load | Opcode::Simd256Load => {
                 if let Ok(ArgValue::Register(r)) = instruction.get_arg1_value() {
                     rd = Some(r as usize);
                     println!("Registre destination: {:?}", rd);
@@ -270,7 +271,8 @@ impl DecodeStage {
             }
 
             // Instructions de stockage (store)
-            Opcode::Store | Opcode::StoreB | Opcode::StoreW | Opcode::StoreD => {
+            Opcode::Store | Opcode::StoreB | Opcode::StoreW | Opcode::StoreD |
+            Opcode::Simd128Store | Opcode::Simd256Store => {
                 if let Ok(ArgValue::Register(r)) = instruction.get_arg1_value() {
                     rs1 = Some(r as usize); // Registre contenant la valeur à stocker
                     println!("Registre source: {:?}", rs1);
