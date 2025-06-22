@@ -101,13 +101,72 @@ fn main() -> VMResult<()> {
 }
 
 fn print_registers(vm: &VM) {
+    // Affichage des registres généraux
+    println!("\n===== REGISTRES GÉNÉRAUX =====");
     for i in 0..16 {
-        if i % 4 == 0 {
+        if i % 4 == 0 && i > 0 {
             println!();
         }
         print!("R{:<2} = {:<10}", i, vm.registers[i]);
+        if i % 4 == 3 {
+            println!();
+        }
     }
-    println!("\n");
+    
+    // Affichage des registres spéciaux (SP, BP, RA)
+    if vm.registers.len() > 16 {
+        println!("\n===== REGISTRES SPÉCIAUX =====");
+        for i in 16..vm.registers.len() {
+            let reg_name = match i {
+                16 => "SP ",
+                17 => "BP ",
+                18 => "RA ",
+                _ => "R  ",
+            };
+            print!("{} = {:<10}  ", reg_name, vm.registers[i]);
+        }
+        println!();
+    }
+    
+    // Affichage des registres vectoriels 128-bit
+    println!("\n===== REGISTRES VECTORIELS 128-BIT =====");
+    let vector_alu = vm.get_vector_alu();
+    for i in 0..16 {
+        let v128 = vector_alu.v128_registers[i];
+        unsafe {
+            // Affichage en format i32x4 (le plus courant)
+            print!("\nV{:<2} = [{:>6}, {:>6}, {:>6}, {:>6}]",
+                i, v128.i32x4[0], v128.i32x4[1], v128.i32x4[2], v128.i32x4[3]);
+            
+            if i % 2 == 1 {
+                println!();
+            } else {
+                print!("  ");
+            }
+        }
+    }
+    
+    // Affichage des registres vectoriels 256-bit
+    println!("\n\n===== REGISTRES VECTORIELS 256-BIT =====");
+    for i in 0..16 {
+        let v256 = vector_alu.v256_registers[i];
+        unsafe {
+            // Affichage en format i32x8 (le plus courant)
+            print!("Y{:<2} = [{:>6}, {:>6}, {:>6}, {:>6}, {:>6}, {:>6}, {:>6}, {:>6}]", 
+                i, 
+                v256.i32x8[0], v256.i32x8[1], v256.i32x8[2], v256.i32x8[3],
+                v256.i32x8[4], v256.i32x8[5], v256.i32x8[6], v256.i32x8[7]);
+            println!();
+        }
+    }
+    
+    // Affichage des flags vectoriels
+    println!("\n===== FLAGS VECTORIELS =====");
+    let flags = &vector_alu.flags;
+    println!("Zero: {} | Sign: {} | Overflow: {} | Underflow: {} | Denormal: {} | Invalid: {}",
+        flags.zero, flags.sign, flags.overflow, flags.underflow, flags.denormal, flags.invalid);
+    
+    println!();
 }
 
 fn print_stats(vm: &VM) {
@@ -1530,35 +1589,134 @@ fn simd_instruction_test() -> BytecodeFile {
     let mut program = BytecodeFile::new();
     program.version = BytecodeVersion::new(0, 1, 0, 0);
     program.add_metadata("name", "PunkVM SIMD Instruction Test");
-    program.add_metadata("description", "Test des instructions SIMD de PunkVM");
+    program.add_metadata("description", "Test complet des instructions SIMD avec nouveaux helpers");
     program.add_metadata("author", "PunkVM Team");
 
     println!("=== CRÉATION DU TEST D'INSTRUCTIONS SIMD ===");
 
-    // Initialisation des registres
-    for i in 0..16 {
-        program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, i, i as u8 + 1)); // R0-R7 = 1-8
-    }
-    //
-    // Test d'addition vectorielle
-    println!("Test d'addition vectorielle");
+    // ============================================================================
+    // SECTION 1: INITIALISATION DES VECTEURS CONSTANTS
+    // ============================================================================
+    println!("\n1. Initialisation des vecteurs constants");
+    
+    // Maintenant on utilise directement les instructions de constantes SIMD
+    
+    // V0 = [1, 2, 3, 4]
+    program.add_instruction(Instruction::create_simd128_const_i32x4(0, [1, 2, 3, 4]));
+    
+    // V1 = [5, 6, 7, 8]
+    program.add_instruction(Instruction::create_simd128_const_i32x4(1, [5, 6, 7, 8]));
+    
+    // V2 = [10, 20, 30, 40]
+    program.add_instruction(Instruction::create_simd128_const_i32x4(2, [10, 20, 30, 40]));
+    
+    // V3 = [1.0, 2.0, 3.0, 4.0] (float)
+    program.add_instruction(Instruction::create_simd128_const_f32x4(3, [1.0, 2.0, 3.0, 4.0]));
+    
+    // V4 = [5.5, 6.5, 7.5, 8.5] (float)
+    program.add_instruction(Instruction::create_simd128_const_f32x4(4, [5.5, 6.5, 7.5, 8.5]));
+    
+    // Vecteurs 256-bit pour démonstration
+    // Y0 = [1, 2, 3, 4, 5, 6, 7, 8]
+    program.add_instruction(Instruction::create_simd256_const_i32x8(0, [1, 2, 3, 4, 5, 6, 7, 8]));
+    
+    // Y1 = [10, 20, 30, 40, 50, 60, 70, 80]
+    program.add_instruction(Instruction::create_simd256_const_i32x8(1, [10, 20, 30, 40, 50, 60, 70, 80]));
 
-    // program.add_simd_instruction(Vector128::from_i32x4([1, 2, 3, 4])); // R0 = R1 + R2
-    // program.add_simd_instruction(Vector128::from_i32x4([5, 6, 7, 8])); // R3 = R4 + R5
-    program.add_instruction(Instruction::create_simd_vector_128(Opcode::Simd128Add, 0, 1, 2)); // R0 = R1 + R2
-    //
-    // // Test de multiplication vectorielle
-    // println!("Test de multiplication vectorielle");
-    // program.add_instruction(Instruction::create_simd_mul(6, 7, 0)); // R6 = R7 * R0
-    //
-    // // Test de soustraction vectorielle
-    // println!("Test de soustraction vectorielle");
-    // program.add_instruction(Instruction::create_simd_sub(1, 2, 3)); // R1 = R2 - R3
-    //
-    // Test de chargement et stockage SIMD
-    // println!("Test de chargement et stockage SIMD");
-    // program.add_instruction(Instruction::create_load_simd(8, 0x1000)); // Charger depuis l'adresse mémoire
-    // program.add_instruction(Instruction::create_store_simd(9, 0x2000)); // Stocker à l'adresse mémoire
+    // ============================================================================
+    // SECTION 2: OPÉRATIONS ARITHMÉTIQUES VECTORIELLES
+    // ============================================================================
+    println!("\n2. Opérations arithmétiques vectorielles");
+    
+    // Addition: V5 = V0 + V1 = [6, 8, 10, 12]
+    program.add_instruction(Instruction::create_simd128_add(5, 0, 1));
+    println!("   V5 = V0 + V1 = [6, 8, 10, 12]");
+    
+    // Soustraction: V6 = V2 - V1 = [5, 14, 23, 32]
+    program.add_instruction(Instruction::create_simd128_sub(6, 2, 1));
+    println!("   V6 = V2 - V1 = [5, 14, 23, 32]");
+    
+    // Multiplication: V7 = V0 * V1 = [5, 12, 21, 32]
+    program.add_instruction(Instruction::create_simd128_mul(7, 0, 1));
+    println!("   V7 = V0 * V1 = [5, 12, 21, 32]");
+    
+    // Division: V8 = V2 / V0 = [10, 10, 10, 10]
+    program.add_instruction(Instruction::create_simd128_div(8, 2, 0));
+    println!("   V8 = V2 / V0 = [10, 10, 10, 10]");
+
+    // ============================================================================
+    // SECTION 3: OPÉRATIONS LOGIQUES VECTORIELLES
+    // ============================================================================
+    println!("\n3. Opérations logiques vectorielles");
+    
+    // Utiliser les vecteurs déjà chargés pour les opérations logiques
+    // AND: V9 = V0 & V1
+    program.add_instruction(Instruction::create_simd128_and(9, 0, 1));
+    println!("   V9 = V0 & V1");
+    
+    // OR: V10 = V0 | V1
+    program.add_instruction(Instruction::create_simd128_or(10, 0, 1));
+    println!("   V10 = V0 | V1");
+    
+    // XOR: V11 = V0 ^ V1
+    program.add_instruction(Instruction::create_simd128_xor(11, 0, 1));
+    println!("   V11 = V0 ^ V1");
+    
+    // NOT: V12 = ~V0
+    program.add_instruction(Instruction::create_simd128_not(12, 0));
+    println!("   V12 = ~V0");
+
+    // ============================================================================
+    // SECTION 4: MOUVEMENT ET COPIE DE VECTEURS
+    // ============================================================================
+    println!("\n4. Mouvement de vecteurs");
+    
+    // Copier V5 dans V13
+    program.add_instruction(Instruction::create_simd128_mov(13, 5));
+    println!("   V13 = V5 (copie)");
+
+    // ============================================================================
+    // SECTION 5: MÉMOIRE VECTORIELLE (Load/Store)
+    // ============================================================================
+    println!("\n5. Opérations mémoire vectorielles");
+    
+    // Initialiser un registre de base pour les adresses de stockage
+    program.add_instruction(Instruction::create_reg_imm16(Opcode::Mov, 13, 0x3000)); // R13 = 0x3000
+    
+    // Stocker V5 à l'adresse R13 + 0
+    program.add_instruction(Instruction::create_simd128_store(5, 13, 0));
+    println!("   Store V5 -> [R13 + 0]");
+    
+    // Stocker V7 à l'adresse R13 + 16
+    program.add_instruction(Instruction::create_simd128_store(7, 13, 16));
+    println!("   Store V7 -> [R13 + 16]");
+    
+    // Charger depuis la mémoire dans V14
+    program.add_instruction(Instruction::create_simd128_load(14, 13, 0));
+    println!("   Load [R13 + 0] -> V14");
+
+    // ============================================================================
+    // SECTION 6: TESTS AVEC VECTEURS 256-bit
+    // ============================================================================
+    println!("\n6. Opérations vectorielles 256-bit");
+    
+    // Addition 256-bit: V15 = V0 + V1 (interprétés comme 256-bit)
+    program.add_instruction(Instruction::create_simd256_add(15, 0, 1));
+    println!("   V15 = V0 + V1 (256-bit)");
+    
+    // Multiplication 256-bit: V16 = V2 * V0
+    program.add_instruction(Instruction::create_simd256_mul(16, 2, 0));
+    println!("   V16 = V2 * V0 (256-bit)");
+
+    // ============================================================================
+    // SECTION 7: CHAÎNAGE D'OPÉRATIONS
+    // ============================================================================
+    println!("\n7. Chaînage d'opérations vectorielles");
+    
+    // V17 = (V0 + V1) * V2
+    program.add_instruction(Instruction::create_simd128_add(17, 0, 1));  // V17 = V0 + V1
+    program.add_instruction(Instruction::create_simd128_mul(17, 17, 2)); // V17 = V17 * V2
+    println!("   V17 = (V0 + V1) * V2");
 
     // Fin du programme
     program.add_instruction(Instruction::create_no_args(Opcode::Halt));
@@ -1569,7 +1727,34 @@ fn simd_instruction_test() -> BytecodeFile {
         .sum();
     program.segments = vec![SegmentMetadata::new(SegmentType::Code, 0, total_code_size, 0)];
 
-    println!("=== RÉSULTATS ATTENDUS SIMD ===");
+
+    println!("\n=== CARTE DES INSTRUCTIONS TEST ===");
+    let mut addr = 0u32;
+    for (idx, instr) in program.code.iter().enumerate() {
+        let size = instr.total_size();
+        println!(
+            "Instruction {:2}: Adresse 0x{:04X}-0x{:04X} (taille {:2}): {:?}",
+            idx,
+            addr,
+            addr + size as u32 - 1,
+            size,
+            instr.opcode
+        );
+
+
+        if instr.opcode.is_branch() {
+            if let Ok(ArgValue::RelativeAddr(offset)) = instr.get_arg2_value() {
+                let target = (addr + size as u32) as i64 + offset as i64;
+                println!(
+                    "      -> Branchement relatif: offset={:+}, target=0x{:04X}",
+                    offset, target
+                );
+            }
+        }
+        addr += size as u32;
+    }
+
+    println!("\n=== RÉSULTATS ATTENDUS SIMD ===");
 
     program
 }
