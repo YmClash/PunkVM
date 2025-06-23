@@ -102,25 +102,36 @@ impl Memory {
         }
 
         // 2. Utiliser la hiérarchie de cache avec accès byte
-        match self.cache_hierarchy.access_byte(addr, false, None) {
+        let cache_result = self.cache_hierarchy.access_byte(addr, false, None);
+        
+        // DEBUG: Log pour comprendre le comportement
+        static mut DEBUG_COUNT: u32 = 0;
+        unsafe {
+            if DEBUG_COUNT < 5 { // Log seulement les 5 premiers accès
+                println!("DEBUG Cache access #{} addr=0x{:X}, result={:?}", DEBUG_COUNT, addr, cache_result);
+                DEBUG_COUNT += 1;
+            }
+        }
+        
+        match cache_result {
             Ok(CacheAccessResult::Hit(data)) => {
                 self.stats.l1_hits += 1;
                 Ok(data as u8)
             }
             Ok(CacheAccessResult::L2Hit(data)) => {
-                self.stats.l1_misses += 1;
-                self.stats.l2_hits += 1;
+                self.stats.l1_misses += 1;  // L1 miss
+                self.stats.l2_hits += 1;    // L2 hit
                 Ok(data as u8)
             }
             Ok(CacheAccessResult::Miss) | Ok(CacheAccessResult::MSHRPending) => {
-                self.stats.l1_misses += 1;
-                self.stats.l2_misses += 1;
+                self.stats.l1_misses += 1;  // L1 miss
+                self.stats.l2_misses += 1;  // L2 miss aussi
                 
                 // Lire depuis la mémoire principale
                 let value = self.memory[addr as usize];
                 
-                // Mettre dans la hiérarchie de cache pour la prochaine fois
-                let _ = self.cache_hierarchy.access_byte(addr, true, Some(value));
+                // Remplir la hiérarchie cache avec les données de la mémoire
+                let _ = self.cache_hierarchy.fill_from_memory(addr, value);
                 
                 Ok(value)
             }
@@ -167,6 +178,11 @@ impl Memory {
         self.check_address(addr)?;
 
         self.stats.writes += 1;
+        
+        // DEBUG: simple log pour première écriture
+        if self.stats.writes == 1 {
+            println!("DEBUG First write: addr=0x{:X}, value={}", addr, value);
+        }
 
         // 1) Ajouter au store buffer
         self.store_buffer.add(addr, value);
