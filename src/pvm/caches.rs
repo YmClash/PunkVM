@@ -284,27 +284,8 @@ impl CacheHierarchy {
                         Ok(CacheAccessResult::L2Hit(data))
                     }
                     Err(_) => {
-                        // L2 miss aussi
-                        if is_write {
-                            // Pour les écritures, on peut directement traiter sans MSHR
-                            // car on n'a pas besoin d'attendre de données de la mémoire
-                            Ok(CacheAccessResult::Miss)
-                        } else {
-                            // Pour les lectures, utiliser MSHR seulement si disponible
-                            let write_data_u8 = write_data.map(|d| d as u8);
-                            if self.mshr.allocate(addr, is_write, write_data_u8, self.memory_latency).is_some() {
-                                // Initier prefetch si nécessaire
-                                if self.prefetcher.should_prefetch(addr, true) {
-                                    for prefetch_addr in self.prefetcher.get_prefetch_addresses(addr) {
-                                        let _ = self.mshr.allocate(prefetch_addr, false, None, self.memory_latency);
-                                    }
-                                }
-                                Ok(CacheAccessResult::Miss)
-                            } else {
-                                // Si MSHR plein, on traite quand même la requête
-                                Ok(CacheAccessResult::Miss)
-                            }
-                        }
+                        // L2 miss aussi - retourner Miss pour déclencher la lecture mémoire
+                        Ok(CacheAccessResult::Miss)
                     }
                     _ => l2_result,
                 }
@@ -336,6 +317,23 @@ impl CacheHierarchy {
         Ok(())
     }
     
+    /// Rempli L2 puis L1 avec une donnée venant de la mémoire (allocation sur miss)
+    pub fn fill_from_memory(&mut self, addr: u32, data: u8) -> VMResult<()> {
+        // 1. Remplir L2 d'abord (niveau le plus bas de la hiérarchie)
+        if let Err(_) = self.l2_unified.write(addr, data) {
+            // Si L2 est plein, on force l'éviction (c'est normal)
+            let _ = self.l2_unified.write(addr, data);
+        }
+        
+        // 2. Remplir L1 ensuite (niveau le plus haut)
+        if let Err(_) = self.l1_data.write(addr, data) {
+            // Si L1 est plein, on force l'éviction (c'est normal)
+            let _ = self.l1_data.write(addr, data);
+        }
+        
+        Ok(())
+    }
+
     pub fn get_combined_stats(&self) -> String {
         format!(
             "=== Cache Hierarchy Statistics ===\n\
