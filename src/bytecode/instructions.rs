@@ -1040,6 +1040,13 @@ impl Instruction {
         Self::new(opcode, fmt, args)
     }
 
+    /// Stocke un vecteur 128-bit en mémoire
+    pub fn create_store_simd_vector_256(opcode: Opcode, reg_src: u8, reg_base: u8, offset: i8) -> Self {
+        let fmt = InstructionFormat::simd_store_offset();
+        let args = vec![reg_src & 0x0F, reg_base & 0x0F, offset as u8];
+        Self::new(opcode, fmt, args)
+    }
+
     /// Helpers spécifiques pour chaque type d'opération SIMD
 
     /// Addition vectorielle 128-bit (utilise Simd128Add)
@@ -1092,6 +1099,11 @@ impl Instruction {
     /// Stocke un vecteur en mémoire
     pub fn create_simd128_store(src: u8, base: u8, offset: i8) -> Self {
         Self::create_store_simd_vector_128(Opcode::Simd128Store, src, base, offset)
+    }
+
+    /// Stocke un vecteur en mémoire 256
+    pub fn create_simd256_store(src: u8, base: u8, offset: i8) -> Self {
+        Self::create_store_simd_vector_128(Opcode::Simd256Store, src, base, offset)
     }
 
     /// Déplace un vecteur entre registres
@@ -1330,9 +1342,6 @@ impl Instruction {
         
         instructions
     }
-
-
-
 
 }
 
