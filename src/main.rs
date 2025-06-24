@@ -57,8 +57,9 @@ fn main() -> VMResult<()> {
     // let program = punk_program_3(); // Tests de branchement
     // let program= punk_program_5(); // Tests multiples branchements conditionnels et inconditionnels
     // let program = simd_instruction_test(); // Test SIMD de base
-    let program = simd_advanced_test(); // Test SIMD avancé (Min, Max, Sqrt, Cmp, Shuffle)
+    // let program = simd_advanced_test(); // Test SIMD avancé (Min, Max, Sqrt, Cmp, Shuffle)
     // let program = simd_cache_validation_test(); // Test validation cache SIMD
+    let program = cache_hierarchy_validation_test(); // Test hiérarchie cache L1/L2
 
 
     // let program = create_stack_test_program(); // Tests de stack machine complet avec CALL/RET
@@ -1999,6 +2000,126 @@ fn simd_cache_validation_test() -> BytecodeFile {
     println!("- Opérations répétées: cache hits élevés");
     println!("- Taux de hit attendu: >70% après initialisation");
     println!("- Performance améliorée sur opérations répétitives");
+    
+    program
+}
+
+/// Test spécialement conçu pour tester la hiérarchie cache L1/L2
+fn cache_hierarchy_validation_test() -> BytecodeFile {
+    let mut program = BytecodeFile::new();
+    
+    println!("=== CRÉATION DU TEST HIÉRARCHIE CACHE ===");
+    
+    program.version = BytecodeVersion::new(0, 1, 0, 0);
+    program.add_metadata("name", "Cache Hierarchy Test");
+    program.add_metadata("description", "Test de validation de la hiérarchie cache L1/L2");
+    program.add_metadata("author", "PunkVM Cache Validation");
+    
+    // Phase 1: Remplir L1 cache avec des accès séquentiels
+    println!("Phase 1: Accès séquentiels pour remplir L1");
+    
+    // Initialiser une base d'adresse
+    program.add_instruction(Instruction::create_reg_imm32(Opcode::Mov, 0, 0x1000)); // R0 = base addr
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 1));       // R1 = compteur
+    
+    // Écrire 64 valeurs espacées (4KB total pour dépasser L1 de 2KB)
+    for i in 0..64 {
+        // Calculer adresse = base + i*64 (espacer d'une ligne de cache complète)
+        program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, i as u8));
+        program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 64)); // 64 bytes par ligne
+        program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Mul, 8, 2, 7)); // R8 = i * 64
+        program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 3, 0, 8)); // R3 = base + (i*64)
+        
+        // Écrire valeur à cette adresse
+        program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, (i + 10) as u8)); // valeur
+        program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 4, 3, 0)); // Stocker R4 à [R3+0]
+    }
+    
+    // Phase 2: Relire les mêmes données (devrait être des L1 hits maintenant)
+    println!("Phase 2: Relecture des mêmes données (L1 hits attendus)");
+    
+    for i in 0..64 {
+        // Calculer la même adresse (i * 64)
+        program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, i as u8));
+        program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 64)); 
+        program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Mul, 8, 2, 7)); // R8 = i * 64
+        program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 3, 0, 8)); // R3 = base + (i*64)
+        
+        // Lire la valeur
+        program.add_instruction(Instruction::create_load_reg_offset(5, 3, 0)); // R5 = [R3+0]
+    }
+    
+    // Phase 3: Accès à un range d'adresses plus large pour dépasser L1 et aller en L2
+    println!("Phase 3: Accès large pour tester L2");
+    
+    // Changer de base d'adresse pour éviter les conflits
+    program.add_instruction(Instruction::create_reg_imm32(Opcode::Mov, 0, 0x2000)); // Nouvelle base
+    
+    // Accès espacés pour forcer l'éviction de L1 (beaucoup plus d'adresses)
+    for i in 0..200 {  // Plus d'accès pour remplir le cache
+        // Adresses très espacées (tous les 512 bytes pour maximiser les conflits)
+        program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, (i % 256) as u8));
+        program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0));
+        
+        // R6 = i * 512 (shift left de 9 positions)
+        for _ in 0..9 {
+            program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 6, 6, 6)); // R6 = R6 * 2
+        }
+        program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 3, 0, 6)); // R3 = base + offset
+        
+        // Écrire une valeur unique
+        program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, ((i + 100) % 256) as u8));
+        program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 4, 3, 0)); // Store
+        
+        // Pour certaines adresses, relire immédiatement (hit probable)
+        if i % 3 == 0 {
+            program.add_instruction(Instruction::create_load_reg_offset(5, 3, 0));  // Load immédiat
+        }
+    }
+    
+    // Phase 4: Revisiter les adresses du début pour tester L2 hits
+    println!("Phase 4: Revisiter adresses initiales (L2 hits attendus)");
+    
+    program.add_instruction(Instruction::create_reg_imm32(Opcode::Mov, 0, 0x1000)); // Retour à la base originale
+    
+    // Relire TOUTES les adresses du début (elles devraient être en L2 maintenant car évincées de L1)
+    for i in 0..32 {
+        // Calculer adresse = base + i*64 (même espacement que Phase 1)
+        program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, i as u8));
+        program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 64)); // 64 bytes par ligne
+        program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Mul, 8, 2, 7)); // R8 = i * 64
+        program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 3, 0, 8)); // R3 = base + (i*64)
+        program.add_instruction(Instruction::create_load_reg_offset(5, 3, 0)); // Lecture qui devrait être L2 hit
+    }
+    
+    // Phase 5: Encore plus d'accès pour forcer l'éviction et confirmer le comportement L2
+    println!("Phase 5: Accès répétés pour tester consistance L2");
+    
+    // Répéter l'accès aux mêmes adresses pour confirmer qu'elles sont bien en L2
+    for i in 0..16 {
+        // Calculer adresse = base + i*64 (même espacement que Phase 1)
+        program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, i as u8));
+        program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 64)); // 64 bytes par ligne
+        program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Mul, 8, 2, 7)); // R8 = i * 64
+        program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 3, 0, 8)); // R3 = base + (i*64)
+        program.add_instruction(Instruction::create_load_reg_offset(5, 3, 0)); // Re-lecture
+    }
+    
+    // Fin du programme
+    program.add_instruction(Instruction::create_no_args(Opcode::Halt));
+    
+    // Configuration des segments
+    let total_code_size: u32 = program.code.iter()
+        .map(|instr| instr.total_size() as u32)
+        .sum();
+    program.segments = vec![SegmentMetadata::new(SegmentType::Code, 0, total_code_size, 0)];
+    
+    println!("\n=== RÉSULTATS ATTENDUS ===");
+    println!("Phase 1: L1 misses initiaux");
+    println!("Phase 2: L1 hits élevés (réutilisation)");
+    println!("Phase 3: Mix L1/L2 misses (éviction L1)");
+    println!("Phase 4: L2 hits (données évincées de L1)");
+    println!("=> L2 Hits > 0 si hiérarchie fonctionne correctement");
     
     program
 }
