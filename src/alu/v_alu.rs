@@ -1354,12 +1354,12 @@ mod tests {
             assert_eq!(result.i32x8, [1, 2, 3, 4, 5, 6, 7, 8]);
         }
     }
-
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
+//
+// }
+//
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
 
     #[test]
     fn test_v128_addition() {
