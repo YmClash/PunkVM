@@ -56,10 +56,11 @@ fn main() -> VMResult<()> {
     // let program = forwarding_efficiency_test(); // Tests d'efficacité forwarding
     // let program = punk_program_3(); // Tests de branchement
     // let program= punk_program_5(); // Tests multiples branchements conditionnels et inconditionnels
+    let program = punk_program_3(); // Retour au test original pour confirmer BTB
     // let program = simd_instruction_test(); // Test SIMD de base
     // let program = simd_advanced_test(); // Test SIMD avancé (Min, Max, Sqrt, Cmp, Shuffle)
     // let program = simd_cache_validation_test(); // Test validation cache SIMD
-    let program = cache_hierarchy_validation_test(); // Test hiérarchie cache L1/L2
+    // let program = cache_hierarchy_validation_test(); // Test hiérarchie cache L1/L2
 
 
     // let program = create_stack_test_program(); // Tests de stack machine complet avec CALL/RET
@@ -2123,5 +2124,249 @@ fn cache_hierarchy_validation_test() -> BytecodeFile {
     
     program
 }
+
+/// Programme 5: Test BTB simple avec boucle répétitive
+pub fn punk_program_5() -> BytecodeFile {
+    let mut program = BytecodeFile::new();
+    program.version = BytecodeVersion::new(0, 1, 0, 0);
+    program.add_metadata("name", "PunkVM BTB Simple Loop Test");
+    program.add_metadata("description", "Test simple avec une boucle for BTB hits");
+    program.add_metadata("author", "PunkVM Team");
+
+    println!("=== CRÉATION D'UNE BOUCLE SIMPLE POUR BTB HITS ===");
+
+    // Initialisation
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 3));   // R0 = 3 (compteur plus petit)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 1));   // R1 = 1 (décrément)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 0));   // R2 = 0 (accumulator)
+
+    // DÉBUT DE LA BOUCLE - même PC sera exécuté 3 fois
+    let loop_start = Instruction::calculate_current_address(&program.code);
+    println!("Loop start address: 0x{:X}", loop_start);
+
+    // Corps de la boucle
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 2, 2, 1)); // R2 = R2 + 1
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Sub, 0, 0, 1)); // R0 = R0 - 1
+    
+    // Comparer R0 avec 0 pour vérifier si on continue
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Cmp, 0, 0));      // Compare R0 avec 0
+
+    // BRANCHEMENT CONDITIONNEL - Si R0 > 0, retourner au début
+    let current_addr = Instruction::calculate_current_address(&program.code);
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_addr, loop_start));
+    
+    println!("Branch PC: 0x{:X} -> Target: 0x{:X}", current_addr + 8, loop_start);
+    println!("Expected loop iterations: 3");
+    println!("Expected BTB pattern: Miss(1st), Hit(2nd), Hit(3rd)");
+
+    // Instructions après la boucle
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0xDD)); // R15 = 0xDD (marqueur de fin)
+    program.add_instruction(Instruction::create_no_args(Opcode::Halt));
+
+    // Configuration des segments
+    let total_code_size: u32 = program.code.iter()
+        .map(|instr| instr.total_size() as u32)
+        .sum();
+    program.segments = vec![SegmentMetadata::new(SegmentType::Code, 0, total_code_size, 0)];
+
+    println!("\n=== RÉSULTATS ATTENDUS ===");
+    println!("Après 3 itérations:");
+    println!("- BTB Misses: 1 (première fois)");
+    println!("- BTB Hits: 2 (deuxième et troisième fois)"); 
+    println!("- BTB Hit Rate: 66.7%");
+    println!("- R0 = 0 (compteur final)");
+    println!("- R2 = 3 (accumulator final)");
+    println!("- R15 = 221 (0xDD, marqueur de fin)");
+
+    program
+}
+
+/// Programme 4: Test spécifique pour BTB (Branch Target Buffer) avec patterns répétitifs
+pub fn punk_program_4() -> BytecodeFile {
+    let mut program = BytecodeFile::new();
+    program.version = BytecodeVersion::new(0, 1, 0, 0);
+    program.add_metadata("name", "PunkVM BTB Test - Repetitive Branch Patterns");
+    program.add_metadata("description", "Test pour générer des hits dans le BTB via des patterns de branchement répétitifs");
+    program.add_metadata("author", "PunkVM Team");
+    program.add_metadata("focus", "BTB Hits, Target Prediction, Cache Behavior");
+
+    println!("=== CRÉATION DU TEST BTB AVEC PATTERNS RÉPÉTITIFS ===");
+
+    // ============================================================================
+    // SECTION 1: INITIALISATION
+    // ============================================================================
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 5));   // R0 = 5 (compteur de boucle externe)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 3));   // R1 = 3 (compteur de boucle interne)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 0));   // R2 = 0 (registre de travail)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 1));   // R3 = 1 (constante pour décrément)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0));  // R10 = compteur de hits BTB attendus
+
+    // ============================================================================
+    // SECTION 2: PATTERN 1 - Même branchement répété plusieurs fois
+    // ============================================================================
+    println!("=== SECTION 2: PATTERN RÉPÉTITIF SIMPLE ===");
+    
+    // Marquer le début de la boucle Pattern 1
+    let pattern1_loop_start = Instruction::calculate_current_address(&program.code);
+    
+    // Corps de la boucle Pattern 1 - Répéter 5 fois le même branchement
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 2, 2, 3)); // R2 = R2 + 1
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Sub, 0, 0, 3)); // R0 = R0 - 1 (décrément compteur)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Cmp, 0, 0));      // Compare R0 avec 0
+    
+    // Calculer l'offset pour retourner au début
+    let current_addr = Instruction::calculate_current_address(&program.code);
+    let pattern1_target = pattern1_loop_start;
+    
+    // Branchement conditionnel - sera répété 5 fois avec la même cible
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_addr, pattern1_target));
+    
+    // Incrémenter le compteur de succès BTB
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 10, 10, 3)); // R10++
+
+    // ============================================================================
+    // SECTION 3: PATTERN 2 - Branchement avant/arrière alternant
+    // ============================================================================
+    println!("=== SECTION 3: PATTERN ALTERNANT ===");
+    
+    // Réinitialiser les compteurs
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 4));   // R0 = 4 (nouveau compteur)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0));   // R4 = compteur alternance
+    
+    // Marquer le début de la boucle Pattern 2
+    let pattern2_loop_start = Instruction::calculate_current_address(&program.code);
+    
+    // Test d'alternance - si pair, sauter en avant, si impair, continuer
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 2));      // R5 = 2 (pour modulo)
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Mod, 6, 4, 5)); // R6 = R4 % 2
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Cmp, 6, 0));      // Compare R6 avec 0
+    
+    // Si pair (R6 == 0), sauter vers skip_section
+    let current_addr = Instruction::calculate_current_address(&program.code);
+    let skip_target = current_addr + 32; // Sauter quelques instructions
+    program.add_instruction(Instruction::create_jump_if_equal(current_addr, skip_target));
+    
+    // Section pour les itérations impaires
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 11, 11, 3)); // R11++ (compteur impair)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0xAA));      // R7 = marqueur impair
+    
+    // Saut inconditionnel pour éviter la section paire
+    let current_addr = Instruction::calculate_current_address(&program.code);
+    let after_pair_section = current_addr + 20;
+    program.add_instruction(Instruction::create_jump(current_addr, after_pair_section));
+    
+    // Section pour les itérations paires (skip_section)
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 12, 12, 3)); // R12++ (compteur pair)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0xBB));      // R8 = marqueur pair
+    
+    // Point de convergence (after_pair_section)
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 4, 4, 3)); // R4++ (compteur alternance)
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Sub, 0, 0, 3)); // R0-- (compteur principal)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Cmp, 0, 0));      // Compare R0 avec 0
+    
+    // Branchement de retour - sera répété 4 fois avec la même cible
+    let current_addr = Instruction::calculate_current_address(&program.code);
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_addr, pattern2_loop_start));
+
+    // ============================================================================
+    // SECTION 4: PATTERN 3 - Boucles imbriquées pour tester la capacité du BTB
+    // ============================================================================
+    println!("=== SECTION 4: BOUCLES IMBRIQUÉES ===");
+    
+    // Réinitialiser les compteurs
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 3));   // R0 = 3 (boucle externe)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 2));   // R1 = 2 (boucle interne)
+    
+    // Début de la boucle externe
+    let outer_loop_start = Instruction::calculate_current_address(&program.code);
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 2));   // Réinitialiser compteur interne
+    
+    // Début de la boucle interne
+    let inner_loop_start = Instruction::calculate_current_address(&program.code);
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 13, 13, 3)); // R13++ (compteur total)
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Sub, 1, 1, 3));   // R1-- (compteur interne)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Cmp, 1, 0));        // Compare R1 avec 0
+    
+    // Branchement de la boucle interne
+    let current_addr = Instruction::calculate_current_address(&program.code);
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_addr, inner_loop_start));
+    
+    // Sortie de la boucle interne
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Sub, 0, 0, 3)); // R0-- (compteur externe)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Cmp, 0, 0));      // Compare R0 avec 0
+    
+    // Branchement de la boucle externe
+    let current_addr = Instruction::calculate_current_address(&program.code);
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_addr, outer_loop_start));
+
+    // ============================================================================
+    // SECTION 5: PATTERN 4 - Branchements vers adresses fixes (targets répétitifs)
+    // ============================================================================
+    println!("=== SECTION 5: TARGETS RÉPÉTITIFS ===");
+    
+    // Créer plusieurs sauts vers la même fonction
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0));     // R14 = compteur d'appels
+    
+    // Calculer l'adresse de la fonction utilitaire
+    let current_addr = Instruction::calculate_current_address(&program.code);
+    let utility_function_addr = current_addr + 50; // Fonction après les appels
+    
+    // Appel 1
+    program.add_instruction(Instruction::create_jump(current_addr, utility_function_addr));
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 14, 14, 3)); // R14++ (ne sera pas exécuté)
+    
+    // Appel 2 (même cible)
+    let current_addr = Instruction::calculate_current_address(&program.code);
+    program.add_instruction(Instruction::create_jump(current_addr, utility_function_addr));
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 14, 14, 3)); // R14++ (ne sera pas exécuté)
+    
+    // Appel 3 (même cible)
+    let current_addr = Instruction::calculate_current_address(&program.code);
+    program.add_instruction(Instruction::create_jump(current_addr, utility_function_addr));
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 14, 14, 3)); // R14++ (ne sera pas exécuté)
+    
+    // Sauter par-dessus la fonction
+    let current_addr = Instruction::calculate_current_address(&program.code);
+    let after_function = current_addr + 20;
+    program.add_instruction(Instruction::create_jump(current_addr, after_function));
+    
+    // FONCTION UTILITAIRE (utility_function_addr)
+    program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 15, 15, 3)); // R15++ (compteur d'exécutions)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xCC));      // R9 = marqueur fonction
+    
+    // Continuer vers after_function
+    let current_addr = Instruction::calculate_current_address(&program.code);
+    let after_function = current_addr + 8;
+    program.add_instruction(Instruction::create_jump(current_addr, after_function));
+    
+    // POINT APRÈS LA FONCTION (after_function)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 0xFE)); // R0 = 254 (marqueur de fin)
+
+    // ============================================================================
+    // FINALISATION
+    // ============================================================================
+    program.add_instruction(Instruction::create_no_args(Opcode::Halt));
+
+    // Configuration des segments
+    let total_code_size: u32 = program.code.iter()
+        .map(|instr| instr.total_size() as u32)
+        .sum();
+    program.segments = vec![SegmentMetadata::new(SegmentType::Code, 0, total_code_size, 0)];
+
+    println!("\n=== RÉSULTATS ATTENDUS APRÈS CORRECTIONS BTB ===");
+    println!("Avec les corrections du BTB, nous devrions voir:");
+    println!("- BTB Hits > 0 (au lieu de 0)");
+    println!("- BTB Hit Rate > 0% (pour les branchements répétitifs)");
+    println!("- BTB Correct Targets > 0");
+    println!("- R2 = 5 (Pattern 1 exécuté 5 fois)");
+    println!("- R11 ≥ 2 (itérations impaires)");
+    println!("- R12 ≥ 2 (itérations paires)");
+    println!("- R13 = 6 (total boucles imbriquées: 3×2)");
+    println!("- R15 = 3 (fonction appelée 3 fois)");
+    println!("- R0 = 254 (marqueur de fin)");
+
+    program
+}
+
 
 
