@@ -2,6 +2,7 @@
 use std::path::Path;
 
 use crate::alu::alu::ALU;
+use crate::alu::agu::AGUStats;
 use crate::bytecode::files::SegmentType::{Code, Data, ReadOnlyData};
 use crate::debug::{PipelineTracer, TracerConfig};
 use crate::pipeline::Pipeline;
@@ -121,6 +122,18 @@ pub struct VMStats {
     pub simd_cache_hits: u64,        // Hits dans le cache d'opérations SIMD
     pub simd_cache_misses: u64,      // Misses dans le cache d'opérations SIMD
     pub simd_cache_hit_rate: f64,    // Taux de réussite du cache SIMD
+    
+    // Statistiques AGU (Address Generation Unit)
+    pub agu_total_calculations: u64,     // Nombre total de calculs d'adresse AGU
+    pub agu_early_resolutions: u64,      // Résolutions d'adresse anticipées
+    pub agu_stride_predictions_correct: u64, // Prédictions de stride correctes
+    pub agu_stride_predictions_total: u64,   // Total des prédictions de stride
+    pub agu_stride_accuracy: f64,        // Précision du stride predictor
+    pub agu_base_cache_hits: u64,       // Hits dans le cache d'adresses de base
+    pub agu_base_cache_misses: u64,     // Misses dans le cache d'adresses de base
+    pub agu_base_cache_hit_rate: f64,   // Taux de réussite du cache de base
+    pub agu_parallel_executions: u64,   // Exécutions parallèles AGU/ALU
+    pub agu_average_latency: f64,       // Latence moyenne des calculs AGU
 
 }
 
@@ -419,6 +432,22 @@ impl PunkVM {
             simd_cache_hits: self.get_vector_alu().get_cache_stats().0,
             simd_cache_misses: self.get_vector_alu().get_cache_stats().1,
             simd_cache_hit_rate: self.get_vector_alu().get_cache_stats().2,
+            
+            // Statistiques AGU récupérées de l'ExecuteStage
+            agu_total_calculations: self.get_agu_stats().total_calculations,
+            agu_early_resolutions: self.get_agu_stats().early_resolutions,
+            agu_stride_predictions_correct: self.get_agu_stats().stride_predictions_correct,
+            agu_stride_predictions_total: self.get_agu_stats().stride_predictions_total,
+            agu_stride_accuracy: if self.get_agu_stats().stride_predictions_total > 0 {
+                self.get_agu_stats().stride_predictions_correct as f64 / self.get_agu_stats().stride_predictions_total as f64
+            } else { 0.0 },
+            agu_base_cache_hits: self.get_agu_stats().base_cache_hits,
+            agu_base_cache_misses: self.get_agu_stats().base_cache_misses,
+            agu_base_cache_hit_rate: if (self.get_agu_stats().base_cache_hits + self.get_agu_stats().base_cache_misses) > 0 {
+                self.get_agu_stats().base_cache_hits as f64 / (self.get_agu_stats().base_cache_hits + self.get_agu_stats().base_cache_misses) as f64
+            } else { 0.0 },
+            agu_parallel_executions: self.get_agu_stats().parallel_executions,
+            agu_average_latency: self.get_agu_stats().average_latency,
         }
     }
 
@@ -435,6 +464,11 @@ impl PunkVM {
     /// Retourne une référence mutable au VectorALU
     pub fn get_vector_alu_mut(&mut self) -> &mut crate::alu::v_alu::VectorALU {
         self.pipeline.get_execute_stage_mut().get_vector_alu_mut()
+    }
+
+    /// Retourne les statistiques de l'AGU
+    pub fn get_agu_stats(&self) -> &AGUStats {
+        self.pipeline.get_execute_stage().get_agu_stats()
     }
 
     /// Retourne l'état actuel de la VM
