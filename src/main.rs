@@ -49,7 +49,7 @@ fn main() -> VMResult<()> {
     // Choisir le programme de test
     // let program = forwarding_stress_test(); // Tests de forwarding intensif
     // let program = store_load_forwarding_test_8(); // Tests Store-Load forwarding  immédiat 8
-    let program = agu_validation_test(); // Test validation AGU - Address Generation Unit
+    let program = memory_intensive_stress_test(); // Test mémoire intensif pour AGU
     // let program = store_load_forwarding_test_16(); // Tests Store-Load forwarding  immédiat 16
     // let program = store_load_forwarding_test_32(); // Tests Store-Load forwarding immédiat 32
     // let program = store_load_forwarding_test_64(); // Tests Store-Load forwarding immédiat 64
@@ -332,6 +332,42 @@ fn print_stats(vm: &VM) {
         }
     } else {
         println!("Aucune opération SIMD détectée");
+    }
+
+    // Statistiques AGU (Address Generation Unit)
+    println!("\n===== STATISTIQUES AGU =====");
+    println!("Calculs d'adresse totaux: {}", stats.agu_total_calculations);
+    println!("Résolutions anticipées: {}", stats.agu_early_resolutions);
+    
+    if stats.agu_total_calculations > 0 {
+        println!("\n--- Stride Predictor ---");
+        println!("Prédictions de stride totales: {}", stats.agu_stride_predictions_total);
+        println!("Prédictions correctes: {}", stats.agu_stride_predictions_correct);
+        println!("Précision du stride predictor: {:.2}%", stats.agu_stride_accuracy * 100.0);
+        
+        println!("\n--- Base Address Cache ---");
+        println!("Cache hits: {}", stats.agu_base_cache_hits);
+        println!("Cache misses: {}", stats.agu_base_cache_misses);
+        println!("Taux de réussite: {:.2}%", stats.agu_base_cache_hit_rate * 100.0);
+        
+        println!("\n--- Performance AGU ---");
+        println!("Exécutions parallèles AGU/ALU: {}", stats.agu_parallel_executions);
+        if stats.agu_average_latency > 0.0 {
+            println!("Latence moyenne: {:.2} cycles", stats.agu_average_latency);
+        }
+        
+        // Analyse de l'efficacité
+        if stats.agu_total_calculations > 0 {
+            let early_resolution_rate = (stats.agu_early_resolutions as f64 / stats.agu_total_calculations as f64) * 100.0;
+            println!("Taux de résolution anticipée: {:.1}%", early_resolution_rate);
+        }
+        
+        if stats.cycles > 0 {
+            let agu_utilization = (stats.agu_total_calculations as f64 / stats.cycles as f64) * 100.0;
+            println!("Utilisation AGU: {:.1}% des cycles", agu_utilization);
+        }
+    } else {
+        println!("Aucun calcul d'adresse AGU détecté");
     }
 
     println!("\n===== TEST TERMINÉ =====");
@@ -2451,5 +2487,134 @@ fn agu_validation_test() -> BytecodeFile {
     program
 }
 
+/// Test mémoire intensif pour maximiser l'utilisation de l'AGU
+fn memory_intensive_stress_test() -> BytecodeFile {
+    let mut program = BytecodeFile::new();
+    program.version = BytecodeVersion::new(0, 1, 0, 0);
+    program.add_metadata("name", "Memory Intensive AGU Stress Test");
+    program.add_metadata("description", "Test intensif pour maximiser l'utilisation de l'AGU");
+    program.add_metadata("author", "PunkVM Team");
+
+    println!("=== CRÉATION DU TEST MÉMOIRE INTENSIF AGU ===");
+
+    // Phase 1: Initialisation des bases d'adresses multiples
+    println!("Phase 1: Setup adresses de base multiples");
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 0x40)); // Base 1: Array data
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 0x80)); // Base 2: Matrix data
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 0xC0)); // Base 3: Buffer data
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 0x10)); // Base 4: Temp data
+
+    // Phase 2: Séquences d'accès mémoire séquentiels (pour stride predictor)
+    println!("Phase 2: Accès séquentiels - Test Stride Predictor");
+    for i in 0..8 {
+        let offset = (i * 8) as i8; // Stride constant de 8 bytes
+        let value = 100 + i;
+        program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, value as u8));
+        program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 4, 0, offset)); // STORE [R0+offset], R4
+        program.add_instruction(Instruction::create_load_reg_offset(5, 0, offset));               // LOAD R5, [R0+offset]
+        program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 5, 5, 4));           // Use loaded value
+    }
+
+    // Phase 3: Accès avec motifs réguliers différents (stride predictor training)
+    println!("Phase 3: Motifs stride multiples");
+    // Motif 1: stride 4
+    for i in 0..6 {
+        let offset = (i * 4) as i8;
+        let value = 50 + i; // Changé de 200 à 50 pour rester dans les limites
+        program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, value as u8));
+        program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 6, 1, offset)); // Base R1
+        program.add_instruction(Instruction::create_load_reg_offset(7, 1, offset));
+    }
+    
+    // Motif 2: stride 16 (pour exercer différents patterns)
+    for i in 0..4 {
+        let offset = (i * 16) as i8;
+        let value = 60 + i; // Changé de 250 à 60 pour rester dans les limites
+        program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, value as u8));
+        program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 8, 2, offset)); // Base R2
+        program.add_instruction(Instruction::create_load_reg_offset(9, 2, offset));
+    }
+
+    // Phase 4: Réutilisation intensive des adresses de base (base cache test)
+    println!("Phase 4: Test Base Address Cache - Réutilisation intensive");
+    for round in 0..3 {
+        // Utilisation de chaque base plusieurs fois
+        for base_reg in 0..4_u8 {
+            for access in 0..4 {
+                let offset = (access * 4) as i8;
+                let value = round * 20 + base_reg as usize * 5 + access;
+                program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, value as u8));
+                program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 10, base_reg, offset));
+                program.add_instruction(Instruction::create_load_reg_offset(11, base_reg, offset));
+            }
+        }
+    }
+
+    // Phase 5: Accès mémoire avec dépendances pour tester forwarding + AGU
+    println!("Phase 5: AGU + Forwarding interaction");
+    for i in 0..5 {
+        let offset1 = i * 8;
+        let offset2 = offset1 + 4;
+        
+        // Store suivi immédiatement d'un Load (test store-load forwarding avec AGU)
+        program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, (50 + i) as u8));
+        program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 12, 3, offset1)); // STORE
+        program.add_instruction(Instruction::create_load_reg_offset(13, 3, offset1));               // LOAD immédiat
+        
+        // Calcul sur la valeur chargée puis store adjacent
+        program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 14, 13, 12));
+        program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 14, 3, offset2)); // STORE adjacent
+    }
+
+    // Phase 6: Accès aléatoires pour tester la robustesse AGU
+    println!("Phase 6: Accès non-prédictibles");
+    let random_offsets = [24, 8, 56, 16, 40, 0, 32, 48]; // Pattern imprévisible
+    for (i, &offset) in random_offsets.iter().enumerate() {
+        let value = 75 + i;
+        program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, value as u8));
+        program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 15, 0, offset));
+        program.add_instruction(Instruction::create_load_reg_offset(15, 0, offset));
+    }
+
+    // Phase 7: Test de saturation - maximiser l'activité AGU
+    println!("Phase 7: Saturation AGU - Maximum throughput");
+    for burst in 0..4 {
+        for i in 0..6 {
+            let offset = burst * 24 + i * 4;
+            let value = burst * 10 + i;
+            program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, value as u8));
+            program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 4, 1, offset));
+            program.add_instruction(Instruction::create_load_reg_offset(5, 1, offset));
+            program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 5, 2, offset));
+            program.add_instruction(Instruction::create_load_reg_offset(6, 2, offset));
+        }
+    }
+
+    // Fin du programme
+    program.add_instruction(Instruction::create_no_args(Opcode::Halt));
+
+    // Configuration des segments
+    let total_code_size: u32 = program.code.iter()
+        .map(|instr| instr.total_size() as u32)
+        .sum();
+    program.segments = vec![SegmentMetadata::new(SegmentType::Code, 0, total_code_size, 0)];
+
+    println!("\n=== CARACTÉRISTIQUES DU TEST ===");
+    println!("- ~200+ opérations mémoire Load/Store");
+    println!("- 4 bases d'adresses différentes");
+    println!("- Motifs stride: 8, 4, 16 bytes");
+    println!("- Réutilisation intensive base cache");
+    println!("- Interaction AGU + Store-Load forwarding");
+    println!("- Accès aléatoires pour robustesse");
+    println!("- Phases de saturation pour throughput max");
+
+    println!("\n=== OBJECTIFS DE PERFORMANCE ===");
+    println!("- Utilisation AGU: 80%+ des cycles");
+    println!("- Stride accuracy: 70%+ pour motifs réguliers");
+    println!("- Base cache hit rate: 60%+");
+    println!("- IPC target: 0.9+ (vs ~0.8 sans AGU)");
+
+    program
+}
 
 
