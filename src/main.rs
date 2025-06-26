@@ -49,14 +49,15 @@ fn main() -> VMResult<()> {
     // Choisir le programme de test
     // let program = forwarding_stress_test(); // Tests de forwarding intensif
     // let program = store_load_forwarding_test_8(); // Tests Store-Load forwarding  immédiat 8
-    // let program = store_load_forwarding_test_16(); // Tests Store-Load forwarding immédiat 16
+    let program = agu_validation_test(); // Test validation AGU - Address Generation Unit
+    // let program = store_load_forwarding_test_16(); // Tests Store-Load forwarding  immédiat 16
     // let program = store_load_forwarding_test_32(); // Tests Store-Load forwarding immédiat 32
     // let program = store_load_forwarding_test_64(); // Tests Store-Load forwarding immédiat 64
 
     // let program = forwarding_efficiency_test(); // Tests d'efficacité forwarding
     // let program = punk_program_3(); // Tests de branchement
     // let program= punk_program_5(); // Tests multiples branchements conditionnels et inconditionnels
-    let program = punk_program_3(); // Retour au test original pour confirmer BTB
+    // let program = punk_program_3(); // Retour au test original pour confirmer BTB
     // let program = simd_instruction_test(); // Test SIMD de base
     // let program = simd_advanced_test(); // Test SIMD avancé (Min, Max, Sqrt, Cmp, Shuffle)
     // let program = simd_cache_validation_test(); // Test validation cache SIMD
@@ -2364,6 +2365,88 @@ pub fn punk_program_4() -> BytecodeFile {
     println!("- R13 = 6 (total boucles imbriquées: 3×2)");
     println!("- R15 = 3 (fonction appelée 3 fois)");
     println!("- R0 = 254 (marqueur de fin)");
+
+    program
+}
+
+/// Test de validation AGU - Address Generation Unit
+fn agu_validation_test() -> BytecodeFile {
+    let mut program = BytecodeFile::new();
+    program.version = BytecodeVersion::new(0, 1, 0, 0);
+    program.add_metadata("name", "AGU Validation Test");
+    program.add_metadata("description", "Test spécifique pour valider l'Address Generation Unit");
+    program.add_metadata("author", "PunkVM Team");
+
+    println!("=== CRÉATION DU TEST VALIDATION AGU ===");
+
+    // Test 1: Base + Offset simple
+    println!("Test 1: AGU BaseOffset - STORE/LOAD avec adresse de base");
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 0x10)); // R0 = adresse de base
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 42));   // R1 = valeur à stocker
+    program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 1, 0, 0));     // STORE [R0], R1 (AGU: BaseOffset)
+    program.add_instruction(Instruction::create_load_reg_offset(2, 0, 0));        // LOAD R2, [R0] (AGU: BaseOffset)
+
+    // Test 2: Base + Offset avec déplacement
+    println!("Test 2: AGU BaseOffset - STORE/LOAD avec offset");
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 84));   // R3 = nouvelle valeur
+    program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 3, 0, 8));     // STORE [R0+8], R3 (AGU: BaseOffset)
+    program.add_instruction(Instruction::create_load_reg_offset(4, 0, 8));        // LOAD R4, [R0+8] (AGU: BaseOffset)
+
+    // Test 3: Accès séquentiels pour tester le stride predictor de l'AGU
+    println!("Test 3: AGU Stride Prediction - Accès séquentiels");
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 1));    // R5 = compteur
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 100));  // R6 = valeur de base
+
+    // Boucle pour tester le stride predictor (4 itérations)
+    for i in 0..4 {
+        let offset = i * 4; // Stride de 4 bytes
+        program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 7, 6, 5)); // R7 = valeur unique
+        program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 7, 0, offset)); // STORE [R0+offset], R7
+        program.add_instruction(Instruction::create_load_reg_offset(8, 0, offset));     // LOAD R8, [R0+offset]
+        program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 5, 5, 1));  // R5++ (incrément compteur)
+    }
+
+    // Test 4: Accès avec motifs irréguliers pour tester la robustesse de l'AGU
+    println!("Test 4: AGU Robustess - Accès non-séquentiels");
+    let offsets = [16, 4, 20, 12]; // Motif irrégulier
+    for (i, &offset) in offsets.iter().enumerate() {
+        program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, (200 + i) as u8)); // Valeurs différentes
+        program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 9, 0, offset)); // STORE avec offset irrégulier
+        program.add_instruction(Instruction::create_load_reg_offset(10, 0, offset));    // LOAD correspondant
+    }
+
+    // Test 5: Test de base cache de l'AGU avec réutilisation de registre de base
+    println!("Test 5: AGU Base Cache - Réutilisation registre de base");
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x20)); // R11 = nouvelle adresse de base
+    for i in 0..3 {
+        let offset = i * 8;
+        program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, (50 + i) as u8));
+        program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 12, 11, offset)); // Réutilise R11 comme base
+        program.add_instruction(Instruction::create_load_reg_offset(13, 11, offset));
+    }
+
+    // Test 6: Validation finale - vérification que toutes les valeurs sont cohérentes
+    println!("Test 6: AGU Validation - Vérification cohérence");
+    program.add_instruction(Instruction::create_load_reg_offset(14, 0, 0));  // Re-charger première valeur
+    program.add_instruction(Instruction::create_load_reg_offset(15, 0, 8));  // Re-charger deuxième valeur
+
+    // Fin du programme
+    program.add_instruction(Instruction::create_no_args(Opcode::Halt));
+
+    // Configuration des segments
+    let total_code_size: u32 = program.code.iter()
+        .map(|instr| instr.total_size() as u32)
+        .sum();
+    program.segments = vec![SegmentMetadata::new(SegmentType::Code, 0, total_code_size, 0)];
+
+    println!("\n=== RÉSULTATS ATTENDUS AGU ===");
+    println!("- Messages 'AGU: Calculated address' dans les logs");
+    println!("- Toutes les valeurs Store/Load doivent correspondre");
+    println!("- R2 = 42 (première valeur)");
+    println!("- R4 = 84 (deuxième valeur)");
+    println!("- R14 = 42 (validation première valeur)");
+    println!("- R15 = 84 (validation deuxième valeur)");
+    println!("- Amélioration potentielle des statistiques de performance");
 
     program
 }
