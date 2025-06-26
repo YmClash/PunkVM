@@ -408,7 +408,8 @@ impl Pipeline {
 
             }
 
-            let mem_reg = self.execute.process_direct(&de_reg_mut, alu,)?;
+            let sp = registers[16]; // SP (Stack Pointer)
+            let mem_reg = self.execute.process_with_memory(&de_reg_mut, alu, memory, registers, sp)?;
 
             // Extraire les valeurs dont nous aurons besoin plus tard
             let branch_pc = de_reg.pc;
@@ -445,6 +446,20 @@ impl Pipeline {
                 let prediction = branch_prediction.unwrap_or(BranchPrediction::NotTaken);
                 // let prediction = branch_prediction.unwrap_or(BranchPredictor::predict(pc));
                 self.decode.branch_predictor.update(pc, taken, prediction);
+
+                // CORRECTION BTB: Mise à jour du BTB du pipeline principal
+                if taken {
+                    if let Some(target) = mem_reg.branch_target {
+                        // Prédire d'abord pour obtenir la prédiction actuelle du BTB
+                        let predicted_target = self.decode.branch_predictor.predict_target(pc);
+                        
+                        // Mettre à jour le BTB avec la vraie cible
+                        self.decode.branch_predictor.update_btb(pc, target, predicted_target);
+                        
+                        println!("Pipeline BTB Update: PC=0x{:X}, Target=0x{:X}, Predicted={:?}", 
+                                 pc, target, predicted_target);
+                    }
+                }
 
                 self.stats.branch_predictions += 1;
             }
