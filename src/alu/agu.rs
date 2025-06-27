@@ -251,6 +251,14 @@ impl AGU {
     ) -> Result<u64, AGUError> {
         self.stats.total_calculations += 1;
         
+        // Essayer une prédiction de stride si activé
+        let predicted_address = if self.config.enable_stride_prediction {
+            // Utiliser PC comme clé pour le stride predictor
+            self.stride_predictor.predict(pc, 0)
+        } else {
+            None
+        };
+        
         let address = match mode {
             AddressingMode::BaseOffset { base, offset } => {
                 let base_val = registers.get(base as usize)
@@ -258,7 +266,14 @@ impl AGU {
                     
                 // Check base cache
                 if self.config.enable_base_cache {
-                    self.base_cache.lookup(base, *base_val);
+                    let cache_hit = self.base_cache.lookup(base, *base_val);
+                    if cache_hit {
+                        self.stats.base_cache_hits += 1;
+                        println!("AGU: Base cache HIT for R{} = 0x{:X}", base, base_val);
+                    } else {
+                        self.stats.base_cache_misses += 1;
+                        println!("AGU: Base cache MISS for R{} = 0x{:X}", base, base_val);
+                    }
                 }
                 
                 self.add_with_overflow(*base_val, offset as i64)
@@ -274,6 +289,18 @@ impl AGU {
                     .ok_or(AGUError::InvalidRegister)?;
                 let index_val = registers.get(index as usize)
                     .ok_or(AGUError::InvalidRegister)?;
+                
+                // Check base cache for BaseIndexScale too
+                if self.config.enable_base_cache {
+                    let cache_hit = self.base_cache.lookup(base, *base_val);
+                    if cache_hit {
+                        self.stats.base_cache_hits += 1;
+                        println!("AGU: Base cache HIT (IndexScale) for R{} = 0x{:X}", base, base_val);
+                    } else {
+                        self.stats.base_cache_misses += 1;
+                        println!("AGU: Base cache MISS (IndexScale) for R{} = 0x{:X}", base, base_val);
+                    }
+                }
                 
                 let scaled = index_val.wrapping_mul(scale as u64);
                 let with_base = self.add_with_overflow(*base_val, scaled as i64);
@@ -299,8 +326,19 @@ impl AGU {
             }
         };
         
-        // Update stride predictor if enabled
+        // Valider prédiction stride et mettre à jour statistiques
         if self.config.enable_stride_prediction {
+            if let Some(predicted) = predicted_address {
+                self.stats.stride_predictions_total += 1;
+                if predicted == address {
+                    self.stats.stride_predictions_correct += 1;
+                    println!("AGU: Stride prediction HIT! Predicted=0x{:X}, Actual=0x{:X}", predicted, address);
+                } else {
+                    println!("AGU: Stride prediction MISS. Predicted=0x{:X}, Actual=0x{:X}", predicted, address);
+                }
+            }
+            
+            // Update predictor with actual address
             self.stride_predictor.update(pc, address, self.current_cycle);
         }
         
