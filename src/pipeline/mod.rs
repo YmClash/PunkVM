@@ -409,7 +409,7 @@ impl Pipeline {
             }
 
             let sp = registers[16]; // SP (Stack Pointer)
-            let mem_reg = self.execute.process_with_memory(&de_reg_mut, alu, memory, registers, sp)?;
+            let mem_reg = self.execute.process_with_dual_issue(&de_reg_mut, alu, memory, registers, sp)?;
 
             // Extraire les valeurs dont nous aurons besoin plus tard
             let branch_pc = de_reg.pc;
