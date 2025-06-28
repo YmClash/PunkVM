@@ -49,7 +49,7 @@ fn main() -> VMResult<()> {
     // Choisir le programme de test
     // let program = forwarding_stress_test(); // Tests de forwarding intensif
     // let program = store_load_forwarding_test_8(); // Tests Store-Load forwarding  immédiat 8
-    let program = memory_intensive_stress_test(); // Test mémoire intensif pour AGU
+    let program = memory_intensive_stress_test(); // Test mémoire intensif pour AGU avec optimisations
     // let program = store_load_forwarding_test_16(); // Tests Store-Load forwarding  immédiat 16
     // let program = store_load_forwarding_test_32(); // Tests Store-Load forwarding immédiat 32
     // let program = store_load_forwarding_test_64(); // Tests Store-Load forwarding immédiat 64
@@ -368,6 +368,41 @@ fn print_stats(vm: &VM) {
         }
     } else {
         println!("Aucun calcul d'adresse AGU détecté");
+    }
+
+    // Statistiques Dual-Issue Controller
+    println!("\n===== STATISTIQUES DUAL-ISSUE =====");
+    println!("Instructions traitées: {}", stats.dual_issue_total_instructions);
+    println!("Exécutions parallèles: {}", stats.dual_issue_parallel_executions);
+    println!("Taux de parallélisme: {:.2}%", stats.dual_issue_parallel_rate);
+    
+    if stats.dual_issue_total_instructions > 0 {
+        println!("\n--- Répartition par Unité ---");
+        println!("Instructions ALU uniquement: {}", stats.dual_issue_alu_only);
+        println!("Instructions AGU uniquement: {}", stats.dual_issue_agu_only);
+        println!("Conflits de ressources: {}", stats.dual_issue_resource_conflicts);
+        
+        // Analyse de l'efficacité dual-issue
+        let alu_ratio = (stats.dual_issue_alu_only as f64 / stats.dual_issue_total_instructions as f64) * 100.0;
+        let agu_ratio = (stats.dual_issue_agu_only as f64 / stats.dual_issue_total_instructions as f64) * 100.0;
+        
+        println!("\n--- Efficacité Dual-Issue ---");
+        println!("Ratio ALU: {:.1}%", alu_ratio);
+        println!("Ratio AGU: {:.1}%", agu_ratio);
+        
+        if stats.dual_issue_parallel_executions > 0 {
+            let theoretical_max = stats.dual_issue_total_instructions / 2;
+            let efficiency = (stats.dual_issue_parallel_executions as f64 / theoretical_max as f64) * 100.0;
+            println!("Efficacité théorique: {:.1}% ({}/{} max)", 
+                    efficiency, stats.dual_issue_parallel_executions, theoretical_max);
+        }
+        
+        if stats.cycles > 0 {
+            let dual_issue_impact = (stats.dual_issue_parallel_executions as f64 / stats.cycles as f64) * 100.0;
+            println!("Impact dual-issue: {:.1}% des cycles", dual_issue_impact);
+        }
+    } else {
+        println!("Aucune instruction traitée par dual-issue");
     }
 
     println!("\n===== TEST TERMINÉ =====");
