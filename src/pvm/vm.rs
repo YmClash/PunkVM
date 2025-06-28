@@ -134,6 +134,14 @@ pub struct VMStats {
     pub agu_base_cache_hit_rate: f64,   // Taux de réussite du cache de base
     pub agu_parallel_executions: u64,   // Exécutions parallèles AGU/ALU
     pub agu_average_latency: f64,       // Latence moyenne des calculs AGU
+    
+    // Statistiques Dual-Issue Controller
+    pub dual_issue_parallel_executions: u64,  // Nombre d'exécutions parallèles dual-issue
+    pub dual_issue_total_instructions: u64,   // Total d'instructions traitées par dual-issue
+    pub dual_issue_alu_only: u64,            // Instructions exécutées uniquement sur ALU
+    pub dual_issue_agu_only: u64,            // Instructions exécutées uniquement sur AGU
+    pub dual_issue_resource_conflicts: u64,   // Conflits de ressources détectés
+    pub dual_issue_parallel_rate: f64,       // Taux d'exécution parallèle (%)
 
 }
 
@@ -448,6 +456,32 @@ impl PunkVM {
             } else { 0.0 },
             agu_parallel_executions: self.get_agu_stats().parallel_executions,
             agu_average_latency: self.get_agu_stats().average_latency,
+            
+            // Statistiques Dual-Issue Controller
+            dual_issue_parallel_executions: {
+                let dual_stats = self.get_dual_issue_stats();
+                dual_stats.0
+            },
+            dual_issue_total_instructions: {
+                let dual_stats = self.get_dual_issue_stats();
+                dual_stats.1
+            },
+            dual_issue_alu_only: {
+                let dual_stats = self.get_dual_issue_stats();
+                dual_stats.2
+            },
+            dual_issue_agu_only: {
+                let dual_stats = self.get_dual_issue_stats();
+                dual_stats.3
+            },
+            dual_issue_resource_conflicts: {
+                let dual_stats = self.get_dual_issue_stats();
+                dual_stats.4
+            },
+            dual_issue_parallel_rate: {
+                let dual_stats = self.get_dual_issue_stats();
+                dual_stats.5
+            },
         }
     }
 
@@ -469,6 +503,11 @@ impl PunkVM {
     /// Retourne les statistiques de l'AGU
     pub fn get_agu_stats(&self) -> &AGUStats {
         self.pipeline.get_execute_stage().get_agu_stats()
+    }
+    
+    /// Retourne les statistiques du dual-issue controller
+    pub fn get_dual_issue_stats(&self) -> (u64, u64, u64, u64, u64, f64) {
+        self.pipeline.get_execute_stage().get_dual_issue_stats()
     }
 
     /// Retourne l'état actuel de la VM
