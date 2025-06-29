@@ -143,6 +143,26 @@ pub struct VMStats {
     pub dual_issue_resource_conflicts: u64,   // Conflits de ressources détectés
     pub dual_issue_parallel_rate: f64,       // Taux d'exécution parallèle (%)
 
+    // Statistiques Parallel Execution Engine
+    pub parallel_engine_total_instructions: u64,   // Instructions totales traitées par le moteur parallèle
+    pub parallel_engine_parallel_executions: u64,  // Exécutions parallèles réelles
+    pub parallel_engine_alu_instructions: u64,     // Instructions ALU exécutées
+    pub parallel_engine_agu_instructions: u64,     // Instructions AGU exécutées  
+    pub parallel_engine_simd_instructions: u64,    // Instructions SIMD exécutées
+    
+    // Analyse des dépendances
+    pub parallel_engine_raw_dependencies: u64,     // Dépendances Read After Write
+    pub parallel_engine_war_dependencies: u64,     // Dépendances Write After Read
+    pub parallel_engine_waw_dependencies: u64,     // Dépendances Write After Write
+    pub parallel_engine_dependency_stalls: u64,    // Stalls causés par les dépendances
+    pub parallel_engine_resource_conflicts: u64,   // Conflits de ressources
+    
+    // Utilisation des unités d'exécution
+    pub parallel_engine_alu_utilization: f64,      // Utilisation de l'ALU (%)
+    pub parallel_engine_agu_utilization: f64,      // Utilisation de l'AGU (%)
+    pub parallel_engine_average_queue_depth: f64,  // Profondeur moyenne des queues
+    pub parallel_engine_parallel_rate: f64,        // Taux d'exécution parallèle (%)
+
 }
 
 /// Machine virtuelle PunkVM
@@ -430,16 +450,16 @@ impl PunkVM {
             stack_max_depth: self.stack_stats.max_depth,
 
             // Statistiques SIMD récupérées du VectorALU
-            simd128_ops: self.get_vector_alu().get_simd_stats().simd128_ops,
-            simd256_ops: self.get_vector_alu().get_simd_stats().simd256_ops,
-            simd_total_cycles: self.get_vector_alu().get_simd_stats().total_simd_cycles,
-            simd_ops_per_cycle: self.get_vector_alu().get_simd_stats().simd_ops_per_cycle,
-            simd_parallel_ops: self.get_vector_alu().get_simd_stats().parallel_ops,
+            simd128_ops: self.get_vector_alu().borrow().get_simd_stats().simd128_ops,
+            simd256_ops: self.get_vector_alu().borrow().get_simd_stats().simd256_ops,
+            simd_total_cycles: self.get_vector_alu().borrow().get_simd_stats().total_simd_cycles,
+            simd_ops_per_cycle: self.get_vector_alu().borrow().get_simd_stats().simd_ops_per_cycle,
+            simd_parallel_ops: self.get_vector_alu().borrow().get_simd_stats().parallel_ops,
             
             // Statistiques du cache d'opérations SIMD
-            simd_cache_hits: self.get_vector_alu().get_cache_stats().0,
-            simd_cache_misses: self.get_vector_alu().get_cache_stats().1,
-            simd_cache_hit_rate: self.get_vector_alu().get_cache_stats().2,
+            simd_cache_hits: self.get_vector_alu().borrow().get_cache_stats().0,
+            simd_cache_misses: self.get_vector_alu().borrow().get_cache_stats().1,
+            simd_cache_hit_rate: self.get_vector_alu().borrow().get_cache_stats().2,
             
             // Statistiques AGU récupérées de l'ExecuteStage
             agu_total_calculations: self.get_agu_stats().total_calculations,
@@ -482,6 +502,68 @@ impl PunkVM {
                 let dual_stats = self.get_dual_issue_stats();
                 dual_stats.5
             },
+            
+            // Statistiques Parallel Execution Engine
+            parallel_engine_total_instructions: {
+                let parallel_stats = self.get_parallel_engine_stats();
+                parallel_stats.total_instructions
+            },
+            parallel_engine_parallel_executions: {
+                let parallel_stats = self.get_parallel_engine_stats();
+                parallel_stats.parallel_executions
+            },
+            parallel_engine_alu_instructions: {
+                let parallel_stats = self.get_parallel_engine_stats();
+                parallel_stats.alu_instructions
+            },
+            parallel_engine_agu_instructions: {
+                let parallel_stats = self.get_parallel_engine_stats();
+                parallel_stats.agu_instructions
+            },
+            parallel_engine_simd_instructions: {
+                let parallel_stats = self.get_parallel_engine_stats();
+                parallel_stats.simd_instructions
+            },
+            parallel_engine_raw_dependencies: {
+                let parallel_stats = self.get_parallel_engine_stats();
+                parallel_stats.raw_dependencies
+            },
+            parallel_engine_war_dependencies: {
+                let parallel_stats = self.get_parallel_engine_stats();
+                parallel_stats.war_dependencies
+            },
+            parallel_engine_waw_dependencies: {
+                let parallel_stats = self.get_parallel_engine_stats();
+                parallel_stats.waw_dependencies
+            },
+            parallel_engine_dependency_stalls: {
+                let parallel_stats = self.get_parallel_engine_stats();
+                parallel_stats.dependency_stalls
+            },
+            parallel_engine_resource_conflicts: {
+                let parallel_stats = self.get_parallel_engine_stats();
+                parallel_stats.resource_conflicts
+            },
+            parallel_engine_alu_utilization: {
+                let parallel_stats = self.get_parallel_engine_stats();
+                parallel_stats.alu_utilization
+            },
+            parallel_engine_agu_utilization: {
+                let parallel_stats = self.get_parallel_engine_stats();
+                parallel_stats.agu_utilization
+            },
+            parallel_engine_average_queue_depth: {
+                let parallel_stats = self.get_parallel_engine_stats();
+                parallel_stats.average_queue_depth
+            },
+            parallel_engine_parallel_rate: {
+                let parallel_stats = self.get_parallel_engine_stats();
+                if parallel_stats.total_instructions > 0 {
+                    (parallel_stats.parallel_executions as f64 / parallel_stats.total_instructions as f64) * 100.0
+                } else {
+                    0.0
+                }
+            },
         }
     }
 
@@ -491,23 +573,25 @@ impl PunkVM {
     }
 
     /// Retourne une référence au VectorALU pour accéder aux registres vectoriels
-    pub fn get_vector_alu(&self) -> &crate::alu::v_alu::VectorALU {
-        self.pipeline.get_execute_stage().get_vector_alu()
+    pub fn get_vector_alu(&self) -> &std::rc::Rc<std::cell::RefCell<crate::alu::v_alu::VectorALU>> {
+        self.pipeline.get_execute_stage().get_vector_alu_ref()
     }
 
-    /// Retourne une référence mutable au VectorALU
-    pub fn get_vector_alu_mut(&mut self) -> &mut crate::alu::v_alu::VectorALU {
-        self.pipeline.get_execute_stage_mut().get_vector_alu_mut()
-    }
+    // get_vector_alu_mut supprimée - utiliser get_vector_alu().borrow_mut() à la place
 
     /// Retourne les statistiques de l'AGU
-    pub fn get_agu_stats(&self) -> &AGUStats {
+    pub fn get_agu_stats(&self) -> AGUStats {
         self.pipeline.get_execute_stage().get_agu_stats()
     }
     
     /// Retourne les statistiques du dual-issue controller
     pub fn get_dual_issue_stats(&self) -> (u64, u64, u64, u64, u64, f64) {
         self.pipeline.get_execute_stage().get_dual_issue_stats()
+    }
+    
+    /// Retourne les statistiques du parallel execution engine
+    pub fn get_parallel_engine_stats(&self) -> &crate::pipeline::parallel::ParallelExecutionStats {
+        self.pipeline.get_execute_stage().get_parallel_engine_stats()
     }
 
     /// Retourne l'état actuel de la VM
