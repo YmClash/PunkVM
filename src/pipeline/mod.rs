@@ -8,6 +8,7 @@ pub mod hazard;
 pub mod memory;
 pub mod writeback;
 pub mod ras;
+pub mod parallel;
 
 use crate::alu::alu::ALU;
 use crate::bytecode::opcodes::Opcode;
@@ -409,7 +410,24 @@ impl Pipeline {
             }
 
             let sp = registers[16]; // SP (Stack Pointer)
-            let mem_reg = self.execute.process_with_dual_issue(&de_reg_mut, alu, memory, registers, sp)?;
+            
+            // ACTIVATION DU PARALLEL EXECUTION ENGINE !
+            // Essayer d'abord process_parallel pour la vraie exécution parallèle
+            let parallel_results = self.execute.process_parallel(
+                &[de_reg_mut.clone()], 
+                alu, 
+                memory, 
+                registers, 
+                sp
+            )?;
+            
+            // S'il y a des résultats parallèles, utiliser le premier
+            let mem_reg = if !parallel_results.is_empty() {
+                parallel_results[0].clone()
+            } else {
+                // Fallback sur l'ancienne méthode si pas de résultats parallèles
+                self.execute.process_with_dual_issue(&de_reg_mut, alu, memory, registers, sp)?
+            };
 
             // Extraire les valeurs dont nous aurons besoin plus tard
             let branch_pc = de_reg.pc;
