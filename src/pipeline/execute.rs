@@ -4,12 +4,16 @@ use crate::alu::alu::{ALUOperation, BranchCondition, ALU};
 use crate::alu::v_alu::{VectorALU, VectorOperation, };
 use crate::alu::fpu::{FPU, FPUOperation, FloatPrecision};
 use crate::alu::agu::{AGU, AGUConfig, AddressingMode, AGUError};
-use std::collections::VecDeque;
+use std::collections::{VecDeque};
+use std::cell::RefCell;
+use std::rc::Rc;
 use crate::bytecode::opcodes::{Opcode, };
 use crate::bytecode::simds::{Vector128, Vector256, VectorDataType, Vector256DataType};
 use crate::pipeline::{DecodeExecuteRegister, ExecuteMemoryRegister};
 use crate::pvm::branch_predictor::{BranchPrediction, BranchPredictor, PredictorType};
 use crate::pipeline::decode::StackOperation;
+use crate::pipeline::parallel::{ExecutionUnit, InstructionPriority, ParallelExecutionEngine, ParallelExecutionStats};
+// use crate::pipeline::parallel::{ParallelExecutionEngine, ParallelExecutionStats, ExecutionUnit, InstructionPriority};
 
 /// Contrôleur dual-issue pour exécution parallèle ALU/AGU
 #[derive(Debug, Clone)]
@@ -33,25 +37,6 @@ struct DualIssueInstruction {
     execution_unit: ExecutionUnit,
     /// Priorité d'exécution (instructions mémoire prioritaires)
     priority: InstructionPriority,
-}
-
-/// Types d'unités d'exécution
-#[derive(Debug, Clone, PartialEq)]
-enum ExecutionUnit {
-    ALU,        // Instructions arithmétiques/logiques
-    AGU,        // Instructions d'adresse/mémoire
-    Both,       // Instructions complexes nécessitant les deux
-    SIMD,       // Instructions vectorielles
-    FPU,        // Instructions flottantes
-    Branch,     // Instructions de branchement
-}
-
-/// Priorité des instructions
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-enum InstructionPriority {
-    High,       // Load/Store, branches
-    Medium,     // Instructions arithmétiques
-    Low,        // NOP, autres
 }
 
 /// Résultat d'exécution dual-issue
@@ -82,13 +67,13 @@ impl DualIssueController {
             Opcode::Store | Opcode::StoreB | Opcode::StoreW | Opcode::StoreD => {
                 (ExecutionUnit::AGU, InstructionPriority::High)
             }
-            
+
             // Instructions SIMD mémoire - AGU haute priorité
             Opcode::Simd128Load | Opcode::Simd128Store |
             Opcode::Simd256Load | Opcode::Simd256Store => {
                 (ExecutionUnit::AGU, InstructionPriority::High)
             }
-            
+
             // Instructions arithmétiques - ALU priorité moyenne
             Opcode::Add | Opcode::Sub | Opcode::Mul | Opcode::Div | Opcode::Mod |
             Opcode::Inc | Opcode::Dec | Opcode::Neg |
@@ -97,7 +82,7 @@ impl DualIssueController {
             Opcode::Cmp | Opcode::Test => {
                 (ExecutionUnit::ALU, InstructionPriority::Medium)
             }
-            
+
             // Instructions de branchement - priorité haute
             Opcode::Jmp | Opcode::JmpIf | Opcode::JmpIfNot | Opcode::JmpIfEqual |
             Opcode::JmpIfNotEqual | Opcode::JmpIfGreater | Opcode::JmpIfGreaterEqual |
@@ -108,44 +93,44 @@ impl DualIssueController {
             Opcode::Call | Opcode::Ret => {
                 (ExecutionUnit::Branch, InstructionPriority::High)
             }
-            
+
             // Instructions pile - AGU (calcul d'adresse stack)
             Opcode::Push | Opcode::Pop => {
                 (ExecutionUnit::AGU, InstructionPriority::High)
             }
-            
+
             // Instructions SIMD arithmétiques - SIMD priorité moyenne
             _ if format!("{:?}", instruction.instruction.opcode).starts_with("Simd") => {
                 (ExecutionUnit::SIMD, InstructionPriority::Medium)
             }
-            
+
             // Instructions FPU - FPU priorité moyenne
             _ if format!("{:?}", instruction.instruction.opcode).starts_with("Fp") => {
                 (ExecutionUnit::FPU, InstructionPriority::Medium)
             }
-            
+
             // Instructions de transfert - ALU priorité moyenne
             Opcode::Mov => {
                 (ExecutionUnit::ALU, InstructionPriority::Medium)
             }
-            
+
             // Instructions spéciales - priorité basse
             Opcode::Nop | Opcode::Break => {
                 (ExecutionUnit::ALU, InstructionPriority::Low)
             }
-            
+
             // Instructions système - priorité haute
             Opcode::Halt | Opcode::Syscall => {
                 (ExecutionUnit::Both, InstructionPriority::High)
             }
-            
+
             // Pattern par défaut pour toutes les autres instructions
             _ => {
                 (ExecutionUnit::ALU, InstructionPriority::Medium)
             }
         }
     }
-    
+
     /// Détermine si deux instructions peuvent s'exécuter en parallèle
     fn can_execute_parallel(&self, instr1: &DualIssueInstruction, instr2: &DualIssueInstruction) -> bool {
         // 1. Vérifier qu'elles utilisent des unités différentes
@@ -262,18 +247,24 @@ impl DualIssueController {
 }
 
 
+
 /// Implementation de l'étage Execute du pipeline
 pub struct ExecuteStage {
     // Unité ALU
     branch_predictor: BranchPredictor,
     /// Unité ALU vectorielle SIMD
-    vector_alu: VectorALU,
+    vector_alu: Rc<RefCell<VectorALU>>,
+    // vector_alu: VectorALU,
     /// Unité de calcul flottant FPU
-    fpu: FPU,
+    fpu: Rc<RefCell<FPU>>,
+    // fpu: FPU
     /// Address Generation Unit (AGU) pour calculs d'adresse parallèles
-    agu: AGU,
+    agu: Rc<RefCell<AGU>>,
+    // agu: AGU,
     /// Dual-Issue Controller pour exécution parallèle ALU/AGU
     dual_issue_controller: DualIssueController,
+    /// Moteur d'exécution parallèle
+    parallel_engine: ParallelExecutionEngine,
     /// Stats Locales
     branch_predictions:u64,
     branch_hits:u64,
@@ -284,18 +275,59 @@ pub struct ExecuteStage {
 impl ExecuteStage {
     /// Crée un nouvel étage Execute
     pub fn new() -> Self {
+        // Créer les unités d'exécution avec smart pointers
+        let vector_alu = Rc::new(RefCell::new(VectorALU::new()));
+        let fpu = Rc::new(RefCell::new(FPU::new()));
+        let agu = Rc::new(RefCell::new(AGU::new(AGUConfig::default())));
+        
+        // Créer le moteur d'exécution parallèle et configurer les références
+        let mut parallel_engine = ParallelExecutionEngine::new();
+        parallel_engine.set_execution_units(
+            // Pour ALU, nous utiliserons une référence externe car ALU n'est pas dans ExecuteStage
+            Rc::new(RefCell::new(ALU::new())),
+            agu.clone(),
+            vector_alu.clone(),
+        );
+        
         Self {
             branch_predictor: BranchPredictor::new(PredictorType::Hybrid),
-            vector_alu: VectorALU::new(),
-            fpu: FPU::new(),
-            agu: AGU::new(AGUConfig::default()),
+            vector_alu,
+            fpu,
+            agu,
             dual_issue_controller: DualIssueController::new(),
+            parallel_engine,
             branch_predictions: 0,
             branch_hits: 0,
             current_cycle: 0,
         }
     }
 
+    /// Traite l'étage Execute avec fallback sur dual-issue si pas prêt pour parallel
+    pub fn process_parallel(
+        &mut self,
+        instructions: &[DecodeExecuteRegister],
+        alu: &mut ALU,
+        memory: &mut crate::pvm::memorys::Memory,
+        registers: &[u64],
+        sp: u64,
+    ) -> Result<Vec<ExecuteMemoryRegister>, String> {
+        // Pour l'instant, utiliser directement process_with_dual_issue
+        // Le ParallelExecutionEngine sera activé progressivement dans les prochaines phases
+        
+        if instructions.is_empty() {
+            return Ok(vec![]);
+        }
+        
+        // Utiliser la méthode éprouvée dual-issue
+        let result = self.process_with_dual_issue(&instructions[0], alu, memory, registers, sp)?;
+        
+        // Logging pour debug
+        println!("PARALLEL ENGINE: Exécution fallback pour instruction {:?}", 
+                 instructions[0].instruction.opcode);
+        
+        Ok(vec![result])
+    }
+    
     /// Traite l'étage Execute avec dual-issue controller pour exécution parallèle
     pub fn process_with_dual_issue(
         &mut self,
@@ -306,7 +338,7 @@ impl ExecuteStage {
         sp: u64,
     ) -> Result<ExecuteMemoryRegister, String> {
         // Mettre à jour le cycle pour l'AGU
-        self.agu.update_cycle(self.current_cycle);
+        self.agu.borrow_mut().update_cycle(self.current_cycle);
         self.current_cycle += 1;
         
         // Analyser l'instruction pour le dual-issue
@@ -357,18 +389,16 @@ impl ExecuteStage {
         sp: u64,
     ) -> Result<ExecuteMemoryRegister, String> {
         // Mettre à jour le cycle pour l'AGU
-        self.agu.update_cycle(self.current_cycle);
+        self.agu.borrow_mut().update_cycle(self.current_cycle);
         self.current_cycle += 1;
         
-        // Vérifier si c'est une opération SIMD Load/Store
+        // Vérifier le type d'instruction
         match ex_reg.instruction.opcode {
-            Opcode::Simd128Load | Opcode::Simd128Store | 
-            Opcode::Simd256Load | Opcode::Simd256Store => {
-                self.process_simd_memory_operations(ex_reg, alu, memory, registers, sp)
-            }
-            // Instructions mémoire standard qui bénéficient de l'AGU
+            // Toutes les instructions mémoire passent par l'AGU
             Opcode::Load | Opcode::LoadB | Opcode::LoadW | Opcode::LoadD |
-            Opcode::Store | Opcode::StoreB | Opcode::StoreW | Opcode::StoreD => {
+            Opcode::Store | Opcode::StoreB | Opcode::StoreW | Opcode::StoreD |
+            Opcode::Simd128Load | Opcode::Simd128Store | Opcode::Simd256Load | Opcode::Simd256Store |
+            Opcode::Push | Opcode::Pop | Opcode::Call | Opcode::Ret => {
                 self.process_memory_with_agu(ex_reg, alu, registers, sp)
             }
             _ => {
@@ -404,7 +434,7 @@ impl ExecuteStage {
                     .map_err(|e| format!("SIMD128Load: Erreur lecture mémoire: {}", e))?;
                 
                 // Écrire dans le registre vectoriel
-                self.vector_alu.write_v128(dst_reg as u8, vector)
+                self.vector_alu.borrow_mut().write_v128(dst_reg as u8, vector)
                     .map_err(|e| format!("SIMD128Load: Erreur écriture registre V128: {}", e))?;
                 
                 println!("SIMD128Load: Vector loaded into V{}", dst_reg);
@@ -420,7 +450,7 @@ impl ExecuteStage {
                 println!("SIMD128Store: Storing vector V{} to memory address 0x{:08X}", src_reg, addr);
                 
                 // Lire le vecteur du registre source
-                let vector = self.vector_alu.read_v128(src_reg as u8)
+                let vector = self.vector_alu.borrow_mut().read_v128(src_reg as u8)
                     .map_err(|e| format!("SIMD128Store: Erreur lecture registre V128: {}", e))?;
                 
                 // Stocker le vecteur en mémoire
@@ -444,7 +474,7 @@ impl ExecuteStage {
                     .map_err(|e| format!("SIMD256Load: Erreur lecture mémoire: {}", e))?;
                 
                 // Écrire dans le registre vectoriel
-                self.vector_alu.write_v256(dst_reg as u8, vector)
+                self.vector_alu.borrow_mut().write_v256(dst_reg as u8, vector)
                     .map_err(|e| format!("SIMD256Load: Erreur écriture registre V256: {}", e))?;
                 
                 println!("SIMD256Load: Vector loaded into Y{}", dst_reg);
@@ -460,7 +490,7 @@ impl ExecuteStage {
                 println!("SIMD256Store: Storing vector Y{} to memory address 0x{:08X}", src_reg, addr);
                 
                 // Lire le vecteur du registre source
-                let vector = self.vector_alu.read_v256(src_reg as u8)
+                let vector = self.vector_alu.borrow_mut().read_v256(src_reg as u8)
                     .map_err(|e| format!("SIMD256Store: Erreur lecture registre V256: {}", e))?;
                 
                 // Stocker le vecteur en mémoire
@@ -1077,7 +1107,7 @@ impl ExecuteStage {
                 
                 // Créer un vecteur par défaut pour l'instant (sera remplacé par le vrai load mémoire)
                 let default_vector = Vector128 { i32x4: [0, 0, 0, 0] };
-                self.vector_alu.write_v128(dst_reg, default_vector)
+                self.vector_alu.borrow_mut().write_v128(dst_reg, default_vector)
                     .map_err(|e| format!("Erreur écriture registre V128: {}", e))?;
                 return Ok(());
             }
@@ -1088,7 +1118,7 @@ impl ExecuteStage {
                 println!("SIMD128Store: Storing vector V{} to memory", src1_reg);
                 
                 // Lire le vecteur du registre source
-                let vector = self.vector_alu.read_v128(src1_reg)
+                let vector = self.vector_alu.borrow_mut().read_v128(src1_reg)
                     .map_err(|e| format!("Erreur lecture registre V128: {}", e))?;
                 
                 // Implementer dans
@@ -1099,9 +1129,9 @@ impl ExecuteStage {
             }
             Opcode::Simd128Mov => {
                 // Mov vectoriel simple
-                let src_vector = self.vector_alu.read_v128(src1_reg)
+                let src_vector = self.vector_alu.borrow_mut().read_v128(src1_reg)
                     .map_err(|e| format!("Erreur lecture registre V128: {}", e))?;
-                self.vector_alu.write_v128(dst_reg, src_vector)
+                self.vector_alu.borrow_mut().write_v128(dst_reg, src_vector)
                     .map_err(|e| format!("Erreur écriture registre V128: {}", e))?;
                 return Ok(());
             }
@@ -1183,7 +1213,7 @@ impl ExecuteStage {
                 };
                 
                 // Écrire le vecteur dans le registre destination
-                self.vector_alu.write_v128(dst_reg, vector)
+                self.vector_alu.borrow_mut().write_v128(dst_reg, vector)
                     .map_err(|e| format!("Erreur écriture registre V128: {}", e))?;
                 
                 println!("SIMD128Const: Loaded constant vector into V{}", dst_reg);
@@ -1198,7 +1228,7 @@ impl ExecuteStage {
             _ => VectorDataType::I32x4, // Type par défaut pour les autres opérations
         };
 
-        self.vector_alu.execute_v128(
+        self.vector_alu.borrow_mut().execute_v128(
             operation,
             dst_reg,
             src1_reg,
@@ -1231,9 +1261,9 @@ impl ExecuteStage {
             Opcode::Simd256Shuffle => VectorOperation::Shuffle,
             Opcode::Simd256Mov => {
                 // Mov vectoriel simple
-                let src_vector = self.vector_alu.read_v256(src1_reg)
+                let src_vector = self.vector_alu.borrow_mut().read_v256(src1_reg)
                     .map_err(|e| format!("Erreur lecture registre V256: {}", e))?;
-                self.vector_alu.write_v256(dst_reg, src_vector)
+                self.vector_alu.borrow_mut().write_v256(dst_reg, src_vector)
                     .map_err(|e| format!("Erreur écriture registre V256: {}", e))?;
                 return Ok(());
             }
@@ -1243,7 +1273,7 @@ impl ExecuteStage {
                 
                 // Créer un vecteur par défaut pour l'instant (sera remplacé par le vrai load mémoire)
                 let default_vector = Vector256 { i32x8: [0, 0, 0, 0, 0, 0, 0, 0] };
-                self.vector_alu.write_v256(dst_reg, default_vector)
+                self.vector_alu.borrow_mut().write_v256(dst_reg, default_vector)
                     .map_err(|e| format!("Erreur écriture registre V256: {}", e))?;
                 return Ok(());
             }
@@ -1252,7 +1282,7 @@ impl ExecuteStage {
                 println!("SIMD256Store: Storing vector Y{} to memory", src1_reg);
                 
                 // Lire le vecteur du registre source
-                let vector = self.vector_alu.read_v256(src1_reg)
+                let vector = self.vector_alu.borrow_mut().read_v256(src1_reg)
                     .map_err(|e| format!("Erreur lecture registre V256: {}", e))?;
                 
                 // Implementer dans process_with_memory() et aussi process_simd_memory_operations()
@@ -1357,7 +1387,7 @@ impl ExecuteStage {
                 };
                 
                 // Écrire le vecteur dans le registre destination
-                self.vector_alu.write_v256(dst_reg, vector)
+                self.vector_alu.borrow_mut().write_v256(dst_reg, vector)
                     .map_err(|e| format!("Erreur écriture registre V256: {}", e))?;
                 
                 println!("SIMD256Const: Loaded constant vector into Y{}", dst_reg);
@@ -1372,7 +1402,7 @@ impl ExecuteStage {
             _ => Vector256DataType::I32x8, // Type par défaut pour les autres opérations
         };
 
-        self.vector_alu.execute_v256(
+        self.vector_alu.borrow_mut().execute_v256(
             operation,
             dst_reg,
             src1_reg,
@@ -1403,30 +1433,31 @@ impl ExecuteStage {
             Opcode::FpuRound => FPUOperation::Round,
             Opcode::FpuMov => {
                 // Mov FPU simple
-                let src_value = self.fpu.read_fp_register(src1_reg)
+                let src_value = self.fpu.borrow_mut().read_fp_register(src1_reg)
                     .map_err(|e| format!("Erreur lecture registre FPU: {}", e))?;
-                self.fpu.write_fp_register(dst_reg, src_value)
+                self.fpu.borrow_mut().write_fp_register(dst_reg, src_value)
                     .map_err(|e| format!("Erreur écriture registre FPU: {}", e))?;
                 return Ok(src_value);
             }
             _ => return Err(format!("Opération FPU non supportée: {:?}", opcode)),
         };
 
-        self.fpu.execute(operation, dst_reg, src1_reg, src2_reg, precision)
+        self.fpu.borrow_mut().execute(operation, dst_reg, src1_reg, src2_reg, precision)
             .map_err(|e| format!("Erreur exécution FPU: {}", e))?;
 
         // Retourner la valeur du registre de destination
-        self.fpu.read_fp_register(dst_reg)
+        self.fpu.borrow_mut().read_fp_register(dst_reg)
             .map_err(|e| format!("Erreur lecture résultat FPU: {}", e))
     }
 
     /// Réinitialise l'étage Execute
     pub fn reset(&mut self) {
         self.branch_predictor = BranchPredictor::new(PredictorType::Dynamic);
-        self.vector_alu.reset();
-        self.fpu.reset();
-        self.agu.reset();
+        self.vector_alu.borrow_mut().reset();
+        self.fpu.borrow_mut().reset();
+        self.agu.borrow_mut().reset();
         self.dual_issue_controller.reset();
+        self.parallel_engine = ParallelExecutionEngine::new();
         self.branch_predictions = 0;
         self.branch_hits = 0;
         self.current_cycle = 0;
@@ -1436,25 +1467,23 @@ impl ExecuteStage {
     pub fn get_dual_issue_stats(&self) -> (u64, u64, u64, u64, u64, f64) {
         self.dual_issue_controller.get_stats()
     }
+    
+    /// Obtient les statistiques du moteur d'exécution parallèle
+    pub fn get_parallel_engine_stats(&self) -> &ParallelExecutionStats {
+        self.parallel_engine.get_stats()
+    }
 
-    /// Accès en lecture seule au VectorALU
-    pub fn get_vector_alu(&self) -> &VectorALU {
+    /// Accès aux unités d'exécution via Rc<RefCell<T>>
+    pub fn get_vector_alu_ref(&self) -> &Rc<RefCell<VectorALU>> {
         &self.vector_alu
     }
-
-    /// Accès en écriture au VectorALU
-    pub fn get_vector_alu_mut(&mut self) -> &mut VectorALU {
-        &mut self.vector_alu
-    }
-
-    /// Accès en lecture seule au FPU
-    pub fn get_fpu(&self) -> &FPU {
+    
+    pub fn get_fpu_ref(&self) -> &Rc<RefCell<FPU>> {
         &self.fpu
     }
-
-    /// Accès en écriture au FPU
-    pub fn get_fpu_mut(&mut self) -> &mut FPU {
-        &mut self.fpu
+    
+    pub fn get_agu_ref(&self) -> &Rc<RefCell<AGU>> {
+        &self.agu
     }
     
     /// Traite les instructions mémoire avec l'AGU pour optimisation
@@ -1494,9 +1523,57 @@ impl ExecuteStage {
                          rs1_value, final_addr);
             }
             
+            // Instructions SIMD mémoire
+            Opcode::Simd128Load | Opcode::Simd256Load => {
+                alu_result = 0; // Sera remplacé par la valeur chargée
+                println!("Execute SIMD LOAD with AGU: mem_addr={:?}", final_addr);
+            }
+            
+            Opcode::Simd128Store | Opcode::Simd256Store => {
+                // Pour SIMD, la valeur est dans les registres vectoriels
+                store_value = Some(0); // Placeholder, la vraie valeur sera gérée dans Memory stage
+                println!("Execute SIMD STORE with AGU: mem_addr={:?}", final_addr);
+            }
+            
+            // Instructions Stack - Push/Pop utilisent l'adresse SP
+            Opcode::Push => {
+                // Push utilise SP comme adresse de base
+                store_value = Some(rs1_value);
+                println!("Execute PUSH with AGU: value={}, mem_addr={:?}", rs1_value, final_addr);
+            }
+            
+            Opcode::Pop => {
+                // Pop lit depuis SP
+                alu_result = 0; // Sera remplacé par la valeur lue
+                println!("Execute POP with AGU: mem_addr={:?}", final_addr);
+            }
+            
+            // Instructions CALL/RET qui peuvent aussi accéder à la mémoire
+            Opcode::Call => {
+                // Call pousse l'adresse de retour sur la pile
+                store_value = Some(ex_reg.pc as u64 + ex_reg.instruction.total_size() as u64);
+                println!("Execute CALL with AGU: return_addr={}, mem_addr={:?}", 
+                         ex_reg.pc as u64 + ex_reg.instruction.total_size() as u64, final_addr);
+            }
+            
+            Opcode::Ret => {
+                // Ret lit l'adresse de retour depuis la pile
+                alu_result = 0; // Sera remplacé par l'adresse lue
+                println!("Execute RET with AGU: mem_addr={:?}", final_addr);
+            }
+            
             _ => return Err(format!("Instruction non-mémoire passée à process_memory_with_agu: {:?}", 
                                    ex_reg.instruction.opcode)),
         }
+        
+        // Déterminer l'opération stack si applicable
+        let stack_op = match ex_reg.instruction.opcode {
+            Opcode::Push => ex_reg.stack_operation.clone(),
+            Opcode::Pop => ex_reg.stack_operation.clone(),
+            Opcode::Call => ex_reg.stack_operation.clone(),
+            Opcode::Ret => ex_reg.stack_operation.clone(),
+            _ => None,
+        };
         
         Ok(ExecuteMemoryRegister {
             instruction: ex_reg.instruction.clone(),
@@ -1507,7 +1584,7 @@ impl ExecuteStage {
             branch_target: None,
             branch_taken: false,
             branch_prediction_correct: None,
-            stack_operation: None,
+            stack_operation: stack_op,
             stack_result: None,
             ras_prediction_correct: None,
             halted: false,
@@ -1522,20 +1599,34 @@ impl ExecuteStage {
         sp: u64,
     ) -> Result<Option<u64>, String> {
         // Détecter le mode d'adressage basé sur l'instruction et les registres utilisés
-        let addressing_mode = match (ex_reg.rs1, ex_reg.rs2, ex_reg.immediate) {
+        // Pour les instructions Store/SIMD Store: rs1=source, rs2=base
+        // Pour les instructions Load/SIMD Load: rs1=base, rs2=none ou index
+        let (base_reg, index_reg) = match ex_reg.instruction.opcode {
+            Opcode::Store | Opcode::StoreB | Opcode::StoreW | Opcode::StoreD |
+            Opcode::Simd128Store | Opcode::Simd256Store => {
+                // Pour Store avec RegisterOffset: rs2 est la base, pas d'index (rs1 est la valeur à stocker)
+                (ex_reg.rs2, None)
+            }
+            _ => {
+                // Pour Load et autres: rs1 est le registre de base
+                (ex_reg.rs1, ex_reg.rs2)
+            }
+        };
+        
+        let addressing_mode = match (base_reg, index_reg, ex_reg.immediate) {
             // Base + Offset (registre + immédiat)
-            (Some(base_reg), None, Some(offset)) => {
+            (Some(base), None, Some(offset)) => {
                 AddressingMode::BaseOffset { 
-                    base: base_reg as u8, 
+                    base: base as u8, 
                     offset: offset as i32 
                 }
             }
             
             // Base + Index (deux registres)
-            (Some(base_reg), Some(index_reg), offset) => {
+            (Some(base), Some(index), offset) => {
                 AddressingMode::BaseIndexScale {
-                    base: base_reg as u8,
-                    index: index_reg as u8, 
+                    base: base as u8,
+                    index: index as u8, 
                     scale: 1, // Scale par défaut
                     offset: offset.unwrap_or(0) as i32
                 }
@@ -1570,7 +1661,7 @@ impl ExecuteStage {
         };
         
         // Calculer l'adresse avec l'AGU
-        match self.agu.calculate_address(addressing_mode, registers, ex_reg.pc as u64, sp) {
+        match self.agu.borrow_mut().calculate_address(addressing_mode, registers, ex_reg.pc as u64, sp) {
             Ok(address) => {
                 println!("AGU: Successfully calculated address 0x{:X} using {:?}", 
                          address, addressing_mode);
@@ -1588,23 +1679,30 @@ impl ExecuteStage {
     }
     
     /// Obtient les statistiques de l'AGU
-    pub fn get_agu_stats(&self) -> &crate::alu::agu::AGUStats {
-        self.agu.get_stats()
+    pub fn get_agu_stats(&self) -> crate::alu::agu::AGUStats {
+        self.agu.borrow().get_stats().clone()
     }
     
     /// Obtient les statistiques de stride prediction
     pub fn get_agu_stride_stats(&self) -> (u64, u64, f64) {
-        self.agu.get_stride_stats()
+        self.agu.borrow().get_stride_stats()
     }
     
     /// Obtient les statistiques du cache de base
     pub fn get_agu_base_cache_stats(&self) -> (u64, u64, f64) {
-        self.agu.get_base_cache_stats()
+        self.agu.borrow().get_base_cache_stats()
     }
 }
 
 
 
+
+
+
+
+
+
+/////////////////////////////////////////////Test Unitaire pour l'étage Execute/////////////////////////////////////////////
 
 //
 //
