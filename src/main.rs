@@ -50,15 +50,16 @@ fn main() -> VMResult<()> {
     // let program = forwarding_stress_test(); // Tests de forwarding intensif
     // let program = store_load_forwarding_test_8(); // Tests Store-Load forwarding  immédiat 8
     let program = memory_intensive_stress_test(); // Test mémoire intensif pour AGU avec optimisations
+    // let program = punk_program_3(); // Test de branchement pour vérifier le ParallelExecutionEngine
     // let program = store_load_forwarding_test_16(); // Tests Store-Load forwarding  immédiat 16
     // let program = store_load_forwarding_test_32(); // Tests Store-Load forwarding immédiat 32
     // let program = store_load_forwarding_test_64(); // Tests Store-Load forwarding immédiat 64
-
-    // let program = forwarding_efficiency_test(); // Tests d'efficacité forwarding
+    //
+    // let program = cache_hierarchy_validation_test(); // Test hiérarchie cache L1/L2
     // let program = punk_program_3(); // Tests de branchement
     // let program= punk_program_5(); // Tests multiples branchements conditionnels et inconditionnels
     // let program = punk_program_3(); // Retour au test original pour confirmer BTB
-    // let program = simd_instruction_test(); // Test SIMD de base
+    // let program = store_load_forwarding_test_64(); // Tests Store-Load forwarding immédiat 64
     // let program = simd_advanced_test(); // Test SIMD avancé (Min, Max, Sqrt, Cmp, Shuffle)
     // let program = simd_cache_validation_test(); // Test validation cache SIMD
     // let program = cache_hierarchy_validation_test(); // Test hiérarchie cache L1/L2
@@ -135,8 +136,9 @@ fn print_registers(vm: &VM) {
     // Affichage des registres vectoriels 128-bit
     println!("\n===== REGISTRES VECTORIELS 128-BIT =====");
     let vector_alu = vm.get_vector_alu();
+    let vector_alu_borrowed = vector_alu.borrow();
     for i in 0..16 {
-        let v128 = vector_alu.v128_registers[i];
+        let v128 = vector_alu_borrowed.v128_registers[i];
         unsafe {
             // Affichage en format i32x4 (le plus courant)
             print!("\nV{:<2} = [{:>6}, {:>6}, {:>6}, {:>6}]",
@@ -153,7 +155,7 @@ fn print_registers(vm: &VM) {
     // Affichage des registres vectoriels 256-bit
     println!("\n\n===== REGISTRES VECTORIELS 256-BIT =====");
     for i in 0..16 {
-        let v256 = vector_alu.v256_registers[i];
+        let v256 = vector_alu_borrowed.v256_registers[i];
         unsafe {
             // Affichage en format i32x8 (le plus courant)
             print!("Y{:<2} = [{:>6}, {:>6}, {:>6}, {:>6}, {:>6}, {:>6}, {:>6}, {:>6}]", 
@@ -166,7 +168,7 @@ fn print_registers(vm: &VM) {
     
     // Affichage des flags vectoriels
     println!("\n===== FLAGS VECTORIELS =====");
-    let flags = &vector_alu.flags;
+    let flags = &vector_alu_borrowed.flags;
     println!("Zero: {} | Sign: {} | Overflow: {} | Underflow: {} | Denormal: {} | Invalid: {}",
         flags.zero, flags.sign, flags.overflow, flags.underflow, flags.denormal, flags.invalid);
     
@@ -403,6 +405,44 @@ fn print_stats(vm: &VM) {
         }
     } else {
         println!("Aucune instruction traitée par dual-issue");
+    }
+
+    // Statistiques Parallel Execution Engine
+    println!("\n===== STATISTIQUES PARALLEL ENGINE =====");
+    println!("Instructions totales: {}", stats.parallel_engine_total_instructions);
+    println!("Exécutions parallèles: {}", stats.parallel_engine_parallel_executions);
+    println!("Instructions ALU: {}", stats.parallel_engine_alu_instructions);
+    println!("Instructions AGU: {}", stats.parallel_engine_agu_instructions);
+    println!("Instructions SIMD: {}", stats.parallel_engine_simd_instructions);
+    
+    if stats.parallel_engine_total_instructions > 0 {
+        println!("\n--- Analyse des Dépendances ---");
+        println!("Dépendances RAW: {}", stats.parallel_engine_raw_dependencies);
+        println!("Dépendances WAR: {}", stats.parallel_engine_war_dependencies);
+        println!("Dépendances WAW: {}", stats.parallel_engine_waw_dependencies);
+        println!("Stalls dépendances: {}", stats.parallel_engine_dependency_stalls);
+        println!("Conflits ressources: {}", stats.parallel_engine_resource_conflicts);
+        
+        println!("\n--- Utilisation des Unités ---");
+        println!("Utilisation ALU: {:.2}%", stats.parallel_engine_alu_utilization);
+        println!("Utilisation AGU: {:.2}%", stats.parallel_engine_agu_utilization);
+        println!("Profondeur queue moyenne: {:.2}", stats.parallel_engine_average_queue_depth);
+        
+        // Analyse du parallélisme
+        println!("\n--- Efficacité Parallélisme ---");
+        println!("Taux d'exécution parallèle: {:.2}%", stats.parallel_engine_parallel_rate);
+        
+        if stats.parallel_engine_parallel_executions > 0 {
+            println!("Gain théorique IPC: +{:.1}%", stats.parallel_engine_parallel_rate);
+            
+            // Comparer avec dual-issue
+            if stats.dual_issue_parallel_executions > 0 {
+                println!("Amélioration vs dual-issue: {}x plus d'exécutions parallèles", 
+                         stats.parallel_engine_parallel_executions as f64 / stats.dual_issue_parallel_executions as f64);
+            }
+        }
+    } else {
+        println!("Aucune instruction traitée par le parallel engine");
     }
 
     println!("\n===== TEST TERMINÉ =====");
@@ -2651,5 +2691,8 @@ fn memory_intensive_stress_test() -> BytecodeFile {
 
     program
 }
+
+// Test parallel_execution_test() temporairement supprimé à cause d'erreurs d'API
+// TODO: Réimplémenter quand l'API des instructions sera clarifiée
 
 
