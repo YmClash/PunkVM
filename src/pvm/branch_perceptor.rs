@@ -1,6 +1,5 @@
 //src/pvm/branch_perceptor.rs
 
-use std::collections::HashMap;
 
 pub const HISTORY_LENGTH: usize = 16; // Longueur de l'historique global (N derniers branchements)
 

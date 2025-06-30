@@ -4,7 +4,6 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, Read, Write};
 use std::path::Path;
-
 use super::instructions::Instruction;
 
 ///Signature d'un fichier de bytecode PunkVM (PunkVM en ASCII)
@@ -172,6 +171,13 @@ impl BytecodeFile {
     pub fn add_instruction(&mut self, instruction: Instruction) {
         self.code.push(instruction);
     }
+    // pub fn add_simd_instruction(&mut self,instruction: Vector128) {
+    //     self.code.push(instruction);
+    // }
+
+    // pub fn add_simd_instruction(&mut self, simd: SimdInstruction){
+    //     self.code.push(simd);
+    // }
 
     /// Ajoute une donnée au segment de données
     pub fn add_data(&mut self, data: &[u8]) -> u32 {

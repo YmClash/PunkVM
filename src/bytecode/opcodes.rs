@@ -78,10 +78,75 @@ pub enum Opcode {
     Halt = 0x82,
     //0x83 - 0x9F : Réservé pour les futures instructions speciales
 
+    // Instructions SIMD 128-bit (0xA0 - 0xBF)
+    Simd128Add = 0xA0,        // Addition vectorielle 128-bit
+    Simd128Sub = 0xA1,        // Soustraction vectorielle 128-bit
+    Simd128Mul = 0xA2,        // Multiplication vectorielle 128-bit
+    Simd128Div = 0xA3,        // Division vectorielle 128-bit
+    Simd128And = 0xA4,        // ET logique vectoriel 128-bit
+    Simd128Or = 0xA5,         // OU logique vectoriel 128-bit
+    Simd128Xor = 0xA6,        // XOR vectoriel 128-bit
+    Simd128Not = 0xA7,        // NOT vectoriel 128-bit
+    Simd128Load = 0xA8,       // Chargement vectoriel 128-bit
+    Simd128Store = 0xA9,      // Stockage vectoriel 128-bit
+    Simd128Mov = 0xAA,        // Mouvement vectoriel 128-bit
+    Simd128Cmp = 0xAB,        // Comparaison vectorielle 128-bit
+    Simd128Min = 0xAC,        // Minimum vectoriel 128-bit
+    Simd128Max = 0xAD,        // Maximum vectoriel 128-bit
+    Simd128Sqrt = 0xAE,       // Racine carrée vectorielle 128-bit
+    Simd128Shuffle = 0xAF,    // Mélange vectoriel 128-bit
+    //0xB0 - 0xBF : Réservé pour autres instructions SIMD 128-bit
+    Simd128Const = 0xB0, // Constante vectorielle 128-bit (i32x4)
+    Simd128ConstF32 = 0xB1, // Constante vectorielle 128-bit (f32x4)
+    Simd128ConstI16x8 = 0xB2, // Constante vectorielle 128-bit (i16x8)
+    Simd128ConstI64x2 = 0xB3, // Constante vectorielle 128-bit (i64x2)
+    Simd128ConstF64x2 = 0xB4, // Constante vectorielle 128-bit (f64x2)
+
+
+    // Instructions SIMD 256-bit (0xC0 - 0xDF)  
+    Simd256Add = 0xC0,        // Addition vectorielle 256-bit
+    Simd256Sub = 0xC1,        // Soustraction vectorielle 256-bit
+    Simd256Mul = 0xC2,        // Multiplication vectorielle 256-bit
+    Simd256Div = 0xC3,        // Division vectorielle 256-bit
+    Simd256And = 0xC4,        // ET logique vectoriel 256-bit
+    Simd256Or = 0xC5,         // OU logique vectoriel 256-bit
+    Simd256Xor = 0xC6,        // XOR vectoriel 256-bit
+    Simd256Not = 0xC7,        // NOT vectoriel 256-bit
+    Simd256Load = 0xC8,       // Chargement vectoriel 256-bit
+    Simd256Store = 0xC9,      // Stockage vectoriel 256-bit
+    Simd256Mov = 0xCA,        // Mouvement vectoriel 256-bit
+    Simd256Cmp = 0xCB,        // Comparaison vectorielle 256-bit
+    Simd256Min = 0xCC,        // Minimum vectoriel 256-bit
+    Simd256Max = 0xCD,        // Maximum vectoriel 256-bit
+    Simd256Sqrt = 0xCE,       // Racine carrée vectorielle 256-bit
+    Simd256Shuffle = 0xCF,    // Mélange vectoriel 256-bit
+    //0xD0 - 0xDF : Réservé pour autres instructions SIMD 256-bit
+    Simd256Const = 0xD0, // Constante vectorielle 256-bit (i32x8)
+    Simd256ConstF32 = 0xD1, // Constante vectorielle 256-bit (f32x8)
+    Simd256ConstI16x16 = 0xD2, // Constante vectorielle 256-bit (i16x16)
+    Simd256ConstI64x4 = 0xD3, // Constante vectorielle 256-bit (i64x4)
+    Simd256ConstF64x4 = 0xD4, // Constante vectorielle 256-bit (f64x4)
+
+    // Instructions FPU (0xE0 - 0xEF)
+    FpuAdd = 0xE0,           // Addition flottante
+    FpuSub = 0xE1,           // Soustraction flottante
+    FpuMul = 0xE2,           // Multiplication flottante
+    FpuDiv = 0xE3,           // Division flottante
+    FpuSqrt = 0xE4,          // Racine carrée flottante
+    FpuCmp = 0xE5,           // Comparaison flottante
+    FpuLoad = 0xE6,          // Chargement flottant
+    FpuStore = 0xE7,         // Stockage flottant
+    FpuMov = 0xE8,           // Mouvement flottant
+    FpuConvert = 0xE9,       // Conversion flottante
+    FpuRound = 0xEA,         // Arrondi flottant
+    FpuMin = 0xEB,           // Minimum flottant
+    FpuMax = 0xEC,           // Maximum flottant
+    //0xED - 0xEF : Réservé pour autres instructions FPU
+
     // Instruction etendues (0xF0 - 0xFF)
     Extended = 0xF0,
     //0xF1 - 0xFF : Réservé pour les futures instructions etendues
-    // Invalid = 0xFF, // Instruction invalide
+
 }
 
 /// Catégorie d'opcode
@@ -92,6 +157,9 @@ pub enum OpcodeCategory {
     ControlFlow,
     Memory,
     Special,
+    Simd128,
+    Simd256,
+    Fpu,
     Extended,
     Unknown,
 }
@@ -160,6 +228,67 @@ impl Opcode {
             0x81 => Some(Self::Break),
             0x82 => Some(Self::Halt),
 
+            // SIMD 128-bit opcodes
+            0xA0 => Some(Self::Simd128Add),
+            0xA1 => Some(Self::Simd128Sub),
+            0xA2 => Some(Self::Simd128Mul),
+            0xA3 => Some(Self::Simd128Div),
+            0xA4 => Some(Self::Simd128And),
+            0xA5 => Some(Self::Simd128Or),
+            0xA6 => Some(Self::Simd128Xor),
+            0xA7 => Some(Self::Simd128Not),
+            0xA8 => Some(Self::Simd128Load),
+            0xA9 => Some(Self::Simd128Store),
+            0xAA => Some(Self::Simd128Mov),
+            0xAB => Some(Self::Simd128Cmp),
+            0xAC => Some(Self::Simd128Min),
+            0xAD => Some(Self::Simd128Max),
+            0xAE => Some(Self::Simd128Sqrt),
+            0xAF => Some(Self::Simd128Shuffle),
+            0xB0 => Some(Self::Simd128Const),
+            0xB1 => Some(Self::Simd128ConstF32),
+            0xB2 => Some(Self::Simd128ConstI16x8),
+            0xB3 => Some(Self::Simd128ConstI64x2),
+            0xB4 => Some(Self::Simd128ConstF64x2),
+
+            // SIMD 256-bit opcodes
+            0xC0 => Some(Self::Simd256Add),
+            0xC1 => Some(Self::Simd256Sub),
+            0xC2 => Some(Self::Simd256Mul),
+            0xC3 => Some(Self::Simd256Div),
+            0xC4 => Some(Self::Simd256And),
+            0xC5 => Some(Self::Simd256Or),
+            0xC6 => Some(Self::Simd256Xor),
+            0xC7 => Some(Self::Simd256Not),
+            0xC8 => Some(Self::Simd256Load),
+            0xC9 => Some(Self::Simd256Store),
+            0xCA => Some(Self::Simd256Mov),
+            0xCB => Some(Self::Simd256Cmp),
+            0xCC => Some(Self::Simd256Min),
+            0xCD => Some(Self::Simd256Max),
+            0xCE => Some(Self::Simd256Sqrt),
+            0xCF => Some(Self::Simd256Shuffle),
+            0xD0 => Some(Self::Simd256Const), // Constante vectorielle 256-bit
+            0xD1 => Some(Self::Simd256ConstF32), // Constante vectorielle 256-bit (32 bits flottants)
+            0xD2 => Some(Self::Simd256ConstI16x16),
+            0xD3 => Some(Self::Simd256ConstI64x4),
+            0xD4 => Some(Self::Simd256ConstF64x4),
+
+            // FPU opcodes
+            0xE0 => Some(Self::FpuAdd),
+            0xE1 => Some(Self::FpuSub),
+            0xE2 => Some(Self::FpuMul),
+            0xE3 => Some(Self::FpuDiv),
+            0xE4 => Some(Self::FpuSqrt),
+            0xE5 => Some(Self::FpuCmp),
+            0xE6 => Some(Self::FpuLoad),
+            0xE7 => Some(Self::FpuStore),
+            0xE8 => Some(Self::FpuMov),
+            0xE9 => Some(Self::FpuConvert),
+            0xEA => Some(Self::FpuRound),
+            0xEB => Some(Self::FpuMin),
+            0xEC => Some(Self::FpuMax),
+
             0xF0 => Some(Self::Extended),
             // 0xFF => Some(Self::Invalid),
             _ => None,
@@ -223,6 +352,9 @@ impl Opcode {
             0x40..=0x5F => OpcodeCategory::ControlFlow,
             0x60..=0x7F => OpcodeCategory::Memory,
             0x80..=0x9F => OpcodeCategory::Special,
+            0xA0..=0xBF => OpcodeCategory::Simd128,
+            0xC0..=0xDF => OpcodeCategory::Simd256,
+            0xE0..=0xEF => OpcodeCategory::Fpu,
             0xF0..=0xFF => OpcodeCategory::Extended,
 
             _ => OpcodeCategory::Unknown,
@@ -285,6 +417,58 @@ impl Opcode {
             Self::Syscall => "Syscall",
             Self::Break => "Break",
             Self::Halt => "Halt",
+            
+            // SIMD 128-bit operations
+            Self::Simd128Add => "Simd128Add",
+            Self::Simd128Sub => "Simd128Sub",
+            Self::Simd128Mul => "Simd128Mul",
+            Self::Simd128Div => "Simd128Div",
+            Self::Simd128And => "Simd128And",
+            Self::Simd128Or => "Simd128Or",
+            Self::Simd128Xor => "Simd128Xor",
+            Self::Simd128Not => "Simd128Not",
+            Self::Simd128Load => "Simd128Load",
+            Self::Simd128Store => "Simd128Store",
+            Self::Simd128Mov => "Simd128Mov",
+            Self::Simd128Cmp => "Simd128Cmp",
+            Self::Simd128Min => "Simd128Min",
+            Self::Simd128Max => "Simd128Max",
+            Self::Simd128Sqrt => "Simd128Sqrt",
+            Self::Simd128Shuffle => "Simd128Shuffle",
+            
+            // SIMD 256-bit operations
+            Self::Simd256Add => "Simd256Add",
+            Self::Simd256Sub => "Simd256Sub",
+            Self::Simd256Mul => "Simd256Mul",
+            Self::Simd256Div => "Simd256Div",
+            Self::Simd256And => "Simd256And",
+            Self::Simd256Or => "Simd256Or",
+            Self::Simd256Xor => "Simd256Xor",
+            Self::Simd256Not => "Simd256Not",
+            Self::Simd256Load => "Simd256Load",
+            Self::Simd256Store => "Simd256Store",
+            Self::Simd256Mov => "Simd256Mov",
+            Self::Simd256Cmp => "Simd256Cmp",
+            Self::Simd256Min => "Simd256Min",
+            Self::Simd256Max => "Simd256Max",
+            Self::Simd256Sqrt => "Simd256Sqrt",
+            Self::Simd256Shuffle => "Simd256Shuffle",
+            
+            // FPU operations
+            Self::FpuAdd => "FpuAdd",
+            Self::FpuSub => "FpuSub",
+            Self::FpuMul => "FpuMul",
+            Self::FpuDiv => "FpuDiv",
+            Self::FpuSqrt => "FpuSqrt",
+            Self::FpuCmp => "FpuCmp",
+            Self::FpuLoad => "FpuLoad",
+            Self::FpuStore => "FpuStore",
+            Self::FpuMov => "FpuMov",
+            Self::FpuConvert => "FpuConvert",
+            Self::FpuRound => "FpuRound",
+            Self::FpuMin => "FpuMin",
+            Self::FpuMax => "FpuMax",
+            
             Self::Extended => "Extended",
             _ => "Unknown",
 

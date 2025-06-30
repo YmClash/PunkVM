@@ -20,6 +20,19 @@ tempfile = "3.17.1"
 
 [dev-dependencies]
 rand = "0.9.0"
+criterion = { version = "0.4", features = ["html_reports"] }
+
+[[bench]]
+name = "simd_fpu_benchmarks"
+harness = false
+
+[[bench]]
+name = "simd_simd_vpu_benchmarks"
+harness = false
+
+[[bench]]
+name = "cache_systeme_l1_l2_benchmarks"
+harness = false
 
 
 #[profile.dev]

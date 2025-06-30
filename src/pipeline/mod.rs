@@ -8,6 +8,7 @@ pub mod hazard;
 pub mod memory;
 pub mod writeback;
 pub mod ras;
+pub mod parallel;
 
 use crate::alu::alu::ALU;
 use crate::bytecode::opcodes::Opcode;
@@ -408,7 +409,25 @@ impl Pipeline {
 
             }
 
-            let mem_reg = self.execute.process_direct(&de_reg_mut, alu,)?;
+            let sp = registers[16]; // SP (Stack Pointer)
+            
+            // ACTIVATION DU PARALLEL EXECUTION ENGINE !
+            // Essayer d'abord process_parallel pour la vraie exécution parallèle
+            let parallel_results = self.execute.process_parallel(
+                &[de_reg_mut.clone()], 
+                alu, 
+                memory, 
+                registers, 
+                sp
+            )?;
+            
+            // S'il y a des résultats parallèles, utiliser le premier
+            let mem_reg = if !parallel_results.is_empty() {
+                parallel_results[0].clone()
+            } else {
+                // Fallback sur l'ancienne méthode si pas de résultats parallèles
+                self.execute.process_with_dual_issue(&de_reg_mut, alu, memory, registers, sp)?
+            };
 
             // Extraire les valeurs dont nous aurons besoin plus tard
             let branch_pc = de_reg.pc;
@@ -445,6 +464,20 @@ impl Pipeline {
                 let prediction = branch_prediction.unwrap_or(BranchPrediction::NotTaken);
                 // let prediction = branch_prediction.unwrap_or(BranchPredictor::predict(pc));
                 self.decode.branch_predictor.update(pc, taken, prediction);
+
+                // CORRECTION BTB: Mise à jour du BTB du pipeline principal
+                if taken {
+                    if let Some(target) = mem_reg.branch_target {
+                        // Prédire d'abord pour obtenir la prédiction actuelle du BTB
+                        let predicted_target = self.decode.branch_predictor.predict_target(pc);
+                        
+                        // Mettre à jour le BTB avec la vraie cible
+                        self.decode.branch_predictor.update_btb(pc, target, predicted_target);
+                        
+                        println!("Pipeline BTB Update: PC=0x{:X}, Target=0x{:X}, Predicted={:?}", 
+                                 pc, target, predicted_target);
+                    }
+                }
 
                 self.stats.branch_predictions += 1;
             }
@@ -569,6 +602,16 @@ impl Pipeline {
             metrics.btb_incorrect_targets as u64,
             self.decode.branch_predictor.get_btb_accuracy()
         )
+    }
+
+    /// Retourne une référence à l'étage Execute pour accéder aux composants internes
+    pub fn get_execute_stage(&self) -> &execute::ExecuteStage {
+        &self.execute
+    }
+
+    /// Retourne une référence mutable à l'étage Execute
+    pub fn get_execute_stage_mut(&mut self) -> &mut execute::ExecuteStage {
+        &mut self.execute
     }
 
 }

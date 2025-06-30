@@ -2,6 +2,7 @@
 use std::path::Path;
 
 use crate::alu::alu::ALU;
+use crate::alu::agu::AGUStats;
 use crate::bytecode::files::SegmentType::{Code, Data, ReadOnlyData};
 use crate::debug::{PipelineTracer, TracerConfig};
 use crate::pipeline::Pipeline;
@@ -20,6 +21,7 @@ pub struct VMConfig {
     pub memory_size: usize,            // Taille de la mémoire
     pub num_registers: usize,          // Nombre de registres
     pub l1_cache_size: usize,          // Taille du cache L1
+    pub l2_cache_size: usize,          // Taille du cache L2
     pub store_buffer_size: usize,      // Taille du buffer de stockage
     pub stack_size: usize,             // Taille de la pile
     pub stack_base: u32,               // Base de la pile
@@ -38,7 +40,8 @@ impl Default for VMConfig {
         Self {
             memory_size: 1024 * 1024, // 1MB
             num_registers: 19, // 16 general + SP(16) + BP(17) + RA(18)
-            l1_cache_size: 4 * 1024, // 4KB
+            l1_cache_size: 64 * 1024, // 64KB
+            l2_cache_size: 256 * 1024, // 256KB
             store_buffer_size: 8,
             stack_size: 64 * 1024, // 64KB
             stack_base: 0xFF000000,
@@ -76,8 +79,17 @@ pub struct VMStats {
     pub store_load_forwards: u64,    // Nombre de Store-Load forwards effectués
     pub store_load_attempts: u64,    // Nombre de tentatives de Store-Load forwarding
     
-    pub memory_hits: u64,            // Nombre de hits dans le cache mémoire
-    pub memory_misses: u64,          // Nombre de misses dans le cache mémoire
+    // Statistiques hiérarchie de cache
+    pub l1_data_hits: u64,          // Nombre de hits dans le cache L1 data
+    pub l1_data_misses: u64,        // Nombre de misses dans le cache L1 data
+    pub l1_inst_hits: u64,          // Nombre de hits dans le cache L1 instruction
+    pub l1_inst_misses: u64,        // Nombre de misses dans le cache L1 instruction
+    pub l2_hits: u64,               // Nombre de hits dans le cache L2
+    pub l2_misses: u64,             // Nombre de misses dans le cache L2
+    pub l2_writebacks: u64,         // Nombre de write-backs L2
+    pub l2_prefetch_hits: u64,      // Nombre de hits de prefetch
+    pub memory_accesses: u64,       // Nombre d'accès à la mémoire principale
+    pub average_memory_latency: f64, // Latence moyenne mémoire
     pub branch_flush: u64,           // Nombre de flushes de branchements
     pub branch_predictor: u64,       // Nombre de prédictions de branchements
     pub branch_prediction_rate: f64, // Taux de prédiction de branchements
@@ -98,6 +110,58 @@ pub struct VMStats {
     pub stack_accuracy: f64, // Précision de la pile
     pub stack_current_depth: usize,  // Profondeur actuelle de la pile
     pub stack_max_depth: usize,      // Profondeur maximale de la pile
+
+    // Statistiques SIMD
+    pub simd128_ops: u64,            // Nombre d'opérations SIMD 128-bit
+    pub simd256_ops: u64,            // Nombre d'opérations SIMD 256-bit
+    pub simd_total_cycles: u64,      // Total de cycles SIMD
+    pub simd_ops_per_cycle: f64,     // Opérations SIMD par cycle
+    pub simd_parallel_ops: u64,      // Opérations SIMD parallélisées
+    
+    // Cache d'opérations SIMD
+    pub simd_cache_hits: u64,        // Hits dans le cache d'opérations SIMD
+    pub simd_cache_misses: u64,      // Misses dans le cache d'opérations SIMD
+    pub simd_cache_hit_rate: f64,    // Taux de réussite du cache SIMD
+    
+    // Statistiques AGU (Address Generation Unit)
+    pub agu_total_calculations: u64,     // Nombre total de calculs d'adresse AGU
+    pub agu_early_resolutions: u64,      // Résolutions d'adresse anticipées
+    pub agu_stride_predictions_correct: u64, // Prédictions de stride correctes
+    pub agu_stride_predictions_total: u64,   // Total des prédictions de stride
+    pub agu_stride_accuracy: f64,        // Précision du stride predictor
+    pub agu_base_cache_hits: u64,       // Hits dans le cache d'adresses de base
+    pub agu_base_cache_misses: u64,     // Misses dans le cache d'adresses de base
+    pub agu_base_cache_hit_rate: f64,   // Taux de réussite du cache de base
+    pub agu_parallel_executions: u64,   // Exécutions parallèles AGU/ALU
+    pub agu_average_latency: f64,       // Latence moyenne des calculs AGU
+    
+    // Statistiques Dual-Issue Controller
+    pub dual_issue_parallel_executions: u64,  // Nombre d'exécutions parallèles dual-issue
+    pub dual_issue_total_instructions: u64,   // Total d'instructions traitées par dual-issue
+    pub dual_issue_alu_only: u64,            // Instructions exécutées uniquement sur ALU
+    pub dual_issue_agu_only: u64,            // Instructions exécutées uniquement sur AGU
+    pub dual_issue_resource_conflicts: u64,   // Conflits de ressources détectés
+    pub dual_issue_parallel_rate: f64,       // Taux d'exécution parallèle (%)
+
+    // Statistiques Parallel Execution Engine
+    pub parallel_engine_total_instructions: u64,   // Instructions totales traitées par le moteur parallèle
+    pub parallel_engine_parallel_executions: u64,  // Exécutions parallèles réelles
+    pub parallel_engine_alu_instructions: u64,     // Instructions ALU exécutées
+    pub parallel_engine_agu_instructions: u64,     // Instructions AGU exécutées  
+    pub parallel_engine_simd_instructions: u64,    // Instructions SIMD exécutées
+    
+    // Analyse des dépendances
+    pub parallel_engine_raw_dependencies: u64,     // Dépendances Read After Write
+    pub parallel_engine_war_dependencies: u64,     // Dépendances Write After Read
+    pub parallel_engine_waw_dependencies: u64,     // Dépendances Write After Write
+    pub parallel_engine_dependency_stalls: u64,    // Stalls causés par les dépendances
+    pub parallel_engine_resource_conflicts: u64,   // Conflits de ressources
+    
+    // Utilisation des unités d'exécution
+    pub parallel_engine_alu_utilization: f64,      // Utilisation de l'ALU (%)
+    pub parallel_engine_agu_utilization: f64,      // Utilisation de l'AGU (%)
+    pub parallel_engine_average_queue_depth: f64,  // Profondeur moyenne des queues
+    pub parallel_engine_parallel_rate: f64,        // Taux d'exécution parallèle (%)
 
 }
 
@@ -129,6 +193,7 @@ impl PunkVM {
         let memory_config = MemoryConfig {
             size: config.memory_size,
             l1_cache_size: config.l1_cache_size,
+            l2_cache_size: config.l2_cache_size,
             store_buffer_size: config.store_buffer_size,
         };
 
@@ -354,8 +419,16 @@ impl PunkVM {
             store_load_forwards: self.pipeline.stats().store_load_forwards,
             store_load_attempts: self.pipeline.stats().store_load_attempts,
             
-            memory_hits: self.memory.stats().hits,
-            memory_misses: self.memory.stats().misses,
+            l1_data_hits: self.memory.stats().l1_hits,
+            l1_data_misses: self.memory.stats().l1_misses,
+            l1_inst_hits: 0, // Pour l'instant, on track seulement data
+            l1_inst_misses: 0,
+            l2_hits: self.memory.stats().l2_hits,
+            l2_misses: self.memory.stats().l2_misses,
+            l2_writebacks: 0, // À implémenter plus tard
+            l2_prefetch_hits: 0, // À implémenter plus tard
+            memory_accesses: self.memory.stats().l1_misses + self.memory.stats().l2_misses,
+            average_memory_latency: 0.0, // À calculer plus tard
             branch_flush: self.pipeline.stats().branch_flush,
             branch_predictor: self.pipeline.stats().branch_predictions,
             branch_prediction_rate: self.pipeline.stats().branch_predictor_rate,
@@ -367,16 +440,6 @@ impl PunkVM {
             btb_correct_targets,
             btb_incorrect_targets,
             btb_accuracy,
-            
-            // Statistiques de la pile Stack
-            // stack_pushes: self.get_ras_stats().pushes,
-            // stack_pops: self.get_ras_stats().pops,
-            // stack_hits: self.get_ras_stats().hits,
-            // stack_misses: self.get_ras_stats().misses,
-            // stack_accuracy: self.get_ras_stats().accuracy,
-            // stack_current_depth: self.get_ras_stats().current_depth,
-            // stack_max_depth: self.get_ras_stats().max_depth,
-
 
             stack_pushes: mem_pushes,
             stack_pops: mem_pops,
@@ -385,6 +448,122 @@ impl PunkVM {
             stack_accuracy: 0.0,
             stack_current_depth: self.stack_stats.current_depth,
             stack_max_depth: self.stack_stats.max_depth,
+
+            // Statistiques SIMD récupérées du VectorALU
+            simd128_ops: self.get_vector_alu().borrow().get_simd_stats().simd128_ops,
+            simd256_ops: self.get_vector_alu().borrow().get_simd_stats().simd256_ops,
+            simd_total_cycles: self.get_vector_alu().borrow().get_simd_stats().total_simd_cycles,
+            simd_ops_per_cycle: self.get_vector_alu().borrow().get_simd_stats().simd_ops_per_cycle,
+            simd_parallel_ops: self.get_vector_alu().borrow().get_simd_stats().parallel_ops,
+            
+            // Statistiques du cache d'opérations SIMD
+            simd_cache_hits: self.get_vector_alu().borrow().get_cache_stats().0,
+            simd_cache_misses: self.get_vector_alu().borrow().get_cache_stats().1,
+            simd_cache_hit_rate: self.get_vector_alu().borrow().get_cache_stats().2,
+            
+            // Statistiques AGU récupérées de l'ExecuteStage
+            agu_total_calculations: self.get_agu_stats().total_calculations,
+            agu_early_resolutions: self.get_agu_stats().early_resolutions,
+            agu_stride_predictions_correct: self.get_agu_stats().stride_predictions_correct,
+            agu_stride_predictions_total: self.get_agu_stats().stride_predictions_total,
+            agu_stride_accuracy: if self.get_agu_stats().stride_predictions_total > 0 {
+                self.get_agu_stats().stride_predictions_correct as f64 / self.get_agu_stats().stride_predictions_total as f64
+            } else { 0.0 },
+            agu_base_cache_hits: self.get_agu_stats().base_cache_hits,
+            agu_base_cache_misses: self.get_agu_stats().base_cache_misses,
+            agu_base_cache_hit_rate: if (self.get_agu_stats().base_cache_hits + self.get_agu_stats().base_cache_misses) > 0 {
+                self.get_agu_stats().base_cache_hits as f64 / (self.get_agu_stats().base_cache_hits + self.get_agu_stats().base_cache_misses) as f64
+            } else { 0.0 },
+            agu_parallel_executions: self.get_agu_stats().parallel_executions,
+            agu_average_latency: self.get_agu_stats().average_latency,
+            
+            // Statistiques Dual-Issue Controller
+            dual_issue_parallel_executions: {
+                let dual_stats = self.get_dual_issue_stats();
+                dual_stats.0
+            },
+            dual_issue_total_instructions: {
+                let dual_stats = self.get_dual_issue_stats();
+                dual_stats.1
+            },
+            dual_issue_alu_only: {
+                let dual_stats = self.get_dual_issue_stats();
+                dual_stats.2
+            },
+            dual_issue_agu_only: {
+                let dual_stats = self.get_dual_issue_stats();
+                dual_stats.3
+            },
+            dual_issue_resource_conflicts: {
+                let dual_stats = self.get_dual_issue_stats();
+                dual_stats.4
+            },
+            dual_issue_parallel_rate: {
+                let dual_stats = self.get_dual_issue_stats();
+                dual_stats.5
+            },
+            
+            // Statistiques Parallel Execution Engine
+            parallel_engine_total_instructions: {
+                let parallel_stats = self.get_parallel_engine_stats();
+                parallel_stats.total_instructions
+            },
+            parallel_engine_parallel_executions: {
+                let parallel_stats = self.get_parallel_engine_stats();
+                parallel_stats.parallel_executions
+            },
+            parallel_engine_alu_instructions: {
+                let parallel_stats = self.get_parallel_engine_stats();
+                parallel_stats.alu_instructions
+            },
+            parallel_engine_agu_instructions: {
+                let parallel_stats = self.get_parallel_engine_stats();
+                parallel_stats.agu_instructions
+            },
+            parallel_engine_simd_instructions: {
+                let parallel_stats = self.get_parallel_engine_stats();
+                parallel_stats.simd_instructions
+            },
+            parallel_engine_raw_dependencies: {
+                let parallel_stats = self.get_parallel_engine_stats();
+                parallel_stats.raw_dependencies
+            },
+            parallel_engine_war_dependencies: {
+                let parallel_stats = self.get_parallel_engine_stats();
+                parallel_stats.war_dependencies
+            },
+            parallel_engine_waw_dependencies: {
+                let parallel_stats = self.get_parallel_engine_stats();
+                parallel_stats.waw_dependencies
+            },
+            parallel_engine_dependency_stalls: {
+                let parallel_stats = self.get_parallel_engine_stats();
+                parallel_stats.dependency_stalls
+            },
+            parallel_engine_resource_conflicts: {
+                let parallel_stats = self.get_parallel_engine_stats();
+                parallel_stats.resource_conflicts
+            },
+            parallel_engine_alu_utilization: {
+                let parallel_stats = self.get_parallel_engine_stats();
+                parallel_stats.alu_utilization
+            },
+            parallel_engine_agu_utilization: {
+                let parallel_stats = self.get_parallel_engine_stats();
+                parallel_stats.agu_utilization
+            },
+            parallel_engine_average_queue_depth: {
+                let parallel_stats = self.get_parallel_engine_stats();
+                parallel_stats.average_queue_depth
+            },
+            parallel_engine_parallel_rate: {
+                let parallel_stats = self.get_parallel_engine_stats();
+                if parallel_stats.total_instructions > 0 {
+                    (parallel_stats.parallel_executions as f64 / parallel_stats.total_instructions as f64) * 100.0
+                } else {
+                    0.0
+                }
+            },
         }
     }
 
@@ -393,7 +572,27 @@ impl PunkVM {
         self.get_ras_stats()
     }
 
+    /// Retourne une référence au VectorALU pour accéder aux registres vectoriels
+    pub fn get_vector_alu(&self) -> &std::rc::Rc<std::cell::RefCell<crate::alu::v_alu::VectorALU>> {
+        self.pipeline.get_execute_stage().get_vector_alu_ref()
+    }
 
+    // get_vector_alu_mut supprimée - utiliser get_vector_alu().borrow_mut() à la place
+
+    /// Retourne les statistiques de l'AGU
+    pub fn get_agu_stats(&self) -> AGUStats {
+        self.pipeline.get_execute_stage().get_agu_stats()
+    }
+    
+    /// Retourne les statistiques du dual-issue controller
+    pub fn get_dual_issue_stats(&self) -> (u64, u64, u64, u64, u64, f64) {
+        self.pipeline.get_execute_stage().get_dual_issue_stats()
+    }
+    
+    /// Retourne les statistiques du parallel execution engine
+    pub fn get_parallel_engine_stats(&self) -> &crate::pipeline::parallel::ParallelExecutionStats {
+        self.pipeline.get_execute_stage().get_parallel_engine_stats()
+    }
 
     /// Retourne l'état actuel de la VM
     pub fn state(&self) -> &VMState {

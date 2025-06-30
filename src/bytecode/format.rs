@@ -23,7 +23,7 @@ pub enum ArgType {
     // ImmediateF64 = 0xD, // Valeur immédiate flottante 64 bits
     // ImmediateString = 0xE, // Valeur immédiate chaîne de caractères
     // ImmediateBool = 0xF, // Valeur immédiate booléenne (true/false)
-    // // Note: Les valeurs 0xA à 0xF sont réservées pour des extensions futures
+    // Note: Les valeurs 0xA à 0xF sont réservées pour des extensions futures
 }
 impl ArgType {
     /// Convertit un u8 en ArgType 4 bits
@@ -39,6 +39,15 @@ impl ArgType {
             0x7 => Some(Self::RelativeAddr),
             0x8 => Some(Self::AbsoluteAddr),
             0x9 => Some(Self::RegisterOffset),
+            //////////////////////////////////////
+            // 0xA => Some(Self::ImmediateF8), // Valeur immédiate flottante 8 bits
+            // 0xB => Some(Self::ImmediateF16), // Valeur immédiate flottante 16 bits
+            // 0xC => Some(Self::ImmediateF32), // Valeur immédiate flottante 32 bits
+            // 0xD => Some(Self::ImmediateF64), // Valeur immédiate flottante 64 bits
+            // 0xE => Some(Self::ImmediateString), // Valeur immédiate chaîne de caractères
+            // 0xF => Some(Self::ImmediateBool), // Valeur immédiate booléenne (true/false)
+            // Note: Les valeurs 0xA à 0xF sont réservées pour des extensions futures
+
             // 0xA => Some(Self::Flag),
             _ => None,
         }
@@ -58,6 +67,13 @@ impl ArgType {
             Self::AbsoluteAddr => 4, // Pourrait être 8 sur systèmes 64 bits
             Self::RegisterOffset => 2, // Registre (1B) + offset (1B)
                                       // Self::Flag => 1, // 4 bits pour les flags, mais on aligne sur le byte
+            // Self::ImmediateF8 => 1, // 8 bits pour un float
+            // Self::ImmediateF16 => 2, // 16 bits pour un float
+            // Self::ImmediateF32 => 4, // 32 bits pour un float
+            // Self::ImmediateF64 => 8, // 64 bits pour un float
+            // Self::ImmediateString => 4, // Taille de la chaîne (32 bits pour la longueur)
+            // Self::ImmediateBool => 1, // 1 byte pour un booléen (true/false)
+
         }
     }
 }
@@ -276,10 +292,22 @@ impl InstructionFormat {
     }
 
 
-
     pub fn reg_reg_offset() -> Self {
         Self::new(ArgType::Register, ArgType::RegisterOffset, ArgType::None)
     }
+
+    pub fn simd_reg_reg() -> Self {
+        Self::new(ArgType::RegisterExt, ArgType::RegisterExt, ArgType::RegisterExt)
+    }
+    pub fn simd_load_offset() -> Self {
+        Self::new(ArgType::RegisterExt, ArgType::RegisterOffset, ArgType::None)
+    }
+
+    pub fn simd_store_offset() -> Self {
+        Self::new(ArgType::RegisterExt, ArgType::RegisterOffset, ArgType::None)
+    }
+
+
 }
 
 
