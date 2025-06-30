@@ -550,7 +550,7 @@ impl L1Cache {
     }
 }
 
-struct CacheMetrics {
+pub struct CacheMetrics {
     total_accesses: usize,
     reads: usize,
     writes: usize,
