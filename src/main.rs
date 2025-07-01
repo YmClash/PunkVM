@@ -49,7 +49,8 @@ fn main() -> VMResult<()> {
     // Choisir le programme de test
     // let program = forwarding_stress_test(); // Tests de forwarding intensif
     // let program = store_load_forwarding_test_8(); // Tests Store-Load forwarding  immédiat 8
-    let program = memory_intensive_stress_test(); // Test mémoire intensif pour AGU avec optimisations
+    // let program = memory_intensive_stress_test(); // Test mémoire intensif pour AGU avec optimisations
+    let program = create_agu_parallel_optimized_test(); // Test optimisé pour exécution parallèle AGU/ALU
     // let program = punk_program_3(); // Test de branchement pour vérifier le ParallelExecutionEngine
     // let program = store_load_forwarding_test_16(); // Tests Store-Load forwarding  immédiat 16
     // let program = store_load_forwarding_test_32(); // Tests Store-Load forwarding immédiat 32
@@ -136,7 +137,7 @@ fn print_registers(vm: &VM) {
     // Affichage des registres vectoriels 128-bit
     println!("\n===== REGISTRES VECTORIELS 128-BIT =====");
     let vector_alu = vm.get_vector_alu();
-    let vector_alu_borrowed = vector_alu.borrow();
+    let vector_alu_borrowed = vector_alu;
     for i in 0..16 {
         let v128 = vector_alu_borrowed.v128_registers[i];
         unsafe {
@@ -2559,6 +2560,113 @@ fn agu_validation_test() -> BytecodeFile {
     println!("- R15 = 84 (validation deuxième valeur)");
     println!("- Amélioration potentielle des statistiques de performance");
 
+    program
+}
+
+/// Test parallèle AGU/ALU optimisé pour exécution superscalaire
+fn create_agu_parallel_optimized_test() -> BytecodeFile {
+    let mut program = BytecodeFile::new();
+    program.version = BytecodeVersion::new(0, 1, 0, 0);
+    program.add_metadata("name", "AGU Parallel Execution Optimized Test");
+    program.add_metadata("description", "Test optimisé pour maximiser l'exécution parallèle AGU/ALU");
+    program.add_metadata("author", "PunkVM Team");
+
+    println!("=== CRÉATION DU TEST PARALLÈLE AGU/ALU OPTIMISÉ ===");
+
+    // Phase 1: Initialisation pour maximiser le parallélisme
+    println!("Phase 1: Initialisation pour dual-issue optimal");
+    
+    // Initialiser plusieurs registres de base pour l'AGU
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x10)); // R10 = Base array
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x40)); // R11 = Base matrix
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x80)); // R12 = Base buffer
+    
+    // Initialiser registres pour calculs ALU
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 10));   // R0 = 10
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 20));   // R1 = 20
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 30));   // R2 = 30
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 1));    // R3 = 1 (increment)
+
+    // Phase 2: Pattern optimal pour dual-issue (AGU/ALU entrelacés)
+    println!("Phase 2: Pattern dual-issue AGU/ALU entrelacé");
+    
+    // Pattern répété 20 fois pour observer le parallélisme
+    for i in 0..20 {
+        // Groupe 1: Load (AGU) + Add (ALU) - peuvent s'exécuter en parallèle
+        program.add_instruction(Instruction::create_load_reg_offset(4, 10, (i * 8) as i8));     // AGU: LOAD R4, [R10+i*8]
+        program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 0, 0, 1));        // ALU: R0 = R0 + R1
+        
+        // Groupe 2: Store (AGU) + Mul (ALU) - peuvent s'exécuter en parallèle
+        program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 0, 11, (i * 4) as i8)); // AGU: STORE [R11+i*4], R0
+        program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Mul, 1, 1, 2));        // ALU: R1 = R1 * R2
+        
+        // Groupe 3: Load (AGU) + Sub (ALU) - peuvent s'exécuter en parallèle
+        program.add_instruction(Instruction::create_load_reg_offset(5, 12, (i * 4) as i8));     // AGU: LOAD R5, [R12+i*4]
+        program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Sub, 2, 2, 3));        // ALU: R2 = R2 - R3
+        
+        // Groupe 4: Store (AGU) + And (ALU) - peuvent s'exécuter en parallèle
+        program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 5, 10, ((i+1) * 8) as i8)); // AGU: STORE
+        program.add_instruction(Instruction::create_reg_reg_reg(Opcode::And, 6, 4, 5));        // ALU: R6 = R4 & R5
+    }
+
+    // Phase 3: Pattern pour tester le stride predictor avec parallélisme
+    println!("Phase 3: Stride pattern avec calculs parallèles");
+    
+    // Accès avec stride constant + calculs indépendants
+    for i in 0..10 {
+        let stride = 16; // Stride constant
+        let offset = (i * stride) as i8;
+        
+        // Ces deux instructions peuvent s'exécuter en parallèle
+        program.add_instruction(Instruction::create_load_reg_offset(7, 10, offset));           // AGU: Load avec stride
+        program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Or, 8, 0, 1));         // ALU: Opération logique
+        
+        // Ces deux aussi
+        program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 8, 11, offset)); // AGU: Store avec stride
+        program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Xor, 9, 7, 8));        // ALU: XOR
+    }
+
+    // Phase 4: Test du base cache avec opérations parallèles
+    println!("Phase 4: Base cache test avec parallélisme maximal");
+    
+    // Réutiliser les mêmes bases pour tester le cache
+    for cycle in 0..3 {
+        for i in 0..5 {
+            // Toujours même base (R10) pour maximiser cache hits
+            program.add_instruction(Instruction::create_load_reg_offset(13, 10, (i * 4) as i8));    // AGU: Base cache hit
+            program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Inc, 13, 0, 0));       // ALU: Inc en parallèle
+            
+            program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 13, 10, ((i+1) * 4) as i8)); // AGU
+            program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Dec, 14, 0, 0));       // ALU: Dec en parallèle
+        }
+    }
+
+    // Phase 5: Validation finale
+    println!("Phase 5: Validation des résultats");
+    
+    // Charger quelques valeurs pour vérification
+    program.add_instruction(Instruction::create_load_reg_offset(15, 10, 0));    // Première valeur
+    program.add_instruction(Instruction::create_load_reg_offset(14, 11, 0));    // Deuxième valeur
+    
+    // Marqueur de fin
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 0xFF));
+    program.add_instruction(Instruction::create_no_args(Opcode::Halt));
+    
+    // Configuration des segments
+    let total_code_size: u32 = program.code.iter()
+        .map(|instr| instr.total_size() as u32)
+        .sum();
+    program.segments = vec![SegmentMetadata::new(SegmentType::Code, 0, total_code_size, 0)];
+    
+    println!("\n=== RÉSULTATS ATTENDUS ===");
+    println!("- Exécution parallèle AGU/ALU détectée");
+    println!("- Messages 'PARALLEL EXECUTION: 2 instructions exécutées en parallèle!'");
+    println!("- Dual-issue ratio > 40%");
+    println!("- Stride prediction hits > 70%");
+    println!("- Base cache hits > 50%");
+    println!("- IPC > 1.2 (objectif 1.5)");
+    println!("- Parallel executions > 50% des instructions totales");
+    
     program
 }
 
