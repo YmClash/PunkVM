@@ -33,6 +33,7 @@ fn main() -> VMResult<()> {
         enable_forwarding: true,       // Activer le forwarding
         enable_hazard_detection: true, // Activer la détection de hazards
         enable_tracing: true,          // Activer le traçage
+        enable_superscalar: true ,       // ACTIVER L'ARCHITECTURE SUPERSCALAIRE !
     };
 
     let mut tracer = PipelineTracer::new(Default::default());
@@ -49,8 +50,9 @@ fn main() -> VMResult<()> {
     // Choisir le programme de test
     // let program = forwarding_stress_test(); // Tests de forwarding intensif
     // let program = store_load_forwarding_test_8(); // Tests Store-Load forwarding  immédiat 8
-    // let program = memory_intensive_stress_test(); // Test mémoire intensif pour AGU avec optimisations
-    let program = create_agu_parallel_optimized_test(); // Test optimisé pour exécution parallèle AGU/ALU
+    let program = memory_intensive_stress_test(); // Test mémoire intensif pour AGU avec optimisations
+    // let program = create_agu_parallel_optimized_test(); // Test optimisé pour exécution parallèle AGU/ALU
+    // let program = create_superscalar_halt_test(); // Test de halt pour architecture superscalaire
     // let program = punk_program_3(); // Test de branchement pour vérifier le ParallelExecutionEngine
     // let program = store_load_forwarding_test_16(); // Tests Store-Load forwarding  immédiat 16
     // let program = store_load_forwarding_test_32(); // Tests Store-Load forwarding immédiat 32
@@ -60,6 +62,8 @@ fn main() -> VMResult<()> {
     // let program = punk_program_3(); // Tests de branchement
     // let program= punk_program_5(); // Tests multiples branchements conditionnels et inconditionnels
     // let program = punk_program_3(); // Retour au test original pour confirmer BTB
+    // let program = punk_program_4(); // Test de branchement pour vérifier le ParallelExecutionEngine
+    // let program = punk_program_7(); // Test de branchement pour vérifier le ParallelExecutionEngine
     // let program = store_load_forwarding_test_64(); // Tests Store-Load forwarding immédiat 64
     // let program = simd_advanced_test(); // Test SIMD avancé (Min, Max, Sqrt, Cmp, Shuffle)
     // let program = simd_cache_validation_test(); // Test validation cache SIMD
@@ -444,6 +448,52 @@ fn print_stats(vm: &VM) {
         }
     } else {
         println!("Aucune instruction traitée par le parallel engine");
+    }
+
+    // Afficher les statistiques SuperscalarCore
+    let superscalar_stats = vm.get_superscalar_stats();
+    println!("\n===== STATISTIQUES SUPERSCALAR CORE =====");
+    println!("Cycles totaux: {}", superscalar_stats.total_cycles);
+    println!("Instructions fetchées: {}", superscalar_stats.instructions_fetched);
+    println!("Instructions décodées: {}", superscalar_stats.instructions_decoded);
+    println!("Instructions exécutées: {}", superscalar_stats.instructions_executed);
+    
+    if superscalar_stats.total_cycles > 0 {
+        println!("\n--- Performance Multi-Instructions ---");
+        println!("Cycles multi-fetch: {}", superscalar_stats.multi_fetch_cycles);
+        println!("Cycles multi-decode: {}", superscalar_stats.multi_decode_cycles);
+        println!("Cycles multi-execute: {}", superscalar_stats.multi_execute_cycles);
+        
+        println!("\n--- Métriques Superscalaires ---");
+        println!("IPC Superscalaire: {:.3}", superscalar_stats.superscalar_ipc);
+        println!("Utilisation buffer: {:.1}%", superscalar_stats.buffer_utilization * 100.0);
+        println!("Stalls buffer plein: {}", superscalar_stats.buffer_full_stalls);
+        
+        // Calculer les taux de multi-instructions
+        let multi_fetch_rate = (superscalar_stats.multi_fetch_cycles as f64 / superscalar_stats.total_cycles as f64) * 100.0;
+        let multi_decode_rate = (superscalar_stats.multi_decode_cycles as f64 / superscalar_stats.total_cycles as f64) * 100.0;
+        let multi_execute_rate = (superscalar_stats.multi_execute_cycles as f64 / superscalar_stats.total_cycles as f64) * 100.0;
+        
+        println!("\n--- Efficacité Superscalaire ---");
+        println!("Taux multi-fetch: {:.1}%", multi_fetch_rate);
+        println!("Taux multi-decode: {:.1}%", multi_decode_rate);
+        println!("Taux multi-execute: {:.1}%", multi_execute_rate);
+        
+        // Instructions par cycle par étage
+        let fetch_ipc = superscalar_stats.instructions_fetched as f64 / superscalar_stats.total_cycles as f64;
+        let decode_ipc = superscalar_stats.instructions_decoded as f64 / superscalar_stats.total_cycles as f64;
+        let execute_ipc = superscalar_stats.instructions_executed as f64 / superscalar_stats.total_cycles as f64;
+        
+        println!("\n--- IPC par Étage ---");
+        println!("IPC Fetch: {:.3}", fetch_ipc);
+        println!("IPC Decode: {:.3}", decode_ipc);
+        println!("IPC Execute: {:.3}", execute_ipc);
+        
+        if superscalar_stats.superscalar_ipc > 1.0 {
+            println!("\n🎉 SUPERSCALAR ACTIF: IPC > 1.0 atteint!");
+        }
+    } else {
+        println!("Aucun cycle superscalaire exécuté");
     }
 
     println!("\n===== TEST TERMINÉ =====");
@@ -2590,31 +2640,33 @@ fn create_agu_parallel_optimized_test() -> BytecodeFile {
     // Phase 2: Pattern optimal pour dual-issue (AGU/ALU entrelacés)
     println!("Phase 2: Pattern dual-issue AGU/ALU entrelacé");
     
-    // Pattern répété 20 fois pour observer le parallélisme
-    for i in 0..20 {
+    // Pattern répété 8 fois pour éviter les débordements
+    for i in 0..8 {
         // Groupe 1: Load (AGU) + Add (ALU) - peuvent s'exécuter en parallèle
         program.add_instruction(Instruction::create_load_reg_offset(4, 10, (i * 8) as i8));     // AGU: LOAD R4, [R10+i*8]
-        program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 0, 0, 1));        // ALU: R0 = R0 + R1
+        program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 0, 0, 3));        // ALU: R0 = R0 + 1 (petite incrémentation)
         
-        // Groupe 2: Store (AGU) + Mul (ALU) - peuvent s'exécuter en parallèle
-        program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 0, 11, (i * 4) as i8)); // AGU: STORE [R11+i*4], R0
-        program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Mul, 1, 1, 2));        // ALU: R1 = R1 * R2
+        // Groupe 2: Store (AGU) + Add (ALU) - valeurs contrôlées
+        program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, (100 + i) as u8)); // Valeur contrôlée à stocker
+        program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 7, 11, (i * 4) as i8)); // AGU: STORE [R11+i*4], R7
+        program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Add, 1, 1, 3));        // ALU: R1 = R1 + 1 (petite incrémentation)
         
-        // Groupe 3: Load (AGU) + Sub (ALU) - peuvent s'exécuter en parallèle
+        // Groupe 3: Load (AGU) + And (ALU) - peuvent s'exécuter en parallèle
         program.add_instruction(Instruction::create_load_reg_offset(5, 12, (i * 4) as i8));     // AGU: LOAD R5, [R12+i*4]
-        program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Sub, 2, 2, 3));        // ALU: R2 = R2 - R3
+        program.add_instruction(Instruction::create_reg_reg_reg(Opcode::And, 6, 0, 1));        // ALU: R6 = R0 & R1
         
-        // Groupe 4: Store (AGU) + And (ALU) - peuvent s'exécuter en parallèle
-        program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 5, 10, ((i+1) * 8) as i8)); // AGU: STORE
-        program.add_instruction(Instruction::create_reg_reg_reg(Opcode::And, 6, 4, 5));        // ALU: R6 = R4 & R5
+        // Groupe 4: Store (AGU) + Or (ALU) - peuvent s'exécuter en parallèle
+        program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, (50 + i) as u8));  // Valeur contrôlée
+        program.add_instruction(Instruction::create_store_reg_offset(Opcode::Store, 8, 10, ((i+1) * 8) as i8)); // AGU: STORE
+        program.add_instruction(Instruction::create_reg_reg_reg(Opcode::Or, 9, 6, 7));         // ALU: R9 = R6 | R7
     }
 
     // Phase 3: Pattern pour tester le stride predictor avec parallélisme
     println!("Phase 3: Stride pattern avec calculs parallèles");
     
     // Accès avec stride constant + calculs indépendants
-    for i in 0..10 {
-        let stride = 16; // Stride constant
+    for i in 0..5 {  // Réduire de 10 à 5 pour éviter débordement i8
+        let stride = 8;  // Réduire stride de 16 à 8 pour rester dans i8 
         let offset = (i * stride) as i8;
         
         // Ces deux instructions peuvent s'exécuter en parallèle
@@ -2658,14 +2710,14 @@ fn create_agu_parallel_optimized_test() -> BytecodeFile {
         .sum();
     program.segments = vec![SegmentMetadata::new(SegmentType::Code, 0, total_code_size, 0)];
     
-    println!("\n=== RÉSULTATS ATTENDUS ===");
-    println!("- Exécution parallèle AGU/ALU détectée");
-    println!("- Messages 'PARALLEL EXECUTION: 2 instructions exécutées en parallèle!'");
-    println!("- Dual-issue ratio > 40%");
-    println!("- Stride prediction hits > 70%");
-    println!("- Base cache hits > 50%");
-    println!("- IPC > 1.2 (objectif 1.5)");
-    println!("- Parallel executions > 50% des instructions totales");
+    // println!("\n=== RÉSULTATS ATTENDUS ===");
+    // println!("- Exécution parallèle AGU/ALU détectée");
+    // println!("- Messages 'PARALLEL EXECUTION: 2 instructions exécutées en parallèle!'");
+    // println!("- Dual-issue ratio > 40%");
+    // println!("- Stride prediction hits > 70%");
+    // println!("- Base cache hits > 50%");
+    // println!("- IPC > 1.2 (objectif 1.5)");
+    // println!("- Parallel executions > 50% des instructions totales");
     
     program
 }
@@ -2782,20 +2834,20 @@ fn memory_intensive_stress_test() -> BytecodeFile {
         .sum();
     program.segments = vec![SegmentMetadata::new(SegmentType::Code, 0, total_code_size, 0)];
 
-    println!("\n=== CARACTÉRISTIQUES DU TEST ===");
-    println!("- ~200+ opérations mémoire Load/Store");
-    println!("- 4 bases d'adresses différentes");
-    println!("- Motifs stride: 8, 4, 16 bytes");
-    println!("- Réutilisation intensive base cache");
-    println!("- Interaction AGU + Store-Load forwarding");
-    println!("- Accès aléatoires pour robustesse");
-    println!("- Phases de saturation pour throughput max");
-
-    println!("\n=== OBJECTIFS DE PERFORMANCE ===");
-    println!("- Utilisation AGU: 80%+ des cycles");
-    println!("- Stride accuracy: 70%+ pour motifs réguliers");
-    println!("- Base cache hit rate: 60%+");
-    println!("- IPC target: 0.9+ (vs ~0.8 sans AGU)");
+    // println!("\n=== CARACTÉRISTIQUES DU TEST ===");
+    // println!("- ~200+ opérations mémoire Load/Store");
+    // println!("- 4 bases d'adresses différentes");
+    // println!("- Motifs stride: 8, 4, 16 bytes");
+    // println!("- Réutilisation intensive base cache");
+    // println!("- Interaction AGU + Store-Load forwarding");
+    // println!("- Accès aléatoires pour robustesse");
+    // println!("- Phases de saturation pour throughput max");
+    //
+    // println!("\n=== OBJECTIFS DE PERFORMANCE ===");
+    // println!("- Utilisation AGU: 80%+ des cycles");
+    // println!("- Stride accuracy: 70%+ pour motifs réguliers");
+    // println!("- Base cache hit rate: 60%+");
+    // println!("- IPC target: 0.9+ (vs ~0.8 sans AGU)");
 
     program
 }
@@ -2804,3 +2856,454 @@ fn memory_intensive_stress_test() -> BytecodeFile {
 // TODO: Réimplémenter quand l'API des instructions sera clarifiée
 
 
+/// Test parallèle AGU/ALU optimisé pour exécution superscalaire
+fn create_superscalar_halt_test() -> BytecodeFile {
+    let mut program = BytecodeFile::new();
+    program.version = BytecodeVersion::new(0, 1, 0, 0);
+    program.add_metadata("name", "Superscalar Halt Test");
+    program.add_metadata("description", "Superscalar test with halt instruction");
+    program.add_metadata("author", "PunkVM Team");
+
+    println!("=== CRÉATION DU TEST PARALLÈLE HALT TEST  ===");
+
+    // Phase 1: Initialisation pour maximiser le parallélisme
+
+    // Initialiser plusieurs registres de base pour l'AGU
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x10)); // R10 = Base array
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x40)); // R11 = Base matrix
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x80)); // R12 = Base buffer
+
+    // Initialiser registres pour calculs ALU
+    // program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 10));   // R0 = 10
+    // program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 20));   // R1 = 20
+    // program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 30));   // R2 = 30
+    // program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 1));    // R3 = 1 (increment)
+
+    // Marqueur de fin
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 0xFF));
+    program.add_instruction(Instruction::create_no_args(Opcode::Halt));
+
+    // Configuration des segments
+    let total_code_size: u32 = program.code.iter()
+        .map(|instr| instr.total_size() as u32)
+        .sum();
+    program.segments = vec![SegmentMetadata::new(SegmentType::Code, 0, total_code_size, 0)];
+
+    // println!("\n=== RÉSULTATS ATTENDUS ===");
+    // println!("- Exécution parallèle AGU/ALU détectée");
+    // println!("- Messages 'PARALLEL EXECUTION: 2 instructions exécutées en parallèle!'");
+    // println!("- Dual-issue ratio > 40%");
+    // println!("- Stride prediction hits > 70%");
+    // println!("- Base cache hits > 50%");
+    // println!("- IPC > 1.2 (objectif 1.5)");
+    // println!("- Parallel executions > 50% des instructions totales");
+
+    program
+}
+
+
+
+pub fn punk_program_7() -> BytecodeFile {
+    let mut program = BytecodeFile::new();
+    program.version = BytecodeVersion::new(0, 1, 0, 0);
+    program.add_metadata("name", "PunkVM Comprehensive Branch Test");
+    program.add_metadata("description", "Test complet de tous les types de branchements conditionnels et inconditionnels");
+    program.add_metadata("author", "PunkVM Team");
+    program.add_metadata("test_categories", "JMP, JmpIfEqual, JmpIfNotEqual, JmpIfGreater, JmpIfLess, JmpIfGreaterEqual, JmpIfLessEqual, JmpIfZero, JmpIfNotZero, Call, Ret");
+
+    // ============================================================================
+    // SECTION 1: INITIALISATION DES REGISTRES
+    // ============================================================================
+    println!("=== SECTION 1: INITIALISATION ===");
+
+    // Registres pour les comparaisons
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 10)); // R0 = 10
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 1, 20)); // R1 = 20
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 2, 10)); // R2 = 10 (égal à R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 3, 5));  // R3 = 5 (plus petit que R0)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0));  // R4 = 0 (pour tests de zéro)
+
+    // Registres pour stocker les résultats des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0));  // R8 = compteur de tests réussis
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0));  // R9 = compteur de tests échoués
+
+    // ============================================================================
+    // SECTION 2: TEST JMP (SAUT INCONDITIONNEL)
+    // ============================================================================
+    println!("=== SECTION 2: TEST JMP INCONDITIONNEL ===");
+
+    let mut current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmp_target = current_address + jmp_instruction_size + 6; // Sauter par-dessus l'instruction MOV suivante
+    program.add_instruction(Instruction::create_jump(current_address, jmp_target));
+
+    // Cette instruction ne doit PAS être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+
+    // Cette instruction doit être exécutée
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x01)); // R10 = 1 (succès JMP)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 3: TEST JmpIfEqual (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 3: TEST JmpIfEqual ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmp_instruction_size = 8;
+    let jmpifequal_target_1 = current_address + jmp_instruction_size + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x02)); // R11 = 2 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R1 (10 == 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_equal(current_address, jmpifequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x03)); // R12 = 3 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x04)); // R13 = 4
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 4: TEST JmpIfNotEqual (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 4: TEST JmpIfNotEqual ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x05)); // R14 = 5 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R2 (10 != 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_equal(current_address, jmpifnotequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x06)); // R15 = 6 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x07)); // R5 = 7
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 5: TEST JmpIfGreater (ZF = 0 ET SF = 0)
+    // ============================================================================
+    println!("=== SECTION 5: TEST JmpIfGreater ===");
+
+    // Test 1: R1 > R0 (20 > 10) → ZF = 0, SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x08)); // R6 = 8 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R3 > R0 (5 > 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreater_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater(current_address, jmpifgreater_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x09)); // R7 = 9 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x0A)); // R8 = 10
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 6: TEST JmpIfLess (SF = 1)
+    // ============================================================================
+    println!("=== SECTION 6: TEST JmpIfLess ===");
+
+    // Test 1: R3 < R0 (5 < 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x0B)); // R9 = 11 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R1 < R0 (20 < 10) → SF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifless_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less(current_address, jmpifless_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x0C)); // R10 = 12 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x0D)); // R11 = 13
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 7: TEST JmpIfGreaterEqual (SF = 0 ou ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 7: TEST JmpIfGreaterEqual ===");
+
+    // Test 1: R1 >= R0 (20 >= 10) → SF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x0E)); // R12 = 14 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 >= R2 (10 >= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x0F)); // R13 = 15 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R3 >= R0 (5 >= 10) → SF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifgreaterequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_greater_equal(current_address, jmpifgreaterequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x10)); // R14 = 16 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 0x11)); // R15 = 17
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 8: TEST JmpIfLessEqual (SF = 1 OU ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 8: TEST JmpIfLessEqual ===");
+
+    // Test 1: R3 <= R0 (5 <= 10) → SF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 3, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0x12)); // R5 = 18 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 <= R2 (10 <= 10) → ZF = 1 → branchement PRIS aussi
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 6, 0x13)); // R6 = 19 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 3: R1 <= R0 (20 <= 10) → SF = 0, ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 1, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpiflessequal_target_3 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_less_equal(current_address, jmpiflessequal_target_3));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 7, 0x14)); // R7 = 20 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 8, 0x15)); // R8 = 21
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 9: TEST JmpIfZero (ZF = 1)
+    // ============================================================================
+    println!("=== SECTION 9: TEST JmpIfZero ===");
+
+    // Test 1: R0 == R2 (10 == 10) → ZF = 1 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0x16)); // R9 = 22 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 != R1 (10 != 20) → ZF = 0 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_zero(current_address, jmpifzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 10, 0x17)); // R10 = 23 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 11, 0x18)); // R11 = 24
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 10: TEST JmpIfNotZero (ZF = 0)
+    // ============================================================================
+    println!("=== SECTION 10: TEST JmpIfNotZero ===");
+
+    // Test 1: R0 != R1 (10 != 20) → ZF = 0 → branchement PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 1));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_1 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_1));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 9, 0xFF)); // ÉCHEC si exécuté
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 12, 0x19)); // R12 = 25 (succès)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Test 2: R0 == R2 (10 == 10) → ZF = 1 → branchement NON PRIS
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 0, 2));
+    current_address = Instruction::calculate_current_address(&program.code);
+    let jmpifnotzero_target_2 = current_address + 8 + 6;
+    program.add_instruction(Instruction::create_jump_if_not_zero(current_address, jmpifnotzero_target_2));
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 13, 0x1A)); // R13 = 26 (succès, doit être exécuté)
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 14, 0x1B)); // R14 = 27
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 11: TEST DE BOUCLE (Pattern pour le prédicteur)
+    // ============================================================================
+    println!("=== SECTION 11: TEST DE BOUCLE ===");
+
+    // Initialisation du compteur de boucle
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 15, 3)); // R15 = 3 (compteur)
+
+    // Début de la boucle - cette étiquette sera utilisée pour le branchement arrière
+    let loop_start_instruction_index = program.code.len();
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Corps de la boucle
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1 (R4 = 0, donc R15 - 0, mais on veut R15-1)
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Pour décrémenter correctement, on doit d'abord mettre 1 dans un registre
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 1)); // R4 = 1
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Sub, 15, 4)); // R15 = R15 - 1
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Comparer avec 0
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 4, 0)); // R4 = 0 pour comparaison
+    program.add_instruction(Instruction::create_reg_reg(Opcode::Cmp, 15, 4)); // Compare R15 avec 0
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Calculer l'offset pour retourner au début de la boucle
+    let current_instruction_index = program.code.len() + 1; // +1 car on ajoute l'instruction de branchement
+    let loop_body_size = current_instruction_index - loop_start_instruction_index;
+    let backward_offset = -(loop_body_size as i32 * 6 + 8); // chaque instruction fait ~6 bytes, +8 pour l'instruction de branchement
+    let  jmpifnotzero_loop =  current_address as i32 + backward_offset as i32 ;
+
+    // Branchement conditionnel vers le début de la boucle si R15 != 0
+    program.add_instruction(Instruction::create_jump_if_not_zero(0, 0));
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // ============================================================================
+    // SECTION 12: TEST CALL/RET (Si implémenté)
+    // ============================================================================
+    println!("=== SECTION 12: TEST CALL/RET ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+    let call_target = current_address + 8 + 6 ;
+    // Sauter par-dessus la fonction pour aller au call
+    program.add_instruction(Instruction::create_jump(current_address, call_target)); // Sauter la fonction
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // FONCTION: simple_function
+    // Fonction qui met 0xFF dans R5 et retourne
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 5, 0xFF)); // R5 = 255
+    program.add_instruction(Instruction::create_no_args(Opcode::Ret)); // Retour
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Appel de la fonction (si CALL est implémenté)
+    current_address = Instruction::calculate_current_address(&program.code);
+    let function_offset = -12i32;// Retourner à la fonction
+    program.add_instruction(Instruction::create_call(function_offset as u32));
+
+    // ============================================================================
+    // SECTION 13: FINALISATION ET VÉRIFICATION
+    // ============================================================================
+    println!("=== SECTION 13: FINALISATION ===");
+    current_address = Instruction::calculate_current_address(&program.code);
+
+    // Marquer la fin des tests
+    program.add_instruction(Instruction::create_reg_imm8(Opcode::Mov, 0, 0xFE)); // R0 = 254 (marqueur de fin)
+
+    // Fin du programme
+    program.add_instruction(Instruction::create_no_args(Opcode::Halt));
+
+    // ============================================================================
+    // CONFIGURATION DES SEGMENTS
+    // ============================================================================
+    let total_code_size: u32 = program
+        .code
+        .iter()
+        .map(|instr| instr.total_size() as u32)
+        .sum();
+    program.segments = vec![SegmentMetadata::new(SegmentType::Code, 0, total_code_size, 0)];
+
+    let data_size = 512; // Taille augmentée pour plus de données
+    let data_segment = SegmentMetadata::new(SegmentType::Data, 0, data_size, 0x1000);
+    program.segments.push(data_segment);
+    program.data = vec![0; data_size as usize];
+
+    // ============================================================================
+    // AFFICHAGE DE LA CARTE DES INSTRUCTIONS
+    // ============================================================================
+    println!("\n=== CARTE COMPLÈTE DES INSTRUCTIONS ===");
+    let mut addr = 0u32;
+    let mut section_counters = HashMap::new();
+
+    for (idx, instr) in program.code.iter().enumerate() {
+        let size = instr.total_size();
+
+        // Déterminer la section basée sur l'index d'instruction
+        let section = match idx {
+            0..=6 => "INIT",
+            7..=9 => "JMP",
+            10..=15 => "JmpIfEqual",
+            16..=21 => "JmpIfNotEqual",
+            22..=27 => "JmpIfGreater",
+            28..=33 => "JmpIfLess",
+            34..=42 => "JmpIfGreaterEqual",
+            43..=51 => "JmpIfLessEqual",
+            52..=57 => "JmpIfZero",
+            58..=63 => "JmpIfNotZero",
+            64..=70 => "LOOP",
+            71..=75 => "CALL/RET",
+            _ => "FINAL",
+        };
+
+        *section_counters.entry(section).or_insert(0) += 1;
+
+        println!(
+            "Instruction {:2}: [{}] Adresse 0x{:04X}-0x{:04X} (taille {:2}): {:?}",
+            idx,
+            section,
+            addr,
+            addr + size as u32 - 1,
+            size,
+            instr.opcode
+        );
+
+        // Affichage spécial pour les branchements
+        if instr.opcode.is_branch() {
+            if let Ok(ArgValue::RelativeAddr(offset)) = instr.get_arg2_value() {
+                let target = (addr + size as u32) as i64 + offset as i64;
+                println!(
+                    "      -> Branchement relatif: offset={:+}, target=0x{:04X}",
+                    offset, target
+                );
+            }
+        }
+
+        addr += size as u32;
+    }
+
+    println!("\n=== RÉSUMÉ DES SECTIONS ===");
+    for (section, count) in section_counters {
+        println!("{}: {} instructions", section, count);
+    }
+    println!(
+        "TOTAL: {} instructions, {} bytes",
+        program.code.len(),
+        addr
+    );
+
+    println!("\n=== TESTS ATTENDUS ===");
+    println!("Après exécution, les registres suivants devraient contenir:");
+    println!("R0  = 254 (0xFE) - Marqueur de fin");
+    println!("R10 = 1   (0x01) - Test JMP réussi");
+    println!("R11 = 2   (0x02) - Test JmpIfEqual réussi");
+    println!("R12 = 3   (0x03) - Test JmpIfEqual (non pris) réussi");
+    println!("R14 = 5   (0x05) - Test JmpIfNotEqual réussi");
+    println!("R15 = 6   (0x06) - Test JmpIfNotEqual (non pris) réussi");
+    println!("Et ainsi de suite...");
+    println!("Aucun registre ne devrait contenir 0xFF (échec)");
+
+    program
+}
